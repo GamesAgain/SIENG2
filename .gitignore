@@ -1,0 +1,17 @@
+# Environments
+.venv/
+env/
+.env
+
+# Python Cache
+__pycache__/
+*.pyc
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Build & Distribution
+build/
+dist/
+*.spec
