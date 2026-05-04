@@ -2,7 +2,7 @@ import os
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.argon2 import Argon2id
 
-# ========== Defalut Standard RFC 9106 (Low Memory Option) ==========
+# ========== Default Standard RFC 9106 (Low Memory Option) ==========
 DEFAULT_SALT_LENGTH = 16          # 128 bits
 DEFAULT_NONCE_LENGTH = 12         # 96 bits, ideal for AES-GCM
 DEFAULT_TAG_LENGTH = 16           # 128 bits authentication tag
@@ -30,7 +30,7 @@ class SymmetricEncryption:
         self.salt_length = config.get('salt_length', DEFAULT_SALT_LENGTH)
         self.nonce_length = config.get('nonce_length', DEFAULT_NONCE_LENGTH)
         self.tag_length = config.get('tag_length', DEFAULT_TAG_LENGTH)  
-        self.kdf_length = config.get('kdkdf_lengthf_len', DEFAULT_KEY_LENGTH)
+        self.kdf_length = config.get('kdf_length', DEFAULT_KEY_LENGTH)
         
         # Argon2id
         self.memory_cost = config.get('memory_cost', DEFAULT_MEMORY_COST)
@@ -72,16 +72,16 @@ class SymmetricEncryption:
         if len(encrypted_data) < min_length:
             raise ValueError("Ciphertext is too short or corrupted")
             
-        # 1.Split data into components [Salt, Nonce, Ciphertext, Tag]
+        # 1. Split data into components [Salt, Nonce, Ciphertext, Tag]
         salt = encrypted_data[:self.salt_length]
         nonce = encrypted_data[self.salt_length:self.salt_length + self.nonce_length]
         ciphertext = encrypted_data[self.salt_length + self.nonce_length:]
         
-        # 2.Create Key back to Salt 
+        # 2. Create Key back to Salt 
         key = self.derive_key(password, salt)
         aesgcm = AESGCM(key)
         
-        # 3.Decrypt (หากรหัสผ่านผิด หรือข้อมูลโดนดัดแปลงระหว่างซ่อนในภาพ ระบบจะโยน Exception ทันที)
+        # 3. Decrypt (หากรหัสผ่านผิด หรือข้อมูลโดนดัดแปลงระหว่างซ่อนในภาพ ระบบจะโยน Exception ทันที)
         try:
             decrypted_data = aesgcm.decrypt(nonce, ciphertext, associated_data=None)
             return decrypted_data
