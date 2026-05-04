@@ -1,23 +1,29 @@
+import sys
+from pathlib import Path
 from PIL import Image
 import cv2
 import numpy as np
 from skimage.filters.rank import entropy
 from skimage.morphology import footprint_rectangle
 import hashlib
-from pathlib import Path
 
-DEFAULT_CONFIG = {
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+
+from src.core.crypto.sym_encrypt import SymmetricEncryption
+
+
+DEFAULT_LSBPP_CONFIG = {
     'default_seed': 'Default',
     'gradient_analysis':
         {
             'enabled': True,
-            'sobel_kernel': 3,
+            'sobel_kernel': 3, # must be odd number >= 3
             'weight': 0.5
         },
     'local_entropy':
         {
             'enabled': True,
-            'entropy_window': 5,
+            'entropy_window': 5, # must be odd number >= 3
             'weight': 0.5
         },
     'capacity_threshold': {
@@ -27,13 +33,18 @@ DEFAULT_CONFIG = {
     }
 }
 
+# Encrypt Mode constants SIENG2 [SE = Steganography Encryption]
+MAGIC_SYM = b"SES" # Steganography Encryption Symmetric
+MAGIC_ASYM = b"SEA" # Steganography Encryption Asymmetric
+MAGIC_NONE = b"SEN" # Steganography Encryption None
+
 class LSBPP:
     def __init__(self, config: dict = None):
         """
         Initialize LSB++ steganography with configuration
         """
         
-        self.set_config(config or DEFAULT_CONFIG)
+        self.set_config(config or DEFAULT_LSBPP_CONFIG)
         
     def set_config(self, config: dict):
         """
@@ -43,33 +54,35 @@ class LSBPP:
         self.config = config
         
         # --- Gradient Analysis Config ---
-        self.gradient_analysis = self.config.get('gradient_analysis', DEFAULT_CONFIG['gradient_analysis'])
+        self.gradient_analysis = self.config.get('gradient_analysis', DEFAULT_LSBPP_CONFIG['gradient_analysis'])
         self.gradient_enabled = self.gradient_analysis.get('enabled')
         self.sobel_kernel_size = self.gradient_analysis.get('sobel_kernel')
         self.gradient_weight = self.gradient_analysis.get('weight')
         
         # --- Local Entropy Config ---
-        self.local_entropy = self.config.get('local_entropy', DEFAULT_CONFIG['local_entropy'])
+        self.local_entropy = self.config.get('local_entropy', DEFAULT_LSBPP_CONFIG['local_entropy'])
         self.entropy_enabled = self.local_entropy.get('enabled')
         self.entropy_window_size = self.local_entropy.get('entropy_window')
         self.entropy_weight = self.local_entropy.get('weight')
         
         # set capacity threshold
-        self.capacity_threshold = self.config.get('capacity_threshold', DEFAULT_CONFIG['capacity_threshold']) 
+        self.capacity_threshold = self.config.get('capacity_threshold', DEFAULT_LSBPP_CONFIG['capacity_threshold']) 
        
        # set seed
-        self.defalut_seed = self.config.get('default_seed', DEFAULT_CONFIG['default_seed'])
+        self.default_seed = self.config.get('default_seed', DEFAULT_LSBPP_CONFIG['default_seed'])
         
 
     # ==================== Main Public Methods ====================
 
-    def embed(self, cover_image_path: str, message: str, seed: str = None):
+    def embed(self, cover_image_path: str, message: str, password: str = None):
         """
         Embed message into cover image using LSB++ algorithm
         """
-        # 0. Set seed
-        if seed is None:
-            seed = self.defalut_seed
+        # 0. Set seed with password or default seed
+        if password is None:
+            seed = self.default_seed
+        else:
+            seed = password
         
         # 1. Prepare cover image
         cover_image = self.prepare_image(cover_image_path)
@@ -85,19 +98,21 @@ class LSBPP:
         pixel_order = self.get_pixel_order(capacity_map, seed) 
         
         # 5. Embed message
-        stego_image = self.message_embedding(cover_image, message, pixel_order, capacity_map)
+        stego_image = self.message_embedding(cover_image, message, pixel_order, capacity_map, password)
         
         stego_path = Path(__file__).parent / f"{cover_image_name}_stego.png"
         stego_image.save(stego_path)
 
 
-    def extract(self, stego_image_path: str, seed: str = None):
+    def extract(self, stego_image_path: str, password: str = None):
         """
         Extract message from stego image using LSB++ algorithm
         """
-        # 0. Set seed
-        if seed is None:
-            seed = self.defalut_seed
+        # 0. Set seed with password or default seed
+        if password is None:
+            seed = self.default_seed
+        else:
+            seed = password
             
         # 1. Prepare stego image
         stego_image = self.prepare_image(stego_image_path)
@@ -112,7 +127,7 @@ class LSBPP:
         pixel_order = self.get_pixel_order(capacity_map, seed) 
         
         # 5. Extract message
-        message = self.message_extraction(stego_image, pixel_order, capacity_map)
+        message = self.message_extraction(stego_image, pixel_order, capacity_map, password)
         
         return message
     
@@ -190,7 +205,7 @@ class LSBPP:
     
     def convert_to_grayscale(self, cover_image: Image.Image) -> np.ndarray:
         """
-        Convert cover image to grayscale
+        Convert cover image to grayscale [BT.601].
         """
         # 1. Clean LSB from all pixels
         img_array = np.array(cover_image).copy()
@@ -205,7 +220,7 @@ class LSBPP:
 
     def calculate_gradient(self, gray_array: np.ndarray) -> np.ndarray:
         """
-        Calculate gradient map for cover image
+        Calculate gradient map for cover image by Sobel operator
         """
         
         # Calculate Gradient
@@ -291,13 +306,12 @@ class LSBPP:
         
         return flat_idx # Return the shuffled indices
     
-    def message_embedding(self, cover_image: Image.Image, message: str, pixel_order: np.ndarray, capacity_map: np.ndarray) -> Image.Image:
+    def message_embedding(self, cover_image: Image.Image, message: str, pixel_order: np.ndarray, capacity_map: np.ndarray, password: str = None) -> Image.Image:
         """
         Embed message into image
         """
         # 1. Create data bytes (header + payload)
-        header = self.create_header(message)
-        payload = message.encode('utf-8')
+        header, payload = self.create_header(message, password)
         final_bytes = header + payload
         
         # 2. Embed data into image
@@ -305,17 +319,13 @@ class LSBPP:
         
         return stego_image
     
-    def message_extraction(self, stego_image: Image.Image, pixel_order: np.ndarray, capacity_map: np.ndarray) -> str:
+    def message_extraction(self, stego_image: Image.Image, pixel_order: np.ndarray, capacity_map: np.ndarray, password: str = None) -> str:
         """
         Extract message from stego image
         """
         # 1. Extract bytes from stego image
         extracted_bytes = self.lsb_extract(stego_image, pixel_order, capacity_map)
-        message_length, header_length = self.parse_header(extracted_bytes)
-        
-        # 2. Get data bytes
-        total_length = header_length + message_length
-        data_bytes = extracted_bytes[header_length:total_length] 
+        data_bytes = self.parse_header(extracted_bytes, password)
         
         # 3. Decode message
         try:
@@ -429,42 +439,75 @@ class LSBPP:
         """
         Convert string seed to integer
         """
-        h = hashlib.sha256(seed.encode("utf-8")).digest()
+        h = hashlib.sha256(seed.encode("utf-8")).digest() # 32 bytes
         return int.from_bytes(h[:8], "big")  # 64-bit
     
-    def create_header(self, message: str) -> bytes:
+    def create_header(self, data: str, password: str = None) -> tuple[bytes, bytes]:
         """
         Create header [MAGIC(3bytes) + LENGTH(4bytes)] = 7 bytes
         """
-        magic = b"STG"
-        message_bytes = message.encode("utf-8")
-        length = len(message_bytes)
+        # 1. Process message based on encryption mode
+        if password is not None:
+            magic = MAGIC_SYM  # SES: Symmetric encryption
+            encryptor = SymmetricEncryption()
+            data_bytes = encryptor.encrypt(data, password)
+        else:
+            magic = MAGIC_NONE  # SEN: No encryption
+            data_bytes = data.encode("utf-8")
+            
+        # 2. Create header with message length
+        message_length = len(data_bytes)
+        length_bytes = message_length.to_bytes(4, byteorder='big')
+        header = magic + length_bytes
         
-        # Convert to 4 bytes fixed (support message up to ~4GB)
-        length_bytes = length.to_bytes(4, byteorder='big')
-        return magic + length_bytes
+        return header, data_bytes
     
-    def parse_header(self, data: bytes) -> tuple[int, int]:
+    def parse_header(self, data: bytes, password: str = None) -> bytes:
         """
         Parse header from bytes
         """
-        magic = data[:3]
-        if magic != b"STG":
-            raise ValueError("Invalid header")
+        # 1. Extract header components
+        magic = data[:3]  # 3 bytes: SES, SEA, or SEN
+        message_length = int.from_bytes(data[3:7], byteorder='big')  # 4 bytes length
+        header_length = len(magic) + 4  # Total header size
         
-        # Extract length (4 bytes)
-        message_length = int.from_bytes(data[3:7], byteorder='big')
+        # 2. Extract encrypted message data
+        total_length = header_length + message_length
+        extracted_data = data[header_length:total_length]
         
-        header_length = len(magic) + 4 # 4 bytes for message length
-        return message_length, header_length
+        # 3.Handle different encryption modes
+        if magic == MAGIC_SYM:  # SES: Symmetric encryption
+            if not password:
+                raise ValueError("Password required for symmetric encryption")
+            
+            decryptor = SymmetricEncryption()
+            return decryptor.decrypt(extracted_data, password)
+            
+        elif magic == MAGIC_NONE:  # SEN: No encryption
+            return extracted_data
+            
+        else:
+            raise ValueError("Extraction failed: Invalid SIENG2 signature. Please verify your image and password.")
+            
     
+ # --- ตัวอย่างการเรียกใช้งาน ---   
 if __name__ == "__main__":
-    idx_img = 1
+    idx_img = "T"
     lsb_pp = LSBPP()
     
-    lsb_pp.embed(f"img/{idx_img}.png", "Hello")
+    # -- Embed --
+    lsb_pp.embed(
+        cover_image_path=f"img/{idx_img}.png", 
+        message="Hello",
+        password="SuperSecretPassword123"
+    )
     
+    # -- Extract --
     stego_path = Path(__file__).parent / f"{idx_img}_stego.png"
-    message = lsb_pp.extract(stego_path)
+    message = lsb_pp.extract(
+        stego_image_path=stego_path, 
+        password="SuperSecretPassword123"
+    )
+    
     print(f"Message length: {len(message)}")
     print(f"Message : {message}")
