@@ -2,7 +2,7 @@ import os
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.argon2 import Argon2id
 
-# ========== Default Standard RFC 9106 (Low Memory Option) ==========
+# AES-GCM parameters
 DEFAULT_SALT_LENGTH = 16          # 128 bits
 DEFAULT_NONCE_LENGTH = 12         # 96 bits, ideal for AES-GCM
 DEFAULT_TAG_LENGTH = 16           # 128 bits authentication tag
