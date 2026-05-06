@@ -6,11 +6,14 @@ import numpy as np
 from skimage.filters.rank import entropy
 from skimage.morphology import footprint_rectangle
 import hashlib
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from src.core.crypto.sym_encrypt import SymmetricEncryption
-
+from src.core.crypto.asym_encrypt import AsymmetricEncryption
+from src.core.crypto.asym_encrypt import load_public_key, load_private_key, get_public_bytes
 
 DEFAULT_LSBPP_CONFIG = {
     'default_seed': 'Default',
@@ -74,15 +77,10 @@ class LSBPP:
 
     # ==================== Main Public Methods ====================
 
-    def embed(self, cover_image_path: str, message: str, password: str = None):
+    def embed(self, cover_image_path: str, message: str, public_key_path: str = None, password: str = None):
         """
         Embed message into cover image using LSB++ algorithm
         """
-        # 0. Set seed with password or default seed
-        if password is None:
-            seed = self.default_seed
-        else:
-            seed = password
         
         # 1. Prepare cover image
         cover_image = self.prepare_image(cover_image_path)
@@ -93,26 +91,26 @@ class LSBPP:
 
         # 3. Capacity calculation
         capacity_map = self.calcualte_capacity(texture_surface)
-
-        # 4. Get pixel order
+        
+        # 4. Get seed
+        seed = self.get_seed(password, public_key_path)
+            
+        # 5. Get pixel order
         pixel_order = self.get_pixel_order(capacity_map, seed) 
         
-        # 5. Embed message
-        stego_image = self.message_embedding(cover_image, message, pixel_order, capacity_map, password)
+        # 6. Create data bytes (header + payload)
+        data_bytes = self.pack_data(message, public_key_path, password)
+        
+        # 7. Embed message
+        stego_image = self.message_embedding(cover_image, data_bytes, pixel_order, capacity_map)
         
         stego_path = Path(__file__).parent / f"{cover_image_name}_stego.png"
         stego_image.save(stego_path)
-
-
-    def extract(self, stego_image_path: str, password: str = None):
+    
+    def extract(self, stego_image_path: str, private_key_path: str = None, password: str = None):
         """
         Extract message from stego image using LSB++ algorithm
         """
-        # 0. Set seed with password or default seed
-        if password is None:
-            seed = self.default_seed
-        else:
-            seed = password
             
         # 1. Prepare stego image
         stego_image = self.prepare_image(stego_image_path)
@@ -122,12 +120,15 @@ class LSBPP:
 
         # 3. Capacity calculation
         capacity_map = self.calcualte_capacity(texture_surface)
-
-        # 4. Get pixel order
+        
+        # 4. Get seed
+        seed = self.get_seed(password, private_key_path)
+        
+        # 5. Get pixel order
         pixel_order = self.get_pixel_order(capacity_map, seed) 
         
-        # 5. Extract message
-        message = self.message_extraction(stego_image, pixel_order, capacity_map, password)
+        # 6. Extract message
+        message = self.message_extraction(stego_image, pixel_order, capacity_map, private_key_path, password)
         
         return message
     
@@ -292,42 +293,36 @@ class LSBPP:
         
         return capacity_map.ravel() # Return flattened array
     
-    def get_pixel_order(self, capacity_map: np.ndarray, seed: str) -> np.ndarray:
+    def get_pixel_order(self, capacity_map: np.ndarray, seed: int) -> np.ndarray:
         """
         Get pixel order for embedding
         """
-        # Convert string seed to integer
-        seed_int = self.seed_from_str(seed)
-        
         # Get shuffle index of pixels with capacity > 0
-        rng = np.random.default_rng(seed_int)
+        rng = np.random.default_rng(seed)
         flat_idx = np.where(capacity_map > 0)[0] 
         rng.shuffle(flat_idx)
         
         return flat_idx # Return the shuffled indices
     
-    def message_embedding(self, cover_image: Image.Image, message: str, pixel_order: np.ndarray, capacity_map: np.ndarray, password: str = None) -> Image.Image:
+    def message_embedding(self, cover_image: Image.Image, data_bytes: bytes, pixel_order: np.ndarray, capacity_map: np.ndarray) -> Image.Image:
         """
         Embed message into image
         """
-        # 1. Create data bytes (header + payload)
-        header, payload = self.create_header(message, password)
-        final_bytes = header + payload
-        
-        # 2. Embed data into image
-        stego_image = self.lsb_replace(cover_image, final_bytes, pixel_order, capacity_map)
+        # Embed data into image
+        stego_image = self.lsb_replace(cover_image, data_bytes, pixel_order, capacity_map)
         
         return stego_image
     
-    def message_extraction(self, stego_image: Image.Image, pixel_order: np.ndarray, capacity_map: np.ndarray, password: str = None) -> str:
+    def message_extraction(self, stego_image: Image.Image, pixel_order: np.ndarray, capacity_map: np.ndarray, private_key_path: str = None, password: str = None) -> str:
         """
         Extract message from stego image
         """
-        # 1. Extract bytes from stego image
-        extracted_bytes = self.lsb_extract(stego_image, pixel_order, capacity_map)
-        data_bytes = self.parse_header(extracted_bytes, password)
         
-        # 3. Decode message
+        # Extract bytes from stego image
+        extracted_bytes = self.lsb_extract(stego_image, pixel_order, capacity_map)
+        data_bytes = self.unpack_data(extracted_bytes, private_key_path, password)
+        
+        # Decode message
         try:
             message_extracted = data_bytes.decode('utf-8')
         except UnicodeDecodeError:
@@ -423,6 +418,47 @@ class LSBPP:
         return bytes(extracted_bytes)
     
     # ==================== Utility Methods ====================
+    
+    def get_seed(self, password: str = None, key_path: str = None) -> int:
+        """
+        Generate seed from password or public key
+        """
+        
+        if password is not None and key_path is None:
+            seed = password.encode()
+            
+        elif key_path is not None: 
+            # Check if encrypt private key with password
+            key_password = password if password else None
+                
+            with open(key_path, "rb") as f:
+                key_data = f.read()
+                
+            if b"PRIVATE KEY" in key_data:                
+                private_key = load_private_key(key_path, key_password)
+                public_key = private_key.public_key()
+                
+            elif b"PUBLIC KEY" in key_data:
+                public_key = load_public_key(key_path)
+                
+            else:
+                raise ValueError("Invalid key file format")
+            
+            seed = get_public_bytes(public_key)
+            
+        else:
+            seed = self.default_seed.encode()
+            
+        hkdf = HKDF(
+            algorithm=hashes.SHA256(),
+            length=16,   # 128-bit seed
+            salt=None,
+            info=b"SIENG2_LSB_SHUFFLE",
+        )
+
+        seed_bytes = hkdf.derive(seed)
+        
+        return int.from_bytes(seed_bytes, "big")
 
     def normalize(self, array: np.ndarray) -> np.ndarray:
         """
@@ -435,22 +471,21 @@ class LSBPP:
             return array
         return array / max_val
     
-    def seed_from_str(self, seed: str) -> int:
+    def pack_data(self, data: str, public_key_path: str = None, password: str = None) -> bytes:
         """
-        Convert string seed to integer
-        """
-        h = hashlib.sha256(seed.encode("utf-8")).digest() # 32 bytes
-        return int.from_bytes(h[:8], "big")  # 64-bit
-    
-    def create_header(self, data: str, password: str = None) -> tuple[bytes, bytes]:
-        """
-        Create header [MAGIC(3bytes) + LENGTH(4bytes)] = 7 bytes
+        Build complete payload: [MAGIC (3 bytes) + LENGTH (4 bytes) + ENCRYPTED_DATA]
+        Returns: (header_bytes, encrypted_data_bytes)
         """
         # 1. Process message based on encryption mode
         if password is not None:
             magic = MAGIC_SYM  # SES: Symmetric encryption
             encryptor = SymmetricEncryption()
             data_bytes = encryptor.encrypt(data, password)
+        elif public_key_path is not None:
+            magic = MAGIC_ASYM  # SEA: Asymmetric encryption
+            encryptor = AsymmetricEncryption()
+            public_key = load_public_key(public_key_path)
+            data_bytes = encryptor.encrypt(data, public_key)
         else:
             magic = MAGIC_NONE  # SEN: No encryption
             data_bytes = data.encode("utf-8")
@@ -460,11 +495,14 @@ class LSBPP:
         length_bytes = message_length.to_bytes(4, byteorder='big')
         header = magic + length_bytes
         
-        return header, data_bytes
+        data_package = header + data_bytes
+        
+        return data_package
     
-    def parse_header(self, data: bytes, password: str = None) -> bytes:
+    def unpack_data(self, data: bytes, private_key_path: str = None, password: str = None) -> bytes:
         """
-        Parse header from bytes
+        Parse header and decrypt the payload.
+        Returns: Decrypted plaintext bytes.
         """
         # 1. Extract header components
         magic = data[:3]  # 3 bytes: SES, SEA, or SEN
@@ -475,14 +513,25 @@ class LSBPP:
         total_length = header_length + message_length
         extracted_data = data[header_length:total_length]
         
-        # 3.Handle different encryption modes
+        # 3.Handle different encryption modes 
         if magic == MAGIC_SYM:  # SES: Symmetric encryption
-            if not password:
+            if password is None:
                 raise ValueError("Password required for symmetric encryption")
-            
+
             decryptor = SymmetricEncryption()
-            return decryptor.decrypt(extracted_data, password)
+            data_bytes = decryptor.decrypt(extracted_data, password)
+            return data_bytes
+        elif magic == MAGIC_ASYM:
+            if not private_key_path:
+                raise ValueError("Private key required for asymmetric decryption")
             
+            # Check if encrypt private key with password
+            password = password if password is not None else None
+                
+            decryptor = AsymmetricEncryption()
+            private_key = load_private_key(private_key_path, password)
+            data = decryptor.decrypt(extracted_data, private_key) 
+            return data  
         elif magic == MAGIC_NONE:  # SEN: No encryption
             return extracted_data
             
@@ -492,22 +541,62 @@ class LSBPP:
     
  # --- ตัวอย่างการเรียกใช้งาน ---   
 if __name__ == "__main__":
-    idx_img = "T"
+    
     lsb_pp = LSBPP()
     
-    # -- Embed --
+    idx_img = 1 # รูปที่ 1
+    
+    # -- Embed Symmetric --
     lsb_pp.embed(
         cover_image_path=f"img/{idx_img}.png", 
-        message="Hello",
+        message="Hello Password",
         password="SuperSecretPassword123"
     )
     
-    # -- Extract --
+    # -- Extract Symmetric --
     stego_path = Path(__file__).parent / f"{idx_img}_stego.png"
     message = lsb_pp.extract(
         stego_image_path=stego_path, 
         password="SuperSecretPassword123"
     )
     
-    print(f"Message length: {len(message)}")
-    print(f"Message : {message}")
+    print(f"Case 1 - Symmetric Message length: {len(message)}")
+    print(f"Case 1 - Symmetric Message : {message}")
+    
+    idx_img = 2 # รูปที่ 2
+    
+    # -- Embed Asymmetric --
+    lsb_pp.embed(
+        cover_image_path=f"img/{idx_img}.png", 
+        message="Hello Public Key",
+        public_key_path="public_key_e.pem"
+    )
+    
+    # -- Extract Asymmetric --
+    stego_path = Path(__file__).parent / f"{idx_img}_stego.png"
+    message = lsb_pp.extract(
+        stego_image_path=stego_path, 
+        private_key_path="private_key_e.pem",
+        password="Password123"
+    )
+    
+    print(f"Case 2 - Asymmetric Message length: {len(message)}")
+    print(f"Case 2 - Asymmetric Message : {message}")
+    
+    idx_img = 3 # รูปที่ 3
+    
+    # -- Embed No Encryption --
+    lsb_pp.embed(
+        cover_image_path=f"img/{idx_img}.png", 
+        message="Hello",
+    )
+    
+    # -- Extract No Encryption --
+    stego_path = Path(__file__).parent / f"{idx_img}_stego.png"
+    message = lsb_pp.extract(
+        stego_image_path=stego_path
+    )
+    
+    print(f"Case 3 - Message length: {len(message)}")
+    print(f"Case 3 - Message : {message}")
+
