@@ -5,7 +5,6 @@ import cv2
 import numpy as np
 from skimage.filters.rank import entropy
 from skimage.morphology import footprint_rectangle
-import hashlib
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
@@ -79,7 +78,7 @@ class LSBPP:
 
     def embed(self, cover_image_path: str, message: str, public_key_path: str = None, password: str = None):
         """
-        Embed message into cover image using LSB++ algorithm
+        Embed payload message into cover image using LSB++ algorithm
         """
         
         # 1. Prepare cover image
@@ -99,17 +98,18 @@ class LSBPP:
         pixel_order = self.get_pixel_order(capacity_map, seed) 
         
         # 6. Create data bytes (header + payload)
-        data_bytes = self.pack_data(message, public_key_path, password)
+        data = message.encode('utf-8')
+        data_package = self.pack_data(data, public_key_path, password)
         
         # 7. Embed message
-        stego_image = self.message_embedding(cover_image, data_bytes, pixel_order, capacity_map)
+        stego_image = self.message_embedding(cover_image, data_package, pixel_order, capacity_map)
         
         stego_path = Path(__file__).parent / f"{cover_image_name}_stego.png"
         stego_image.save(stego_path)
     
     def extract(self, stego_image_path: str, private_key_path: str = None, password: str = None):
         """
-        Extract message from stego image using LSB++ algorithm
+        Extract payload message from stego image using LSB++ algorithm
         """
             
         # 1. Prepare stego image
@@ -471,7 +471,7 @@ class LSBPP:
             return array
         return array / max_val
     
-    def pack_data(self, data: str, public_key_path: str = None, password: str = None) -> bytes:
+    def pack_data(self, data: bytes, public_key_path: str = None, password: str = None) -> bytes:
         """
         Build complete payload: [MAGIC (3 bytes) + LENGTH (4 bytes) + ENCRYPTED_DATA]
         Returns: (header_bytes, encrypted_data_bytes)
@@ -488,7 +488,7 @@ class LSBPP:
             data_bytes = encryptor.encrypt(data, public_key)
         else:
             magic = MAGIC_NONE  # SEN: No encryption
-            data_bytes = data.encode("utf-8")
+            data_bytes = data
             
         # 2. Create header with message length
         message_length = len(data_bytes)
