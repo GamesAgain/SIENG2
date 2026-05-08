@@ -37,16 +37,13 @@ class SymmetricEncryption:
         self.iterations = config.get('iterations', DEFAULT_ITERATION_COST)
         self.parallelism = config.get('parallelism', DEFAULT_PARALLELISM)
 
-    def encrypt(self, plaintext: str, password: str) -> bytes:
+    def encrypt(self, data: bytes, password: str) -> bytes:
         """
         Encrypt Data With AES-256-GCM: [Salt + Nonce + Ciphertext + Tag]
         """
         # 1. Prepare input [Validate & Convert]
-        if not plaintext:
-            raise ValueError("Plaintext cannot be empty")
-        
-        # Convert string to bytes
-        plaintext_bytes = plaintext.encode('utf-8')
+        if not data:
+            raise ValueError("Data cannot be empty")
         
         # 2. Random Salt 16 bytes & Nonce 12 bytes
         salt = os.urandom(self.salt_length)
@@ -57,7 +54,7 @@ class SymmetricEncryption:
         aesgcm = AESGCM(key)
         
         # 4. Encrypt (ระบบจะแนบ Tag 16 bytes ต่อท้าย Ciphertext ให้เอง)
-        ciphertext = aesgcm.encrypt(nonce, plaintext_bytes, associated_data=None)
+        ciphertext = aesgcm.encrypt(nonce, data, associated_data=None)
         
         # 5. Pack all components together
         encrypted_data = salt + nonce + ciphertext
@@ -112,7 +109,7 @@ class SymmetricEncryption:
 # --- ตัวอย่างการเรียกใช้งาน ---
 if __name__ == "__main__":
     user_password = "Password2026"
-    payload = "Hello"
+    payload = b"Hello"
     
     cipher = SymmetricEncryption()
     

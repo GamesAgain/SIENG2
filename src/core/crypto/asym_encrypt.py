@@ -23,7 +23,7 @@ class AsymmetricEncryption:
         """
         pass
 
-    def encrypt(self, plaintext: str, public_key) -> bytes:
+    def encrypt(self, plaintext: bytes, public_key) -> bytes:
         """
         Hybrid Encryption (RSA-3072 + AES-256-GCM)
         Return: [Encrypted AES Key (384 bytes)] + [Nonce (12 bytes)] + [Ciphertext + Tag]
@@ -32,16 +32,13 @@ class AsymmetricEncryption:
         if not plaintext:
             raise ValueError("Plaintext cannot be empty")
         
-        # Convert string to bytes
-        plaintext_bytes = plaintext.encode('utf-8')
-        
         # 2. Generate Master Key and derive sub-keys using HKDF (Session key + PRNG seed)
         session_key = os.urandom(AES_KEY_LENGTH)
         nonce = os.urandom(AES_NONCE_LENGTH)
 
         # 3. Encrypt with AES-256-GCM
         aesgcm = AESGCM(session_key)
-        ciphertext = aesgcm.encrypt(nonce, plaintext_bytes, associated_data=None)
+        ciphertext = aesgcm.encrypt(nonce, plaintext, associated_data=None)
 
         # 4. Encrypt Session Key with RSA Public Key (Use OAEP Padding)
         encrypted_session_key = public_key.encrypt(
@@ -217,7 +214,7 @@ if __name__ == "__main__":
         f.write(public_bytes)
         
     # ข้อมูลที่ต้องการซ่อน (อาจจะเป็นไฟล์ขนาดใหญ่ก็ได้ เพราะ AES รับไหวสบายๆ)
-    payload = "Hello"
+    payload = b"Hello"
     
     # ฝั่งส่ง: เข้ารหัสข้อมูลด้วย Public Key ของผู้รับ
     encrypted_payload = hybrid.encrypt(payload, public_key)
