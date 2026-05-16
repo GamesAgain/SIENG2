@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import QApplication, QButtonGroup, QFrame, QHBoxLayout, QLa
 
 from src.gui.components.sidebar_button import SidebarButton
 from src.gui.components.title_bar import SIENG2TitleBar
+from src.gui.pages.embed_page import EmbedPage
 
 CURRENT_DIR = Path(__file__).resolve().parent
 ICON_DIR = CURRENT_DIR / "assets" / "svg"
@@ -54,7 +55,7 @@ class MainWindow(QMainWindow):
         # -- Main Content --
         self.page_container = QStackedWidget()
         
-        self.page_container.addWidget(QLabel("Embed Page"))
+        self.page_container.addWidget(EmbedPage())
         self.page_container.addWidget(QLabel("Extract Page"))
         self.page_container.addWidget(QLabel("File Structure Page"))
         self.page_container.addWidget(QLabel("Metadata Page"))

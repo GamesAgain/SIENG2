@@ -5,7 +5,7 @@
 
 #titleBar {
     background-color: #181818;
-    border-bottom: 1px solid #282828;
+    border-bottom: 1px solid #1C3039;
 }
 
 /* Logo สี่เหลี่ยมสีฟ้า */
@@ -19,7 +19,7 @@
 
 /* ชื่อแอป SIENG2 */
 #appTitle {
-    font-family: 'Courier New', monospace;
+    font-family: 'Courier New', 'monospace';
     font-size: 20px;
     font-weight: 700;
     letter-spacing: 2px;
@@ -28,21 +28,9 @@
 
 /* คำอธิบายย่อย */
 #appSubtitle {
-    font-family: 'Courier New', monospace;
+    font-family: 'Courier New', 'monospace';
     font-size: 10px;
-    color: #536072;
-    letter-spacing: 1px;
-}
-
-/* Badge แสดงเวอร์ชัน/สถานะ */
-#topbarBadge {
-    font-family: 'Courier New', monospace;
-    background-color: rgba(245, 158, 11, 0.14);
-    border: 1px solid rgba(245, 158, 11, 0.3);
-    color: #f59e0b;
-    font-size: 10px;
-    padding: 2px 8px;
-    border-radius: 4px;
+    color: #2b79a4;
     letter-spacing: 1px;
 }
 
@@ -167,4 +155,65 @@ QGroupBox::title {
     color: #94a3b8;
     font-size: 12px;
     font-weight: 500;
+}
+
+/* ── Embed Page ── */
+/* ── MODE SWITCH (Standalone / Configurable) ── */
+#modeSwitchContainer {
+    background-color: #252525;             /* สีพื้นหลังกล่อง (var(--bg3)) */
+    border: 1px solid rgba(255, 255, 255, 0.07); /* ขอบบางๆ */
+    border-radius: 8px;                    /* ขอบมน */
+}
+
+/* ── ปุ่มสถานะปกติ (Inactive) ── */
+QPushButton#modeBtn {
+    background-color: transparent;
+    border: 1px solid transparent; /* ใส่ขอบใสไว้กันปุ่มขยับตอนมีขอบจริง */
+    border-radius: 6px;
+    color: #94a3b8;                /* สีเทาสว่าง (var(--text2)) */
+    padding: 7px 12px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+QPushButton#modeBtn:hover {
+    color: #e2e8f0;                /* สว่างขึ้นตอนเอาเมาส์ชี้ */
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* ── ปุ่มสถานะถูกเลือก (Active / Checked) ── */
+/* สไตล์นี้จะแสดงผลเหมือนคลาส .mode-btn.active.cyan ใน HTML */
+QPushButton#modeBtn:checked {
+    background-color: rgba(56, 189, 248, 0.10);  /* สีฟ้าโปร่งแสง (var(--cyan-dim)) */
+    border: 1px solid rgba(56, 189, 248, 0.32);  /* กรอบสีฟ้า */
+    color: #38bdf8;                              /* ตัวอักษรสีฟ้า (var(--cyan)) */
+}
+
+/* 1. เส้นแนวนอนยาวที่ฐานของ Tab */
+QTabWidget#techTabs::pane {
+    border: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.07); /* เส้นฐานสีเทาจาง */
+    top: -1px; /* ดันให้เส้นทับกับฐานปุ่มพอดี */
+}
+
+/* 2. ปุ่ม Tab สถานะปกติ */
+QTabBar::tab {
+    background: transparent;
+    color: #64748b;             /* สีเทา (var(--text3)) */
+    padding: 8px 14px;
+    font-size: 12px;
+    border: none;
+    border-bottom: 2px solid transparent; /* จองพื้นที่เส้นใต้ไว้ */
+    margin-right: 2px;
+}
+
+/* 3. ปุ่ม Tab ตอนเอาเมาส์ไปชี้ */
+QTabBar::tab:hover {
+    color: #e2e8f0;             /* สีสว่างขึ้น (var(--text)) */
+}
+
+/* 4. ปุ่ม Tab ตอนถูกคลิกเลือก (Active) */
+QTabBar::tab:selected {
+    color: #38bdf8;             /* ตัวหนังสือสีฟ้า (var(--cyan)) */
+    border-bottom: 2px solid #38bdf8; /* เส้นขีดใต้สีฟ้า */
 }

@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QApplication
-import sys, os
+import sys
 from pathlib import Path
 
 from src.gui.main_window import MainWindow
