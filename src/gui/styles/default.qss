@@ -1,0 +1,170 @@
+/* ── TITLE BAR (แถบด้านบนสุด) ── */
+#rootWidget {
+    border: 1px solid #282828;     
+}
+
+#titleBar {
+    background-color: #181818;
+    border-bottom: 1px solid #282828;
+}
+
+/* Logo สี่เหลี่ยมสีฟ้า */
+#logoMark {
+    background-color: #38bdf8;
+    border-radius: 6px;
+    color: #181818;
+    font-size: 16px;
+    font-weight: bold;
+}
+
+/* ชื่อแอป SIENG2 */
+#appTitle {
+    font-family: 'Courier New', monospace;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: #e2e8f0;
+}
+
+/* คำอธิบายย่อย */
+#appSubtitle {
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    color: #536072;
+    letter-spacing: 1px;
+}
+
+/* Badge แสดงเวอร์ชัน/สถานะ */
+#topbarBadge {
+    font-family: 'Courier New', monospace;
+    background-color: rgba(245, 158, 11, 0.14);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    color: #f59e0b;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    letter-spacing: 1px;
+}
+
+/* เส้นแบ่งใน title bar */
+#topbarSeparator {
+    color: rgba(255, 255, 255, 0.07);
+    margin-left: 8px;
+    margin-right: 8px;
+}
+
+/* ปุ่ม action (Settings, Help) */
+#topbarActionBtn {
+    background-color: transparent;
+    border: 1px solid rgba(56, 189, 248, 0.20);
+    border-radius: 6px;
+    color: #94a3b8;
+    font-size: 14px;
+}
+
+#topbarActionBtn:hover {
+    border-color: #38bdf8;
+    color: #38bdf8;
+    background-color: rgba(56, 189, 248, 0.05);
+}
+
+/* ── ปุ่มควบคุมหน้าต่าง (Minimize, Maximize, Close) ── */
+#windowControlBtn, #windowCloseBtn {
+    background-color: transparent;
+    border: none;
+    color: #94a3b8;
+    font-size: 14px;
+    border-radius: 4px;
+}
+
+/* Hover สำหรับ Minimize/Maximize */
+#windowControlBtn:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+}
+
+/* Hover สำหรับ Close (สีแดง) */
+#windowCloseBtn:hover {
+    background-color: #f43f5e;
+    color: #ffffff;
+}
+
+/* ── GLOBAL STYLES ── */
+QWidget {
+    font-family: 'Segoe UI', 'sans-serif';
+    font-size: 13px;
+}
+
+/* ── MAIN LAYOUT ── */
+/* Container หลักตรงกลาง */
+#centerContainer {
+    background-color: #1E1E1E;
+}
+
+/* Sidebar ด้านซ้าย */
+#sidebarContainer {
+    background-color: #181818;
+    border-right: 1px solid #282828;
+}
+
+/* Label แบ่ง section (Steganography, Steganalysis) */
+#sectionLabel {
+    color: #536072; 
+    font-family: "Courier New", "Monospace";
+    font-size: 10px; 
+    font-weight: bold; 
+    letter-spacing: 1px; 
+    padding: 0px 6px;
+    border: none;
+}
+
+/* ── SIDEBAR BUTTONS ── */
+/* สไตล์ปกติของปุ่มใน sidebar */
+#sidebarButton {
+    font-family: 'Segoe UI', 'sans-serif';
+    text-align: left;
+    padding: 7px 10px;
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: #94a3b8;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+/* Hover state */
+#sidebarButton:hover {
+    background-color: #252525;
+    color: #e2e8f0;
+}
+
+/* Checked/Active state (ใช้ setCheckable(True)) */
+#sidebarButton:checked {
+    background-color: rgba(56, 189, 248, 0.10);
+    color: #38bdf8;
+    border: 1px solid rgba(56, 189, 248, 0.22);
+}
+
+/* Alternative active state (ใช้ setProperty("active", True)) */
+#sidebarButton[active="true"] {
+    background-color: rgba(56, 189, 248, 0.10); 
+    color: #38bdf8;                              
+    border: 1px solid rgba(56, 189, 248, 0.22);  
+}
+
+QGroupBox {
+    border: 1px solid #282828;
+    border-radius: 6px;
+    margin-top: 20px; /* Space above the group box */
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 6px;
+    margin-top: 11px; /* Pull title into border */
+    left: 5px;
+    color: #94a3b8;
+    font-size: 12px;
+    font-weight: 500;
+}
