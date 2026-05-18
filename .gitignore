@@ -2,6 +2,7 @@
 .venv/
 env/
 .env
+.venv_ubuntu/
 
 # Python Cache
 __pycache__/

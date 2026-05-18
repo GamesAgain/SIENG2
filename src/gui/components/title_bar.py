@@ -1,11 +1,7 @@
-# src/gui/components/title_bar.py
-
-from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout, QLabel, QPushButton
-from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtCore import Qt
 from pathlib import Path
 
-from src.gui.utils import create_tinted_pixmap
 
 CURRENT_DIR = Path(__file__).resolve().parent
 ICON_DIR = CURRENT_DIR.parent / "assets" / "svg"
@@ -13,11 +9,11 @@ ICON_DIR = CURRENT_DIR.parent / "assets" / "svg"
 class SIENG2TitleBar(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(52)  # ความสูงตาม HTML var(--header-h)
-        self.setObjectName("titleBar")
+        self.setFixedHeight(52)
+        self.setObjectName("titleBarContainer")
         
         # ตัวแปรสำหรับจำตำแหน่งเมาส์ตอนลากหน้าต่าง
-        self._start_pos = None
+        self.start_pos = None
         
         self.init_ui()
 
@@ -70,22 +66,26 @@ class SIENG2TitleBar(QFrame):
     def toggle_maximize(self):
         if self.window().isMaximized():
             self.window().showNormal()
+            self.btn_maximize.setText("☐")
         else:
             self.window().showMaximized()
+            self.btn_maximize.setText("❐")
 
     # --- ฟังก์ชันระบบลากหน้าต่าง (Drag to Move) ---
     def mousePressEvent(self, event):
+        if self.window().isMaximized():
+            return
         if event.button() == Qt.MouseButton.LeftButton:
-            self._start_pos = event.position().toPoint()
+            self.start_pos = event.position().toPoint()
 
     def mouseMoveEvent(self, event):
-        if self._start_pos is not None:
+        if self.start_pos is not None:
             # คำนวณระยะที่เมาส์ขยับ แล้วย้ายหน้าต่างตาม
-            delta = event.position().toPoint() - self._start_pos
+            delta = event.position().toPoint() - self.start_pos
             self.window().move(self.window().pos() + delta)
 
     def mouseReleaseEvent(self, event):
-        self._start_pos = None
+        self.start_pos = None
         
     def mouseDoubleClickEvent(self, event):
         # ดับเบิ้ลคลิกที่ Title Bar เพื่อขยายหน้าต่าง

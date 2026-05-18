@@ -1,14 +1,19 @@
-/* ── TITLE BAR (แถบด้านบนสุด) ── */
+/* --- ROOT WIDGET (หน้าต่างหลัก) --- */
 #rootWidget {
+    color: #64748B;
+    background-color: #1E1E1E;
     border: 1px solid #282828;     
 }
 
-#titleBar {
+
+
+/* --- Title Bar --- */
+#titleBarContainer {
     background-color: #181818;
     border-bottom: 1px solid #1C3039;
 }
 
-/* Logo สี่เหลี่ยมสีฟ้า */
+/* Logo */
 #logoMark {
     background-color: #38bdf8;
     border-radius: 6px;
@@ -19,7 +24,7 @@
 
 /* ชื่อแอป SIENG2 */
 #appTitle {
-    font-family: 'Courier New', 'monospace';
+    font-family: 'Courier New', monospace;
     font-size: 20px;
     font-weight: 700;
     letter-spacing: 2px;
@@ -28,46 +33,22 @@
 
 /* คำอธิบายย่อย */
 #appSubtitle {
-    font-family: 'Courier New', 'monospace';
+    font-family: 'Courier New', monospace;
     font-size: 10px;
-    color: #2b79a4;
+    color: #536072;
     letter-spacing: 1px;
 }
 
-/* เส้นแบ่งใน title bar */
-#topbarSeparator {
-    color: rgba(255, 255, 255, 0.07);
-    margin-left: 8px;
-    margin-right: 8px;
-}
-
-/* ปุ่ม action (Settings, Help) */
-#topbarActionBtn {
-    background-color: transparent;
-    border: 1px solid rgba(56, 189, 248, 0.20);
-    border-radius: 6px;
-    color: #94a3b8;
-    font-size: 14px;
-}
-
-#topbarActionBtn:hover {
-    border-color: #38bdf8;
-    color: #38bdf8;
-    background-color: rgba(56, 189, 248, 0.05);
-}
-
-/* ── ปุ่มควบคุมหน้าต่าง (Minimize, Maximize, Close) ── */
 #windowControlBtn, #windowCloseBtn {
     background-color: transparent;
     border: none;
-    color: #94a3b8;
     font-size: 14px;
     border-radius: 4px;
+    color: #e2e8f0;
 }
 
-/* Hover สำหรับ Minimize/Maximize */
 #windowControlBtn:hover {
-    background-color: rgba(255, 255, 255, 0.1);
+    background-color: #2F2F2F;
     color: #ffffff;
 }
 
@@ -77,19 +58,8 @@
     color: #ffffff;
 }
 
-/* ── GLOBAL STYLES ── */
-QWidget {
-    font-family: 'Segoe UI', 'sans-serif';
-    font-size: 13px;
-}
 
-/* ── MAIN LAYOUT ── */
-/* Container หลักตรงกลาง */
-#centerContainer {
-    background-color: #1E1E1E;
-}
-
-/* Sidebar ด้านซ้าย */
+/* --- Sidebar ด้านซ้าย --- */
 #sidebarContainer {
     background-color: #181818;
     border-right: 1px solid #282828;
@@ -97,8 +67,8 @@ QWidget {
 
 /* Label แบ่ง section (Steganography, Steganalysis) */
 #sectionLabel {
-    color: #536072; 
-    font-family: "Courier New", "Monospace";
+    color: #515D6E; 
+    font-family: "Courier New", monospace;
     font-size: 10px; 
     font-weight: bold; 
     letter-spacing: 1px; 
@@ -109,13 +79,13 @@ QWidget {
 /* ── SIDEBAR BUTTONS ── */
 /* สไตล์ปกติของปุ่มใน sidebar */
 #sidebarButton {
-    font-family: 'Segoe UI', 'sans-serif';
+    font-family: 'Segoe UI', sans-serif;
     text-align: left;
     padding: 7px 10px;
     background-color: transparent;
     border: 1px solid transparent;
     border-radius: 6px;
-    color: #94a3b8;
+    color: #818D9F;
     font-size: 12px;
     font-weight: 500;
 }
@@ -123,83 +93,96 @@ QWidget {
 /* Hover state */
 #sidebarButton:hover {
     background-color: #252525;
-    color: #e2e8f0;
+    color: #E2E7EF;
 }
 
 /* Checked/Active state (ใช้ setCheckable(True)) */
 #sidebarButton:checked {
-    background-color: rgba(56, 189, 248, 0.10);
-    color: #38bdf8;
-    border: 1px solid rgba(56, 189, 248, 0.22);
+    background-color: #1C292F;
+    color: #38BDF8;
+    border: 1px solid #224A5B;
 }
 
-/* Alternative active state (ใช้ setProperty("active", True)) */
-#sidebarButton[active="true"] {
-    background-color: rgba(56, 189, 248, 0.10); 
-    color: #38bdf8;                              
-    border: 1px solid rgba(56, 189, 248, 0.22);  
+
+
+/* --- Embed Page --- */
+#modeSelectionContainer {
+    background-color: #252525;
+    border-radius: 8px;
+    border: 1px solid #343434;
 }
 
-QGroupBox {
-    border: 1px solid #282828;
-    border-radius: 6px;
-    margin-top: 20px; /* Space above the group box */
-}
-
-QGroupBox::title {
-    subcontrol-origin: margin;
-    subcontrol-position: top left;
-    padding: 0 6px;
-    margin-top: 11px; /* Pull title into border */
-    left: 5px;
-    color: #94a3b8;
-    font-size: 12px;
-    font-weight: 500;
-}
-
-/* ── Embed Page ── */
-/* ── MODE SWITCH (Standalone / Configurable) ── */
-#modeSwitchContainer {
-    background-color: #252525;             /* สีพื้นหลังกล่อง (var(--bg3)) */
-    border: 1px solid rgba(255, 255, 255, 0.07); /* ขอบบางๆ */
-    border-radius: 8px;                    /* ขอบมน */
-}
-
-/* ── ปุ่มสถานะปกติ (Inactive) ── */
-QPushButton#modeBtn {
+/* Mode Selection Buttons */
+#modeStandaloneBtn, #modeConfigurableBtn {
+    font-family: Arial, sans-serif;
     background-color: transparent;
-    border: 1px solid transparent; /* ใส่ขอบใสไว้กันปุ่มขยับตอนมีขอบจริง */
-    border-radius: 6px;
-    color: #94a3b8;                /* สีเทาสว่าง (var(--text2)) */
-    padding: 7px 12px;
+    border: none;
+    color: #94A3B8;
     font-size: 12px;
+    padding: 7px 12px;
     font-weight: 500;
 }
 
-QPushButton#modeBtn:hover {
-    color: #e2e8f0;                /* สว่างขึ้นตอนเอาเมาส์ชี้ */
-    background-color: rgba(255, 255, 255, 0.05);
+#modeStandaloneBtn:checked {
+    background-color: #27343A;
+    border: 1px solid #2C6077;
+    border-radius: 6px;
+    color: #38BDF8;
 }
 
-/* ── ปุ่มสถานะถูกเลือก (Active / Checked) ── */
-/* สไตล์นี้จะแสดงผลเหมือนคลาส .mode-btn.active.cyan ใน HTML */
-QPushButton#modeBtn:checked {
-    background-color: rgba(56, 189, 248, 0.10);  /* สีฟ้าโปร่งแสง (var(--cyan-dim)) */
-    border: 1px solid rgba(56, 189, 248, 0.32);  /* กรอบสีฟ้า */
-    color: #38bdf8;                              /* ตัวอักษรสีฟ้า (var(--cyan)) */
+#modeConfigurableBtn:checked {
+    background-color: #433622;
+    border: 1px solid #78551A;
+    border-radius: 6px;
+    color: #F59E0F;
 }
 
-/* 1. เส้นแนวนอนยาวที่ฐานของ Tab */
-QTabWidget#techTabs::pane {
+
+
+/* --- Encryption Selection --- */
+#encryptSelectionContainer {
+    background-color: #252525;
+    border-radius: 8px;
+    border: 1px solid #343434;
+}
+
+
+/* Encryption Selection Buttons */
+#passwordBtn, #publicKeyBtn {
+    font-family: Arial, sans-serif;
+    background-color: transparent;
     border: none;
-    border-top: 1px solid rgba(255, 255, 255, 0.07); /* เส้นฐานสีเทาจาง */
+    color: #94A3B8;
+    font-size: 12px;
+    padding: 5px 12px;
+    font-weight: 500;
+}
+
+#passwordBtn:checked {
+    background-color: #3F3B4B;
+    border: 1px solid #7464A2;
+    border-radius: 6px;
+    color: #A78BFA; 
+}
+
+#publicKeyBtn:checked {
+    background-color: #213B33; 
+    border: 1px solid #3B8766;
+    border-radius: 6px;
+    color: #34D399; 
+}
+
+/* --- Tab Style --- */
+/* เส้นแนวนอนยาวที่ฐานของ Tab */
+QTabWidget::pane {
+    border: none;
+    border-top: 1px solid #2E2E2E; /* เส้นฐานสีเทาจาง */
     top: -1px; /* ดันให้เส้นทับกับฐานปุ่มพอดี */
 }
 
-/* 2. ปุ่ม Tab สถานะปกติ */
+/* ปุ่ม Tab สถานะปกติ */
 QTabBar::tab {
     background: transparent;
-    color: #64748b;             /* สีเทา (var(--text3)) */
     padding: 8px 14px;
     font-size: 12px;
     border: none;
@@ -207,13 +190,157 @@ QTabBar::tab {
     margin-right: 2px;
 }
 
-/* 3. ปุ่ม Tab ตอนเอาเมาส์ไปชี้ */
+/* ปุ่ม Tab ตอนเอาเมาส์ไปชี้ */
 QTabBar::tab:hover {
-    color: #e2e8f0;             /* สีสว่างขึ้น (var(--text)) */
+    color: #E2E8F0;
 }
 
-/* 4. ปุ่ม Tab ตอนถูกคลิกเลือก (Active) */
 QTabBar::tab:selected {
-    color: #38bdf8;             /* ตัวหนังสือสีฟ้า (var(--cyan)) */
-    border-bottom: 2px solid #38bdf8; /* เส้นขีดใต้สีฟ้า */
+    color: #38BDF8;
+    border-bottom: 2px solid #38BDF8;
+}
+
+
+/* Card Style */
+QFrame#card {
+    background-color: #252525;
+    border: 1px solid #343434;
+    border-radius: 10px;
+}
+
+QLabel#cardTitle {
+    font-family: "Segoe UI", sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+
+
+/* --- File Drop Widget --- */
+/* 1. สถานะปกติ (Default) - ยังไม่มีไฟล์ และไม่ได้ลากอะไรมาจ่อ */
+QFrame#fileDropZone {
+    background-color: #1E1E1E;
+    border: 1.5px dashed #1E3945;
+    border-radius: 8px;
+}
+/* 2. ตอนเอาเมาส์ชี้ (Hover) - ให้เปลี่ยนสีเฉพาะตอนที่ยัง "ไม่มีไฟล์" */
+QFrame#fileDropZone[hasFile="false"]:hover {
+    background-color: #262D30;
+    border: 1.5px dashed #38BDF8;
+}
+/* 3. สถานะกำลังลากไฟล์มาจ่อ (Drag Enter) */
+QFrame#fileDropZone[isDragging="true"] {
+    background-color: #262D30;
+    border: 1.5px dashed #38BDF8; 
+}
+/* 4. สถานะวางไฟล์สำเร็จแล้ว (Has File) */
+QFrame#fileDropZone[hasFile="true"] {
+    background-color: #1E1E1E;
+    border: 1.5px solid #262D30;
+    border-radius: 8px;
+}
+/* 5. ตอนเอาเมาส์ชี้ (Hover) - ในสถานะที่ "มีไฟล์แล้ว" */
+QFrame#fileDropZone[hasFile="true"]:hover {
+    background-color: #262D30;
+    border: 1.5px solid #38BDF8;
+    border-radius: 8px;
+}
+
+QLabel#mainLabel {
+    font-size: 12px;
+    font-weight: 600;
+}
+
+QLabel#subLabel {
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    color: #94A3B8;
+}
+
+
+
+/* --- PlainTextEdit Style --- */
+QPlainTextEdit#payloadTextArea {
+    background-color: #2E2E2E;
+    border: 1px solid #304B57; 
+    border-radius: 6px;
+    padding: 7px 10px;
+    color: #e2e8f0;
+    font-family: 'Courier New', monospace; 
+    font-size: 14px;
+}
+
+/* เวลาผู้ใช้คลิกพิมพ์ให้ขอบเป็นสีฟ้า */
+QPlainTextEdit#payloadTextArea:focus {
+    border: 1px solid #38bdf8;
+}
+
+
+/* สไตล์สำหรับ Label (.form-label) */
+QLabel#formLabel {
+    font-size: 11px;
+    color: #94a3b8;
+    font-weight: 500;
+}
+
+/* สไตล์สำหรับช่องกรอกข้อความ (.form-input) */
+QLineEdit#formInput {
+    background-color: #252525;
+    border: 1px solid rgba(56, 189, 248, 0.20);
+    border-radius: 6px;
+    padding: 7px 10px;
+    color: #e2e8f0;
+    font-size: 12px;
+}
+
+/* สไตล์ตอนที่คลิกพิมพ์ (focus) */
+QLineEdit#formInput:focus {
+    border: 1px solid #38bdf8;
+}
+
+
+QLabel#capacityLabel {
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+}
+
+/* Loading Bar Style */
+/* 1. ส่วนกรอบและพื้นหลัง */
+QProgressBar {
+    background-color: #333333;
+    border: 1px solid rgba(56, 189, 248, 0.20);
+    border-radius: 4px;
+}
+
+/* 2. ส่วนแถบสีที่วิ่ง (Chunk) */
+QProgressBar::chunk {
+    background-color: #38bdf8;
+    border-radius: 4px;
+}
+
+QLabel#statusLabel {
+    font-size: 11px;
+}
+
+
+QPushButton#EmbedBtn {
+    background-color: rgba(56, 189, 248, 0.1); /* สีฟ้าโปร่งใส 10% */
+    color: #38bdf8; /* ตัวหนังสือสีฟ้า */
+    font-weight: 700;
+    font-size: 13px;
+    padding: 8px 24px;
+    border-radius: 6px;
+    border: 1px solid rgba(56, 189, 248, 0.5); /* ขอบสีฟ้าจางๆ */
+}
+
+QPushButton#EmbedBtn:hover {
+    background-color: rgba(56, 189, 248, 0.2);
+    border: 1px solid #38bdf8; /* ขอบสว่างขึ้น */
+    color: #7dd3fc;
+}
+
+QPushButton#EmbedBtn:pressed {
+    background-color: #38bdf8; /* เติมสีเต็มตอนกด */
+    color: #1e1e1e; /* ตัวหนังสือกลับเป็นสีดำ */
 }

@@ -76,7 +76,7 @@ class LSBPP:
 
     # ==================== Main Public Methods ====================
 
-    def embed(self, cover_image_path: str, message: str, public_key_path: str = None, password: str = None):
+    def embed(self, cover_image_path: str, message: str, public_key_path: str = None, password: str = None) -> tuple[Image.Image, str]:
         """
         Embed payload message into cover image using LSB++ algorithm
         """
@@ -104,8 +104,12 @@ class LSBPP:
         # 7. Embed message
         stego_image = self.message_embedding(cover_image, data_package, pixel_order, capacity_map)
         
-        stego_path = Path(__file__).parent / f"{cover_image_name}_stego.png"
-        stego_image.save(stego_path)
+        stego_name = f"{cover_image_name}_stego.png"
+        # stego_path = Path(__file__).parent / stego_name
+        # stego_image.save(stego_path)
+        
+        
+        return stego_image, stego_name
     
     def extract(self, stego_image_path: str, private_key_path: str = None, password: str = None):
         """
@@ -140,6 +144,9 @@ class LSBPP:
         Prepare image for LSB++ algorithm
         """
             # Check if image exists
+        if image_path is None:
+            raise ValueError("Image path is required")
+        
         if not Path(image_path).exists():
             raise FileNotFoundError(f"Image not found: {image_path}")
         

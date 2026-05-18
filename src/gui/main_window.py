@@ -23,26 +23,28 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         
-        # Remove window frame (for custom title bar)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         
         self.setWindowTitle("SIENG2")
         self.resize(1280, 720)
-        self.setMinimumSize(1024, 600)
+        self.setMinimumSize(1024, 700)
         
         self.init_ui()
         
     def init_ui(self):
         
+        # -- Root widget --
         root_widget = QFrame()
         root_widget.setObjectName("rootWidget")
         root_layout = QVBoxLayout(root_widget)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
         
+        # -- Title Bar --
         self.title_bar = SIENG2TitleBar(self)
         root_layout.addWidget(self.title_bar)
         
+        # -- Center Container --
         center_widget = QWidget()
         center_widget.setObjectName("centerContainer")
         main_layout = QHBoxLayout(center_widget)
@@ -63,18 +65,22 @@ class MainWindow(QMainWindow):
         self.page_container.addWidget(QLabel("Compare Page"))
         self.page_container.addWidget(QLabel("Report Page"))
         
+        # -- Connect sidebar to page container --
         self.sidebar_group.idClicked.connect(self.page_changed)
         
+        # Sidebar and main content layout 20:80
         main_layout.addWidget(sidebar, 2)
         main_layout.addWidget(self.page_container, 8)
         
         root_layout.addWidget(center_widget)
         
         self.setCentralWidget(root_widget)
-
+    
+    # -- Event Handlers --
     def page_changed(self, index: int):
         self.page_container.setCurrentIndex(index)
     
+    # -- UI Builders --
     def build_sidebar(self) -> QWidget:
         sidebar = QWidget()
         sidebar.setObjectName("sidebarContainer")
@@ -123,6 +129,7 @@ class MainWindow(QMainWindow):
         
         sidebar_layout.addStretch()
         
+        # -- Default selection --
         self.embed_btn.setChecked(True)
         
         return sidebar
@@ -135,7 +142,7 @@ class MainWindow(QMainWindow):
     def create_separator_line(self, color: str = "#282828", height: int = 1) -> QFrame:
         separator_line = QFrame()
         separator_line.setFixedHeight(height)
-        separator_line.setFrameShape(QFrame.Shape.HLine) 
+        separator_line.setFrameShape(QFrame.Shape.NoFrame) 
         separator_line.setStyleSheet(f"background-color: {color}; border: none;")
         return separator_line
 
