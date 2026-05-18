@@ -344,3 +344,37 @@ QPushButton#EmbedBtn:pressed {
     background-color: #38bdf8; /* เติมสีเต็มตอนกด */
     color: #1e1e1e; /* ตัวหนังสือกลับเป็นสีดำ */
 }
+
+QPushButton#ExtractBtn {
+    background-color: rgba(56, 189, 248, 0.1); /* สีฟ้าโปร่งใส 10% */
+    color: #38bdf8; /* ตัวหนังสือสีฟ้า */
+    font-weight: 700;
+    font-size: 13px;
+    padding: 8px 24px;
+    border-radius: 6px;
+    border: 1px solid rgba(56, 189, 248, 0.5); /* ขอบสีฟ้าจางๆ */
+}
+
+QPushButton#ExtractBtn:hover {
+    background-color: rgba(56, 189, 248, 0.2);
+    border: 1px solid #38bdf8; /* ขอบสว่างขึ้น */
+    color: #7dd3fc;
+}
+
+QPushButton#ExtractBtn:pressed {
+    background-color: #38bdf8; /* เติมสีเต็มตอนกด */
+    color: #1e1e1e; /* ตัวหนังสือกลับเป็นสีดำ */
+}
+
+
+QFrame#GuideBox {
+    background-color: #222222;
+    border: 1.5px solid #333333;
+    border-radius: 8px;
+}
+
+QFrame#disabledMode {
+    background-color: #222222;
+    border: 1.5px solid #333333;
+    border-radius: 8px;
+}

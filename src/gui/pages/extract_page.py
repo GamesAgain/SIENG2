@@ -1,8 +1,9 @@
 from pathlib import Path
 from PyQt6.QtCore import QSize, Qt
-from PyQt6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QLabel, QPushButton, QStackedWidget, QVBoxLayout
-from src.gui.pages.sub_pages.embed.standalone_page import EmbedStandalonePage
+from PyQt6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QPushButton, QStackedWidget, QVBoxLayout, QLabel
+
 from src.gui.components.gui_utils import create_icon_state
+from src.gui.pages.sub_pages.extract.standalone_page import ExtractStandalonePage
 
 ICON_DIR = Path(__file__).resolve().parent.parent / "assets" / "svg"
 MODE_ICON_SIZE = 16
@@ -10,19 +11,19 @@ MODE_ICON_COLOR_NORMAL = "#94A3B8"
 MODE_ICON_COLOR_CHECKED_STANDALONE = "#38BDF8"
 MODE_ICON_COLOR_CHECKED_CONFIGURABLE = "#F59E0F"
 
-class EmbedPage(QFrame):
+class ExtractPage(QFrame):
     def __init__(self):
         super().__init__()
-        self.setObjectName("embedPage")
+        self.setObjectName("extractPage")
         self.init_ui()
     
     def init_ui(self):
         
-        main_layout = QVBoxLayout()
-        self.setLayout(main_layout)
+        main_layout = QVBoxLayout(self)
         
         # Mode Selection
         self.mode_selection = self.build_mode_selection()
+        main_layout.addWidget(self.mode_selection)
         
         # --- BUTTON GROUP ---
         self.mode_group = QButtonGroup()
@@ -33,14 +34,13 @@ class EmbedPage(QFrame):
         # Mode Stack 
         self.mode_stack = QStackedWidget()
         
-        self.mode_stack.addWidget(EmbedStandalonePage())
+        self.mode_stack.addWidget(ExtractStandalonePage())
         self.mode_stack.addWidget(self.build_configurable_mode())
         
         self.mode_group.idClicked.connect(self.mode_stack.setCurrentIndex)
         main_layout.addWidget(self.mode_selection)
         main_layout.addSpacing(10)
         main_layout.addWidget(self.mode_stack)
-        
         
     def build_mode_selection(self):
         
@@ -83,11 +83,6 @@ class EmbedPage(QFrame):
         self.btn_standalone.setChecked(True)
         
         return mode_selection
-    
-    def build_standalone_mode(self):
-        placeholder = QLabel("Standalone Mode Placeholder")
-        placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        return placeholder
     
     def build_configurable_mode(self):
         placeholder = QLabel("Configurable Mode Placeholder")
