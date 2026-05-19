@@ -23,12 +23,12 @@ class LocomotiveEmbedTab(QFrame):
         
         sub_layout = QHBoxLayout()
         
-        # --- Left side - Cover file ---
+        # --- Left side - Locomotive file ---
         left_layout = QVBoxLayout()
         
         # Locomotive file card
-        cover_file_card = self.build_locomotive_file_card()
-        left_layout.addWidget(cover_file_card)
+        locomotive_file_card = self.build_locomotive_file_card()
+        left_layout.addWidget(locomotive_file_card)
         
         # --- Right side - Payload and Encryption ---
         right_layout = QVBoxLayout()
@@ -78,7 +78,7 @@ class LocomotiveEmbedTab(QFrame):
         title_layout.addStretch()
         
         drop_zone = MultiFileDropWidget("Drop PNG files here or click to browse", "PNG format only (Single file OR Multiple files)", str(ICON_DIR / "photo.svg"))
-        # drop_zone.files_changed.connect(self.on_cover_file_selected)
+        # drop_zone.files_changed.connect(self.on_locomotive_file_selected)
         
         locomotive_file_layout.addWidget(title_container, 0) # top 
         locomotive_file_layout.addWidget(drop_zone, 1) # Stretch factor
