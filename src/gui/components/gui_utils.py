@@ -2,14 +2,43 @@ from PyQt6.QtGui import QPixmap, QPainter, QIcon, QColor
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QGraphicsDropShadowEffect, QWidget
 
+# ---------------------------------------------------------
+# ฟังก์ชั่นย่อ Text
+# ---------------------------------------------------------
+def truncate_text_middle(text: str, max_length: int = 40) -> str:
+    """
+    ตัวอย่าง:
+    "my_super_long_secret_project_document_final_v2.png" (max_length=40)
+    จะกลายเป็น: "my_super_long_secre...ment_final_v2.png"
+    """
+    if len(text) <= max_length:
+        return text
+        
+    # หักพื้นที่ 3 ตัวอักษรไว้สำหรับ "..."
+    chars_to_keep = max_length - 3
+    
+    # แบ่งตัวอักษรไว้ครึ่งหน้า และครึ่งหลัง
+    # (ถ้าหารไม่ลงตัว ให้ครึ่งหน้ายาวกว่า 1 ตัวอักษร)
+    left_len = chars_to_keep // 2 + (chars_to_keep % 2) 
+    right_len = chars_to_keep // 2
+    
+    return f"{text[:left_len]}...{text[-right_len:]}"
 
+# ---------------------------------------------------------
+# ฟังก์ชัน Format File Size [B | KB | MB | GB | TB]
+# ---------------------------------------------------------
 def format_file_size(file_size_bytes: int) -> str:
     if file_size_bytes < 1024:
         return f"{file_size_bytes} B"
-    elif file_size_bytes < 1024 * 1024:
+    elif file_size_bytes < 1024 ** 2: # หลักร้อยพันไบต์ -> KB
         return f"{file_size_bytes / 1024:.2f} KB"
-    else:
-        return f"{file_size_bytes / (1024 * 1024):.2f} MB"
+    elif file_size_bytes < 1024 ** 3: # หลักล้านไบต์ -> MB
+        return f"{file_size_bytes / (1024 ** 2):.2f} MB"
+    elif file_size_bytes < 1024 ** 4: # หลักพันล้านไบต์ -> GB
+        return f"{file_size_bytes / (1024 ** 3):.2f} GB"
+    else:                             # ทะลุไปหลักล้านล้านไบต์ -> TB
+        return f"{file_size_bytes / (1024 ** 4):.2f} TB"
+    
 # ---------------------------------------------------------
 # ฟังก์ชั่นสร้าง Icon state
 # ---------------------------------------------------------

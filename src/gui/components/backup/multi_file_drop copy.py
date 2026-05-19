@@ -2,7 +2,7 @@ from pathlib import Path
 from PyQt6.QtCore import QFileInfo, Qt, pyqtSignal
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QMouseEvent, QPixmap
 from PyQt6.QtWidgets import (
-    QFileDialog, QFileIconProvider, QFrame, QLabel, QSizePolicy, 
+    QFileDialog, QFileIconProvider, QFrame, QLabel, 
     QVBoxLayout, QHBoxLayout, QPushButton, QScrollArea, QWidget, QMessageBox
 )
 
@@ -21,6 +21,42 @@ class FileItemWidget(QFrame):
         self.file_path = file_path
         self.setObjectName("fileItemRow")
         self.setFixedHeight(56) # ล็อกความสูงให้ดูเป็นระเบียบ
+        
+        # ใส่สไตล์ให้ Row ดู Modern และเข้ากับธีม
+        self.setStyleSheet("""
+            QFrame#fileItemRow {
+                background-color: #262D30;
+                border: 1px solid #304B57;
+                border-radius: 6px;
+            }
+            QFrame#fileItemRow:hover {
+                background-color: #2C3539;
+                border: 1px solid #38BDF8;
+            }
+            QLabel#fileItemName {
+                color: #E2E8F0;
+                font-size: 12px;
+                font-weight: 600;
+                border: none;
+            }
+            QLabel#fileItemSize {
+                color: #94A3B8;
+                font-size: 10px;
+                font-family: 'Courier New', monospace;
+                border: none;
+            }
+            QPushButton#btnRemoveFile {
+                background-color: transparent;
+                border: none;
+                border-radius: 4px;
+            }
+            QPushButton#btnRemoveFile:hover {
+                background-color: rgba(244, 63, 94, 0.1);
+            }
+            QPushButton#btnRemoveFile:pressed {
+                background-color: rgba(244, 63, 94, 0.2);
+            }
+        """)
         
         self.init_ui()
 
@@ -118,12 +154,6 @@ class MultiFileDropWidget(QFrame):
             
         self.max_files = max_files
         self.selected_files = [] # List เก็บ Path ไฟล์ที่ไม่ซ้ำ
-        self._preview_pixmap = None
-        
-        # เก็บค่า Default ไว้ใช้ตอน Reset
-        self.default_text = text
-        self.default_sub_text = sub_text
-        self.default_icon_path = icon_path or str(ICON_DIR / "upload.svg")
         
         self.init_ui(text, sub_text, icon_path)
 
@@ -135,7 +165,7 @@ class MultiFileDropWidget(QFrame):
         # 1. Drop Zone (คลิก/ลากวางได้เสมอ)
         self.drop_zone = QFrame()
         self.drop_zone.setObjectName("fileDropZone")
-        self.drop_zone.setMinimumHeight(120) 
+        self.drop_zone.setMinimumHeight(80) 
         self.drop_zone.setCursor(Qt.CursorShape.PointingHandCursor) # ให้รู้ว่าคลิกได้
         # ผูก Event คลิกเฉพาะที่กรอบ Drop Zone (ป้องกันการไปกดโดน ScrollArea แล้วเด้งหน้าต่างเลือกไฟล์)
         self.drop_zone.mousePressEvent = self.open_file_dialog
@@ -143,24 +173,23 @@ class MultiFileDropWidget(QFrame):
         # แจ้งสถานะเริ่มต้นให้ QSS ทราบว่า "ยังไม่มีไฟล์"
         self.drop_zone.setProperty("hasFile", False)
         
-        self.drop_layout = QVBoxLayout(self.drop_zone)
-        self.drop_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        drop_layout = QVBoxLayout(self.drop_zone)
+        drop_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        self.icon_label = QLabel()
-        self.icon_label.setPixmap(create_icon_pixmap(icon_path or (str(ICON_DIR / "upload.svg")), size=24))
-        self.icon_label.setMinimumSize(1, 1)
-        self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_label = QLabel()
+        icon_label.setPixmap(create_icon_pixmap(icon_path or (str(ICON_DIR / "upload.svg")), size=24))
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         self.main_label = QLabel(text)
         self.main_label.setObjectName("mainLabel")
         self.sub_label = QLabel(sub_text)
         self.sub_label.setObjectName("subLabel")
         
-        self.drop_layout.addWidget(self.icon_label)
-        self.drop_layout.addWidget(self.main_label, alignment=Qt.AlignmentFlag.AlignCenter)
-        self.drop_layout.addWidget(self.sub_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        drop_layout.addWidget(icon_label)
+        drop_layout.addWidget(self.main_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        drop_layout.addWidget(self.sub_label, alignment=Qt.AlignmentFlag.AlignCenter)
         
-        self.main_layout.addWidget(self.drop_zone, 1)
+        self.main_layout.addWidget(self.drop_zone)
         
         # 2. Scroll Area สำหรับแสดงรายชื่อไฟล์
         self.scroll_area = QScrollArea()
@@ -185,7 +214,7 @@ class MultiFileDropWidget(QFrame):
         self.list_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         
         self.scroll_area.setWidget(self.list_container)
-        self.main_layout.addWidget(self.scroll_area, 0) # ยืดขยายพื้นที่ที่เหลือ
+        self.main_layout.addWidget(self.scroll_area, 1) # ยืดขยายพื้นที่ที่เหลือ
 
     # --- Core Logic ---
     def add_files(self, file_paths: list[str]):
@@ -238,12 +267,6 @@ class MultiFileDropWidget(QFrame):
             self.files_changed.emit(self.selected_files)
 
     # --- Event Overrides ---
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        # ถ้าย่อหน้าต่างตอนที่มีไฟล์เดียว ต้องคำนวณและวาดพรีวิวรูปภาพใหม่เพื่อให้สัดส่วนถูกต้องเสมอ
-        if len(self.selected_files) == 1:
-            self.render_single_preview(self.selected_files[0])
-            
     def open_file_dialog(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
             # จัดการ Filter ของ File Dialog
@@ -253,16 +276,10 @@ class MultiFileDropWidget(QFrame):
                 patterns = " ".join(f"*{ext}" for ext in self.file_exts)
                 names = ", ".join(ext.replace(".", "").upper() for ext in self.file_exts)
                 file_filter = f"{names} Files ({patterns})"
-            
-            if self.max_files == 1 :
-                    file_paths, _ = QFileDialog.getOpenFileName(self, "Select File", "", file_filter)
-                    if file_paths: 
-                        self.add_files([file_paths])
-            else:
-                file_paths, _ = QFileDialog.getOpenFileNames(self, "Select Files", "", file_filter)
-                if file_paths: 
-                    self.add_files(file_paths)
-            
+                
+            file_paths, _ = QFileDialog.getOpenFileNames(self, "Select Files", "", file_filter)
+            if file_paths: 
+                self.add_files(file_paths)
             
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
@@ -302,75 +319,9 @@ class MultiFileDropWidget(QFrame):
         )
         
     def update_drop_zone_state(self):
-        count = len(self.selected_files)
+        has_file = len(self.selected_files) > 0
+        self.drop_zone.setProperty("hasFile", has_file)
         
-        if count == 0:
-            self.scroll_area.hide()
-            self.drop_zone.setMinimumHeight(120)
-            self.restore_default_drop_zone()
-            self.drop_zone.setProperty("hasFile", False)
-            
-        elif count == 1:
-            self.scroll_area.show()
-            self.drop_zone.setMinimumHeight(120) # ขยายพื้นที่ให้พรีวิวรูป
-            
-            file_path = self.selected_files[0]
-            
-            # โหลดภาพแคช
-            if Path(file_path).suffix.lower() in ['.png', '.jpg', '.jpeg', '.bmp', '.gif']:
-                self._preview_pixmap = QPixmap(file_path)
-            else:
-                self._preview_pixmap = None
-                
-            self.render_single_preview(file_path)
-            self.drop_zone.setProperty("hasFile", True)
-            
-        else: # count > 1
-            self.scroll_area.show()
-            self.drop_zone.setMinimumHeight(120) # หดกลับเพื่อหลีกทางให้ List
-            self.restore_default_drop_zone()
-            self.drop_zone.setProperty("hasFile", True)
-            
+        # สั่งให้ PyQt รีเฟรช Style (Unpolish & Polish) เพื่อบังคับให้ CSS อัปเดตใหม่ทันที
         self.drop_zone.style().unpolish(self.drop_zone)
         self.drop_zone.style().polish(self.drop_zone)
-        
-    def restore_default_drop_zone(self):
-        self.drop_layout.setContentsMargins(10, 10, 10, 10)
-        self.icon_label.setPixmap(create_icon_pixmap(self.default_icon_path, size=24))
-        self.main_label.setText(self.default_text)
-        self.sub_label.setText(self.default_sub_text)
-        self.main_label.show()
-        self.sub_label.show()
-        
-    def render_single_preview(self, file_path):
-        file_path_obj = Path(file_path)
-        file_ext = file_path_obj.suffix.lower()
-        image_exts = ['.png', '.jpg', '.jpeg', '.bmp', '.gif']
-        
-        if file_ext in image_exts and self._preview_pixmap is not None:
-            self.main_label.hide()
-            self.sub_label.hide()
-            self.drop_layout.setContentsMargins(0, 0, 0, 0)
-            
-            target_w = self.drop_zone.width()
-            target_h = self.drop_zone.height()
-            
-            if target_w > 0 and target_h > 0:
-                scaled_pixmap = self._preview_pixmap.scaled(
-                    target_w, target_h,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation
-                )
-                self.icon_label.setPixmap(scaled_pixmap)
-        else:
-            self.main_label.show()
-            self.sub_label.show()
-            self.drop_layout.setContentsMargins(10, 10, 10, 10)
-            
-            provider = QFileIconProvider()
-            icon = provider.icon(QFileInfo(file_path))
-            self.icon_label.setPixmap(icon.pixmap(64, 64))
-            
-            size_bytes = file_path_obj.stat().st_size
-            self.main_label.setText(truncate_text_middle(file_path_obj.name, 40))
-            self.sub_label.setText(format_file_size(size_bytes))

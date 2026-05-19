@@ -1,3 +1,5 @@
+import io
+import zipfile
 from PIL import Image
 from pathlib import Path
 import random
@@ -25,27 +27,32 @@ class Locomotive:
     
     # ==================== Main Public Methods ====================
     
-    def embed(self, cover_image_paths: tuple[str], file_path: str, public_key_path: str = None, password: str = None) -> list[tuple[str, bytes]]:
+    def embed(self, cover_image_paths: list[str], file_paths: list[str] = None, raw_text: str = None, public_key_path: str = None, password: str = None) -> list[tuple[str, bytes]]:
         """
         Embed payload file into cover image using Locomotive algorithm
         """       
         # 1. Read File data    
-        file_data = self.read_file(file_path)
+        if raw_text is not None:
+            file_data = raw_text.encode('utf-8')
+            payload_package = self.pack_payload("secret_message.txt", file_data)
+        else:
+            if not file_paths:
+                raise ValueError("No payload provided (neither file nor text).")
+            file_data, out_file_paths = self.read_file(file_paths)
+            payload_package = self.pack_payload(out_file_paths, file_data)
         
-        # 2. Prepare payload
-        payload_package = self.pack_payload(file_path, file_data)
         
-        # 3. Encrypt data
+        # 2. Encrypt data
         encrypted_payload = self.encrypt_data(payload_package, public_key_path, password)
         
-        # 4. Calculate number of parts and chunk size
+        # 3. Calculate number of parts and chunk size
         payload_length = len(encrypted_payload)
         num_parts, chunk_size = self.get_chunk_size(payload_length, cover_image_paths)
         
-        # 5. Create session ID and blocks
+        # 4. Create session ID and blocks
         payload_blocks = self.create_session_block(num_parts, chunk_size, encrypted_payload, payload_length)
             
-        # 6. Embed payload into cover images
+        # 5. Embed payload into cover images
         output_files = []
         if len(cover_image_paths) > 1:
             output_files = self.append_multifile(cover_image_paths, payload_blocks)
@@ -121,9 +128,6 @@ class Locomotive:
         
         output_path, extracted_file_data = self.unpack_payload(payload_package)
         
-        # Test: Write extracted file to disk
-        self.write_file(output_path, extracted_file_data)
-        
         return output_path, extracted_file_data
         
     def pack_payload(self, file_path: str, data: bytes) -> bytes:
@@ -185,10 +189,6 @@ class Locomotive:
         stego_img =  cover_img + final_payload
         
         filename, ext = os.path.splitext(os.path.basename(cover_path))
-        
-        # Test: Save the stego image
-        with open(f'{filename}_loco{ext}', 'wb') as f:
-            f.write(stego_img)
                 
         return [(f'{filename}_loco{ext}', stego_img)]
     
@@ -206,11 +206,6 @@ class Locomotive:
             
             filename, ext = os.path.splitext(os.path.basename(path))
             output_files.append((f'{filename}_loco{ext}', stego_img))
-        
-        # Test: Save all stego images
-        for filename, stego_img in output_files:
-            with open(filename, 'wb') as f:
-                f.write(stego_img)
                 
         return output_files
     
@@ -267,10 +262,34 @@ class Locomotive:
             raise ValueError("Extraction failed: Invalid SIENG2 signature. Please verify your image and password.")
     
     # ==================== Utility Methods ====================
+    def read_file(self, file_paths: list[str] | str) -> tuple[bytes, str] | bytes:
         
-    def read_file(self, file_path: str) -> bytes:
-        with open(file_path, 'rb') as f:
-            return f.read()
+        if isinstance(file_paths, str):
+            with open(file_paths, 'rb') as f:
+                return f.read()
+
+        if len(file_paths) == 1:
+            path = file_paths[0]
+            with open(path, 'rb') as f:
+                return f.read(), path  # คืนค่า (ข้อมูลไฟล์แบบ bytes, path)
+        else:
+            zip_buffer = io.BytesIO()
+
+            with zipfile.ZipFile(
+                zip_buffer,
+                'w',
+                compression=zipfile.ZIP_DEFLATED,
+                compresslevel=6
+            ) as zipf:
+
+                for path in file_paths:
+                    path_obj = Path(path)
+                    zipf.write(
+                        path,
+                        arcname=path_obj.name
+                    )
+            return zip_buffer.getvalue(), "secret_files.zip"  # คืนค่า (ข้อมูล zip แบบ bytes, ชื่อไฟล์ zip)
+            
         
     def write_file(self, file_path: str, file_data: bytes) -> bytes:
         with open(file_path, 'wb') as f:
@@ -289,11 +308,11 @@ if __name__ == "__main__":
     
     # --- Locomotive one cover image
     locomotive = Locomotive()
-    locomotive.embed(["test0.png"], "test.txt", public_key_path="public_key.pem")
+    locomotive.embed(["test0.png"], ["test.txt"], public_key_path="public_key.pem")
     locomotive.extract(["test0_loco.png"], private_key_path="private_key.pem", password="Password123")
     
     # --- Locomotive multiple cover images
     locomotive = Locomotive()
-    locomotive.embed(["test1.png", "test2.png", "test3.png"], "test.txt", public_key_path="public_key.pem")
+    locomotive.embed(["test1.png", "test2.png", "test3.png"], ["test.txt"], public_key_path="public_key.pem")
     locomotive.extract(["test1_loco.png", "test2_loco.png", "test3_loco.png"], private_key_path="private_key.pem", password="Password123")
     

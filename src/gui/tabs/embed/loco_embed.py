@@ -1,7 +1,8 @@
 from PyQt6.QtCore import QSize, Qt
-from PyQt6.QtWidgets import QButtonGroup, QFrame, QLineEdit, QPlainTextEdit, QProgressBar, QPushButton, QSizePolicy, QStackedWidget, QTabWidget, QVBoxLayout, QHBoxLayout, QLabel
+from PyQt6.QtWidgets import QButtonGroup, QFileDialog, QFrame, QLineEdit, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSizePolicy, QStackedWidget, QTabWidget, QVBoxLayout, QHBoxLayout, QLabel
 from pathlib import Path
 
+from src.core.stego.locomotive import Locomotive
 from src.gui.components.file_drop import FileDropWidget
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, create_icon_state
 from src.gui.components.multi_file_drop import MultiFileDropWidget
@@ -15,6 +16,16 @@ COLOR_CHECKED_ASYM = "#34D399"
 class LocomotiveEmbedTab(QFrame):
     def __init__(self):
         super().__init__()
+        
+        # Locomotive & Payload
+        self.locomotive_file_paths: list[str] = None
+        self.payload_file_paths: list[str] = None
+        self.payload_text = ""
+        
+        # Encryption
+        self.password = ""
+        self.public_key_path = None
+        
         self.init_ui()
     
     def init_ui(self):
@@ -77,8 +88,8 @@ class LocomotiveEmbedTab(QFrame):
         title_layout.addWidget(title_label)
         title_layout.addStretch()
         
-        drop_zone = MultiFileDropWidget("Drop PNG files here or click to browse", "PNG format only (Single file OR Multiple files)", str(ICON_DIR / "photo.svg"))
-        # drop_zone.files_changed.connect(self.on_locomotive_file_selected)
+        drop_zone = MultiFileDropWidget("Drop PNG files here or click to browse", "PNG format only (Single file OR Multiple files)", str(ICON_DIR / "photo.svg"), allowed_extensions=[".png"])
+        drop_zone.files_changed.connect(self.on_locomotive_file_selected)
         
         locomotive_file_layout.addWidget(title_container, 0) # top 
         locomotive_file_layout.addWidget(drop_zone, 1) # Stretch factor
@@ -88,7 +99,6 @@ class LocomotiveEmbedTab(QFrame):
     def build_payload_card(self):
         payload_card = QFrame()
         payload_card.setObjectName("card")
-        payload_card.setMinimumHeight(200)
         add_shadow_effect(payload_card)
         
         payload_layout = QVBoxLayout(payload_card)
@@ -103,12 +113,11 @@ class LocomotiveEmbedTab(QFrame):
         title_icon.setPixmap(photo_icon)
         
         # Text: Payload File
-        title_label = QLabel("Payload File (Secret Files)")
+        title_label = QLabel("Payload File (Secret File)")
         title_label.setObjectName("cardTitle")
         title_layout.addWidget(title_icon)
         title_layout.addWidget(title_label)
         title_layout.addStretch()
-        
         
         self.payload_tabs = QTabWidget()
         
@@ -118,7 +127,7 @@ class LocomotiveEmbedTab(QFrame):
         file_tab_layout.setContentsMargins(0, 12, 0, 0)
 
         drop_zone = MultiFileDropWidget("Drop any files or type text", "Any file format (PDF, ZIP, EXE, TXT, ...)", icon_path=str(ICON_DIR / "file-plus.svg"))
-        # drop_zone.file_selected.connect(self.on_payload_file_selected)
+        drop_zone.files_changed.connect(self.on_payload_file_selected)
         drop_zone.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         file_tab_layout.addWidget(drop_zone)
         
@@ -182,7 +191,6 @@ class LocomotiveEmbedTab(QFrame):
         
         # Encryption Mode Stack 
         self.encrypt_stack = QStackedWidget()
-        
         
         # Add encryption modes to stack
         self.encrypt_stack.addWidget(self.build_symmetric_mode())
@@ -255,6 +263,7 @@ class LocomotiveEmbedTab(QFrame):
         
         # --- Password Input ---
         password_label = QLabel("Password")
+        password_label.setContentsMargins(0, 0, 0, 0)
         password_label.setObjectName("formLabel")
         
         self.password_input = QLineEdit()
@@ -267,6 +276,7 @@ class LocomotiveEmbedTab(QFrame):
         
         # --- Confirm Password Input ---
         confirm_label = QLabel("Confirm Password")
+        confirm_label.setContentsMargins(0, 0, 0, 0)
         confirm_label.setObjectName("formLabel")
         
         self.confirm_input = QLineEdit()
@@ -286,7 +296,7 @@ class LocomotiveEmbedTab(QFrame):
         asymmetric_layout = QVBoxLayout(asymmetric_mode)
         asymmetric_layout.setContentsMargins(0, 0, 0, 8)
         key_drop_zone = FileDropWidget("Drop public key here or click to browse", "Public key file (.pem, .der, .ssh)", icon_path= str(ICON_DIR / "file-text-shield.svg"), allowed_extensions=["pem", "der", "ssh"])
-        # key_drop_zone.file_selected.connect(self.on_public_key_selected)
+        key_drop_zone.file_selected.connect(self.on_public_key_selected)
         asymmetric_layout.addWidget(key_drop_zone)
         
         return asymmetric_mode
@@ -304,7 +314,7 @@ class LocomotiveEmbedTab(QFrame):
         execute_embed_btn.setFixedHeight(50)
         execute_embed_btn.setObjectName("EmbedBtn")
         
-        # execute_embed_btn.clicked.connect(self.execute_embedding)
+        execute_embed_btn.clicked.connect(self.execute_embedding)
         execution_box.addWidget(execute_embed_btn)
         
         return execution_box
@@ -327,3 +337,170 @@ class LocomotiveEmbedTab(QFrame):
         loading_status_bar_layout.addWidget(loading_bar)
         
         return loading_status_bar
+    
+    
+    def validate_inputs(self):
+        """Validate all inputs before embedding"""
+        
+        # 1. เช็ค Locomotive File
+        if not self.locomotive_file_paths:
+            QMessageBox.warning(self, "Validation Error","Please select a locomotive file")
+            return False
+        
+        # 2. เช็ค Payload (เช็คตาม Tab ที่ผู้ใช้กำลังเปิดอยู่)
+        active_tab = self.payload_tabs.currentIndex() # 0 = File Tab, 1 = Text Tab
+        if active_tab == 0:
+            if not self.payload_file_paths:
+                QMessageBox.warning(self, "Validation Error","Please select a payload file")
+                return False
+        elif active_tab == 1:
+            if not self.payload_text_area.toPlainText().strip(): # ถ้าพิมพ์แต่ช่องว่าง หรือไม่พิมพ์อะไรเลย
+                QMessageBox.warning(self, "Validation Error","Please enter some text to hide")
+                self.payload_text_area.setFocus()
+                return False
+        
+        # 3. เช็คว่าได้เปิดการเข้ารหัสไหม
+        if not self.encrypt_toggle_switch.isChecked():
+            return True
+        
+        # 4. เช็คโหมด Symmetric (Password)
+        if self.btn_symmetric.isChecked():
+            password = self.password_input.text()
+            if not password:
+                QMessageBox.warning(self, "Validation Error", "Please enter a password for encryption.")
+                self.password_input.setFocus()
+                return False
+                
+        # 5. เช็คโหมด Asymmetric (Public Key)
+        elif self.btn_asymmetric.isChecked():
+            if not hasattr(self, 'public_key_path') or not self.public_key_path:
+                QMessageBox.warning(self, "Validation Error", "Please drop a Public Key file for asymmetric encryption.")
+                return False
+
+        return True
+
+    def get_input_data(self):
+        if not self.validate_inputs():
+            return False
+        
+        # ดึงข้อมูล Payload ตาม Tab
+        active_tab = self.payload_tabs.currentIndex()
+        
+        file_index = 0
+        raw_text_index = 1
+        
+        payload_files = self.payload_file_paths if active_tab == file_index else None
+        raw_text = self.payload_text_area.toPlainText() if active_tab == raw_text_index else None
+        
+        password = None
+        public_key_path = None
+        
+        if self.encrypt_toggle_switch.isChecked():
+            if self.btn_symmetric.isChecked():
+                password = self.password_input.text()
+            elif self.btn_asymmetric.isChecked():
+                public_key_path = self.public_key_path
+                
+        return self.locomotive_file_paths, payload_files, raw_text, public_key_path, password
+
+    def execute_embedding(self):
+        """Execute the embedding process"""
+        inputs = self.get_input_data()
+        if not inputs:
+            return
+        
+        locomotive_file_paths, payload_file_paths, raw_text, public_key_path, password = inputs
+        
+        try:
+            locomotive = Locomotive()
+            
+            stego_files = locomotive.embed(
+                cover_image_paths=locomotive_file_paths, 
+                file_paths=payload_file_paths, 
+                raw_text=raw_text,
+                public_key_path=public_key_path, 
+                password=password
+            )
+            
+            is_saved = self.save_stego_images(stego_files)
+            if not is_saved:
+                return
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to embed: {str(e)}")
+        
+    # --- Event Handlers ---
+    def on_locomotive_file_selected(self, file_paths):
+        """Handle locomotive file selection"""
+        if file_paths:
+            self.locomotive_file_paths = file_paths
+        else:
+            self.locomotive_file_paths = None
+    
+    def on_payload_file_selected(self, file_paths):
+        """Handle public key selection"""
+        if file_paths:
+            self.payload_file_paths = file_paths
+        else:
+            self.payload_file_paths = None
+                    
+    def on_public_key_selected(self, file_paths):
+        """Handle public key selection"""
+        if file_paths:
+            self.public_key_path = file_paths
+        else:
+            self.public_key_path = None
+            
+            
+    def save_stego_images(self, output_files: list[tuple[str, bytes]]):
+        
+        if not output_files:
+            return
+
+        # ไฟล์เดียว
+        if len(output_files) == 1:
+
+            filename, data = output_files[0]
+
+            save_path, _ = QFileDialog.getSaveFileName(self, "Save File", filename, "PNG Files (*.png)")
+
+            if not save_path:
+                return
+
+            try:
+                with open(save_path, 'wb') as f:
+                    f.write(data)
+                
+                # แจ้งเตือนเมื่อเขียนไฟล์เสร็จแล้ว
+                QMessageBox.information(self, "Success", f"Data embedded successfully!\nSaved to:\n{save_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to save file: {str(e)}")
+            
+            return
+
+        # หลายไฟล์
+        save_dir = QFileDialog.getExistingDirectory(self, "Select Save Folder")
+        
+        # 1. เช็คก่อนว่าผู้ใช้กดยกเลิกไหม ถ้ากดให้จบการทำงาน
+        if not save_dir:
+            return
+
+        save_dir = Path(save_dir)
+
+        try:
+            # 2. วนลูปเซฟไฟล์ให้เสร็จทุกไฟล์ก่อน
+            for filename, data in output_files:
+                output_path = save_dir / filename
+
+                with open(output_path, 'wb') as f:
+                    f.write(data)
+            
+            # 3. แจ้งเตือนเมื่อทุกอย่างเซฟเสร็จสมบูรณ์
+            QMessageBox.information(self, "Success", f"Data embedded successfully!\nSaved {len(output_files)} files to:\n{save_dir}")
+            print(f"Saved successfully at: {save_dir}")
+            
+        except Exception as e:
+             QMessageBox.critical(self, "Error", f"Failed to save files: {str(e)}")
+
+    
+    

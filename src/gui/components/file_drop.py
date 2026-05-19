@@ -1,7 +1,7 @@
 from pathlib import Path
 from PyQt6.QtCore import QFileInfo, Qt, pyqtSignal
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QMouseEvent, QPixmap
-from PyQt6.QtWidgets import QFileDialog, QFileIconProvider, QFrame, QLabel, QVBoxLayout
+from PyQt6.QtWidgets import QFileDialog, QFileIconProvider, QFrame, QLabel, QSizePolicy, QVBoxLayout
 
 from src.gui.components.gui_utils import create_icon_pixmap, format_file_size
 
@@ -38,13 +38,13 @@ class FileDropWidget(QFrame):
                 ext.lower()
                 for ext in allowed_extensions
             ]
-
         # Initialize state
         self.has_file = False
         self.setProperty("hasFile", False)
 
         self.file_path = ""
-
+        self.original_pixmap = None
+        
         self.default_text = text
         self.default_sub_text = sub_text
         self.icon_path = icon_path
@@ -68,6 +68,9 @@ class FileDropWidget(QFrame):
         self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.icon_label.setMinimumSize(1, 1)
         self.icon_label.setPixmap(create_icon_pixmap(self.icon_path, size=30))
+        
+        # self.icon_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        
         
         # Text labels
         self.main_label = QLabel()
@@ -120,7 +123,7 @@ class FileDropWidget(QFrame):
         # กำหนดนามสกุลที่ถือว่าเป็น "รูปภาพ" เพื่อวาดพรีวิว
         image_exts = ['.png', '.jpg', '.jpeg', '.bmp', '.gif']
         
-        if file_ext in image_exts:
+        if file_ext in image_exts and self.original_pixmap is not None:
             # -----------------------------------------
             # โหมดที่ 1: รูปภาพ (วาดรูปเต็มกรอบ)
             # -----------------------------------------
@@ -134,14 +137,13 @@ class FileDropWidget(QFrame):
             if target_w <= 0 or target_h <= 0:
                 return
                 
-            pixmap = QPixmap(self.file_path)
-            if not pixmap.isNull():
-                scaled_pixmap = pixmap.scaled(
-                    target_w, target_h,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation
-                )
-                self.icon_label.setPixmap(scaled_pixmap)
+            scaled_pixmap = self.original_pixmap.scaled(
+                target_w, target_h,
+                Qt.AspectRatioMode.KeepAspectRatio, # รักษาอัตราส่วน
+                Qt.TransformationMode.SmoothTransformation
+            )
+            self.icon_label.setPixmap(scaled_pixmap)
+            
                 
         else:
             # -----------------------------------------
@@ -177,6 +179,14 @@ class FileDropWidget(QFrame):
     def process_file(self, file_path: str):
         self.has_file = True
         self.file_path = file_path
+        
+        # โหลดรูปเก็บไว้ใน Cache
+        image_exts = ['.png', '.jpg', '.jpeg', '.bmp', '.gif']
+        if Path(file_path).suffix.lower() in image_exts:
+            self.original_pixmap = QPixmap(file_path)
+        else:
+            self.original_pixmap = None
+            
         self.update_ui()
         self.file_selected.emit(file_path)
         

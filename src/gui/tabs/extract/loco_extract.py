@@ -1,7 +1,8 @@
 from pathlib import Path
 from PyQt6.QtCore import QSize, Qt
-from PyQt6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QLineEdit, QPlainTextEdit, QProgressBar, QPushButton, QStackedWidget, QVBoxLayout, QLabel
+from PyQt6.QtWidgets import QButtonGroup, QFileDialog, QFrame, QHBoxLayout, QLineEdit, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QStackedWidget, QVBoxLayout, QLabel
 
+from src.core.stego.locomotive import Locomotive
 from src.gui.components.file_drop import FileDropWidget
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, create_icon_state
 from src.gui.components.multi_file_drop import MultiFileDropWidget
@@ -15,6 +16,11 @@ COLOR_CHECKED_ASYM = "#34D399"
 class LocomotiveExtractTab(QFrame):
     def __init__(self):
         super().__init__()
+        
+        # State variables
+        self.stego_file_paths: list[str] = None
+        self.private_key_path: str = None
+        
         self.init_ui()
     
     def init_ui(self):
@@ -75,7 +81,7 @@ class LocomotiveExtractTab(QFrame):
         title_layout.addStretch()
         
         drop_zone = MultiFileDropWidget("Drop PNG files here or click to browse", "PNG format only (Single file OR Multiple files)", str(ICON_DIR / "photo.svg"))
-        # drop_zone.files_changed.connect(self.on_locomotive_file_selected)
+        drop_zone.files_changed.connect(self.on_locomotive_file_selected)
         
         locomotive_file_layout.addWidget(title_container, 0) # top 
         locomotive_file_layout.addWidget(drop_zone, 1) # Stretch factor
@@ -240,7 +246,7 @@ class LocomotiveExtractTab(QFrame):
         asymmetric_layout.setContentsMargins(0, 0, 0, 8)
         key_drop_zone = FileDropWidget("Drop private key here or click to browse", "Private key file (.pem, .der, .ssh)", icon_path= str(ICON_DIR / "file-text-shield.svg"), allowed_extensions=["pem", "der", "ssh"])
         key_drop_zone.setMinimumHeight(200)
-        # key_drop_zone.file_selected.connect(self.on_private_key_selected)
+        key_drop_zone.file_selected.connect(self.on_private_key_selected)
         asymmetric_layout.addWidget(key_drop_zone)
         
         # Password Input
@@ -345,7 +351,7 @@ class LocomotiveExtractTab(QFrame):
         execute_extract_btn.setFixedHeight(50)
         execute_extract_btn.setObjectName("ExtractBtn")
         
-        # execute_extract_btn.clicked.connect(self.execute_extraction)
+        execute_extract_btn.clicked.connect(self.execute_extraction)
         execution_box.addWidget(execute_extract_btn)
         
         return execution_box
@@ -368,3 +374,137 @@ class LocomotiveExtractTab(QFrame):
         loading_status_bar_layout.addWidget(loading_bar)
         
         return loading_status_bar
+    
+    # --- Event Handlers ---
+    def on_locomotive_file_selected(self, file_paths):
+        if file_paths:
+            self.stego_file_paths = file_paths
+        else:
+            self.stego_file_paths = None
+
+    def on_private_key_selected(self, file_paths):
+        if file_paths:
+            self.private_key_path = file_paths
+        else:
+            self.private_key_path = None
+
+
+    # --- Logic & Execution ---
+    def validate_inputs(self) -> bool:
+        # 1. เช็คว่าเลือกไฟล์ภาพมาหรือยัง
+        if not self.stego_file_paths:
+            QMessageBox.warning(self, "Validation Error", "Please select stego image(s) to extract.")
+            return False
+            
+        # 2. เช็คว่าเปิดการถอดรหัสไว้ไหม
+        if self.decrypt_toggle_switch.isChecked():
+            # ถ้าเป็น Password โหมด
+            if self.btn_symmetric.isChecked():
+                if not self.password_input.text():
+                    QMessageBox.warning(self, "Validation Error", "Please enter the password for decryption.")
+                    self.password_input.setFocus()
+                    return False
+            # ถ้าเป็น Private Key โหมด
+            elif self.btn_asymmetric.isChecked():
+                if not self.private_key_path:
+                    QMessageBox.warning(self, "Validation Error", "Please drop a Private Key file for decryption.")
+                    return False
+                    
+        return True
+
+    def get_input_data(self) -> tuple[list[str], str, str] | bool:
+        if not self.validate_inputs():
+            return False
+            
+        password = None
+        private_key = None
+        
+        # ดึงข้อมูลถอดรหัสเฉพาะตอนที่ Toggle เปิดอยู่
+        if self.decrypt_toggle_switch.isChecked():
+            if self.btn_symmetric.isChecked():
+                password = self.password_input.text()
+            elif self.btn_asymmetric.isChecked():
+                private_key = self.private_key_path
+                # นำรหัสผ่านของ Private Key (ถ้ามี) ไปใส่ให้ด้วย
+                key_password = self.key_password_input.text()
+                password = key_password if key_password else None 
+                
+        return self.stego_file_paths, private_key, password
+
+    def execute_extraction(self):
+        inputs = self.get_input_data()
+        if not inputs:
+            return
+            
+        stego_file_paths, private_key_path, password = inputs
+        
+        try:
+            # เรียกใช้คลาส Locomotive เพื่อดึงข้อมูลออกมา
+            locomotive = Locomotive()
+            output_name, extracted_data = locomotive.extract(stego_file_paths, private_key_path, password)
+            
+            # เมื่อได้ข้อมูลมาแล้ว ให้จัดการเซฟและแสดงผล
+            self.handle_extracted_data(output_name, extracted_data)
+            
+        except Exception as e:
+            # ดักจับ Error (เช่น รหัสผ่านผิด, ไฟล์เสีย, หา LOCO ไม่เจอ)
+            QMessageBox.critical(self, "Extraction Failed", f"Failed to extract data:\n{str(e)}")
+
+    def handle_extracted_data(self, default_name: str, data: bytes):
+        is_text = False
+        text_content = ""
+
+        # 1. ลองพยายามถอดรหัสเป็นข้อความ (รองรับทั้ง Text Input และไฟล์นามสกุล .txt)
+        try:
+            text_content = data.decode('utf-8')
+            is_text = True
+        except UnicodeDecodeError:
+            is_text = False # ถอดไม่ได้ แปลว่าเป็นไฟล์ Binary
+
+        if is_text:
+            # นำข้อความไปโชว์ในช่อง Result Area
+            self.payload_text_area.setPlainText(text_content)
+
+            # เช็คว่าไฟล์ที่ได้มา คือ "Text จากช่อง Input" ที่เราจำลองไว้หรือไม่
+            if "secret_message" in default_name:
+                QMessageBox.information(self, "Success", "Text extracted successfully!\nYou can read it in the Extraction Result box.")
+                
+                # ถามผู้ใช้ว่าต้องการเซฟข้อความนี้เป็นไฟล์ .txt เก็บไว้ด้วยไหม?
+                reply = QMessageBox.question(
+                    self, 
+                    "Save Text", 
+                    "Do you want to save this text as a .txt file?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    self.save_file_dialog(default_name, data)
+            else:
+                # กรณีแนบไฟล์ประเภท .txt เข้ามาตอน Embed
+                QMessageBox.information(self, "Success", f"Text file '{default_name}' extracted!\nA preview is available in the result box.")
+                self.save_file_dialog(default_name, data)
+
+        else:
+            # 2. กรณีเป็นไฟล์ประเภทอื่นๆ (Binary file เช่น ZIP, PDF, EXE)
+            self.payload_text_area.setPlainText(
+                f"[ Binary file extracted successfully ]\n"
+                f"File Name: {default_name}\n"
+                f"Size: {len(data):,} bytes\n"
+            )
+            QMessageBox.information(self, "Success", f"Binary file '{default_name}' extracted successfully!")
+            self.save_file_dialog(default_name, data)
+
+    def save_file_dialog(self, default_name: str, data: bytes):
+        save_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Extracted File",
+            default_name,
+            "All Files (*)"
+        )
+        
+        if save_path:
+            try:
+                with open(save_path, 'wb') as f:
+                    f.write(data)
+                QMessageBox.information(self, "Success", "File saved successfully!")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to save file:\n{str(e)}")
