@@ -4,6 +4,7 @@ from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QFrame, QLabel, QTabWidget, QVBoxLayout
 
 from src.gui.components.gui_utils import create_icon_pixmap
+from src.gui.tabs.extract.loco_extract import LocomotiveExtractTab
 from src.gui.tabs.extract.lsb_extract import LSBExtractTab
 
 ICON_DIR = Path(__file__).parent.parent.parent.parent / "assets" / "svg"
@@ -20,7 +21,7 @@ class ExtractStandalonePage(QFrame):
         layout.setContentsMargins(0, 0, 0, 0)
         
         self.tab_lsb = LSBExtractTab()
-        self.tab_eof = QLabel("หน้าฟอร์ม Locomotive")
+        self.tab_eof = LocomotiveExtractTab()
         self.tab_meta = QLabel("หน้าฟอร์ม Metadata")
         
         tech_tabs = QTabWidget()
