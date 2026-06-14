@@ -8,11 +8,8 @@ from skimage.morphology import footprint_rectangle
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
-
 from src.core.crypto.sym_encrypt import SymmetricEncryption
-from src.core.crypto.asym_encrypt import AsymmetricEncryption
-from src.core.crypto.asym_encrypt import load_public_key, load_private_key, get_public_bytes
+from src.core.crypto.asym_encrypt import AsymmetricEncryption, load_public_key, load_private_key, get_public_bytes
 
 DEFAULT_LSBPP_CONFIG = {
     'default_seed': 'Default',
@@ -89,7 +86,7 @@ class LSBPP:
         texture_surface = self.analyze_cover_image(cover_image)
 
         # 3. Capacity calculation
-        capacity_map = self.calcualte_capacity(texture_surface)
+        capacity_map = self.calculate_capacity(texture_surface)
         
         # 4. Get seed
         seed = self.get_seed(password, public_key_path)
@@ -123,7 +120,7 @@ class LSBPP:
         texture_surface = self.analyze_cover_image(stego_image)
 
         # 3. Capacity calculation
-        capacity_map = self.calcualte_capacity(texture_surface)
+        capacity_map = self.calculate_capacity(texture_surface)
         
         # 4. Get seed
         seed = self.get_seed(password, private_key_path)
@@ -282,7 +279,7 @@ class LSBPP:
         surface_normalized = self.normalize(surface)
         return surface_normalized
     
-    def calcualte_capacity(self, texture_surface: np.ndarray) -> np.ndarray:
+    def calculate_capacity(self, texture_surface: np.ndarray) -> np.ndarray:
         """
         Calculate capacity map for cover image
         """
