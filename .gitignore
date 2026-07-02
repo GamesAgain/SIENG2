@@ -1,6 +1,7 @@
 .gitignore
 
 # Environments
+venv
 .venv/
 env/
 .env

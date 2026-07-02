@@ -1,6 +1,9 @@
 from pathlib import Path
+import os
+import shutil
 import struct
 import zlib
+from datetime import datetime
 
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
@@ -17,6 +20,35 @@ from PIL.PngImagePlugin import PngInfo
 MAKER_TYPE = "stWo"
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
+# ตัวคั่นรายชื่อ key ใน TOC (stWo) - ใช้ newline เพราะ PNG keyword ตามสเปกห้ามมี newline
+# (Latin-1 33-126, 161-255) แต่ "อนุญาต" comma ได้ -> ถ้าใช้ comma คั่น key ที่มี comma จะพัง
+TOC_DELIMITER = "\n"
+
+
+# =====================================================================
+# PNG Textual Keyword Registry
+# =====================================================================
+# keyword มาตรฐานตามสเปก PNG (ISO/IEC 15948 §11.3.4.2) + ชื่อ/คำอธิบายที่อ่านง่าย
+# ตัวที่ File Explorer / Windows Properties มักดึงไปแสดง = STANDARD_KEYWORDS
+PNG_TEXT_KEYWORDS = {
+    "Title":         ("Title", "Short title or caption for the image"),
+    "Author":        ("Author", "Name of the image's creator"),
+    "Description":   ("Description", "Longer description of the image"),
+    "Copyright":     ("Copyright", "Copyright notice"),
+    "Creation Time": ("Creation Time", "Time of original image creation"),
+    "Software":      ("Software", "Software used to create the image"),
+    "Disclaimer":    ("Disclaimer", "Legal disclaimer"),
+    "Warning":       ("Warning", "Warning about the nature of the content"),
+    "Source":        ("Source", "Device used to create the image"),
+    "Comment":       ("Comment", "Miscellaneous comment"),
+}
+
+# keyword ที่ "แสดงเสมอ" ในหน้า editor (แม้ไฟล์จะไม่มีค่านี้) - ตัวที่ File Explorer โชว์บ่อยสุด
+STANDARD_KEYWORDS = ["Title", "Author", "Description", "Copyright", "Creation Time", "Software"]
+
+# ความยาว keyword สูงสุดตามสเปก PNG (bytes)
+MAX_KEYWORD_LENGTH = 79
+
 
 class MetadataPNGHandler:
     """
@@ -27,17 +59,36 @@ class MetadataPNGHandler:
 
     # ================= PUBLIC API: embed / extract =================
 
-    def embed_metadata(self, file_path: str, data: dict, save_path: str = None) -> str:
+    def embed_metadata(self, file_path: str, data: dict, save_path: str = None, create_backup: bool = True, merge_existing: bool = True) -> str:
+        """
+        ฝัง metadata ลงไฟล์ PNG (iTXt สำหรับค่าจริง + stWo สำหรับสารบัญ key)
+
+        Args:
+            file_path: ไฟล์ต้นฉบับ (จะไม่ถูกแก้ไขถ้า save_path ต่างจากนี้)
+            data: dict {keyword: value} ที่จะฝัง
+            save_path: ปลายทาง (ค่าเริ่มต้น = file_path คือเขียนทับที่เดิม)
+            create_backup: สำรองไฟล์ก่อนแก้ไข (มีผลเฉพาะตอนเขียนทับที่เดิมเท่านั้น)
+            merge_existing: True = รวม text chunk เดิมในไฟล์เข้ากับ data (คง cover metadata ไว้)
+                            False = เขียนเฉพาะ data ที่ส่งมา (ใช้ตอน editor ที่จัดการ state ครบแล้ว
+                                    เพื่อให้ "ลบ key" ทำงานได้จริง)
+        """
         if save_path is None:
             save_path = file_path
 
-        key_string = ",".join(data.keys())
+        # สำรองไฟล์เฉพาะตอนเขียนทับที่เดิม (Save As ไปไฟล์ใหม่ ต้นฉบับไม่ถูกแตะ จึงไม่ต้อง backup)
+        if create_backup and Path(save_path).resolve() == Path(file_path).resolve():
+            backup_path = self.safe_copy(file_path)
+            print(f"[Info] สร้างไฟล์สำรอง: {backup_path}")
+
+        # TOC เก็บเฉพาะรายชื่อ key ที่ฝัง คั่นด้วย newline (กัน key ที่มี comma ทำ TOC พัง)
+        key_string = TOC_DELIMITER.join(data.keys())
 
         # 1. เขียนค่าจริงลง iTXt ก่อน (file_path -> save_path)
-        self.write_itxt_chunk(file_path, data, save_path)
+        self.write_itxt_chunk(file_path, data, save_path, merge_existing=merge_existing)
 
-        # 2. แทรกสารบัญ key ลงใน stWo
-        self.inject_custom_chunk(save_path, save_path, MAKER_TYPE, key_string)
+        # 2. แทรกสารบัญ key ลงใน stWo (ถ้ามี key จะฝังจริงๆ)
+        if data:
+            self.inject_custom_chunk(save_path, save_path, MAKER_TYPE, key_string)
 
         return save_path
 
@@ -65,24 +116,62 @@ class MetadataPNGHandler:
 
         return result
 
+    # ================= Utility: สำรองไฟล์ก่อนแก้ไข =================
+
+    def safe_copy(self, file_path: str, suffix: str = "_backup") -> str:
+        """
+        สร้างไฟล์สำรอง (สำเนาของไฟล์ก่อนแก้ไข) ไว้เผื่อกู้คืน
+        เหมือนกับ MetadataMP3Handler.safe_copy()
+
+        Args:
+            file_path: path ของไฟล์ที่จะ copy
+            suffix: suffix ที่จะเพิ่มในชื่อไฟล์สำรอง (ค่าเริ่มต้น "_backup")
+
+        Returns:
+            str: path ของไฟล์สำรอง
+        """
+        src_path = Path(file_path)
+
+        if not src_path.exists():
+            raise FileNotFoundError(f"File not found: {src_path}")
+
+        dst_path = src_path.with_stem(f"{src_path.stem}{suffix}")
+
+        # ถ้ามีชื่อซ้ำให้เพิ่ม timestamp กำกับ
+        if dst_path.exists():
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            dst_path = src_path.with_stem(f"{src_path.stem}{suffix}_{ts}")
+
+        shutil.copy2(src_path, dst_path)
+        return str(dst_path)
+
     # ================= iTXt: metadata มาตรฐาน (ผ่าน PIL) =================
 
-    def write_itxt_chunk(self, file_path: str, data: dict, save_file_path: str = None, is_compress: bool = True):
+    def write_itxt_chunk(self, file_path: str, data: dict, save_file_path: str = None, is_compress: bool = True, merge_existing: bool = True):
         if save_file_path is None:
             save_file_path = file_path
 
         with Image.open(file_path) as img:
-            # รวมค่าเดิม (ถ้ามี) กับค่าใหม่ - key ซ้ำให้ค่าใหม่ทับค่าเดิม
-            # (PngInfo() ใหม่เริ่มจากศูนย์เสมอ ถ้าไม่ทำแบบนี้ iTXt/tEXt เดิมจะหายไป)
-            merged = dict(img.text)
-            merged.update(data)
+            if merge_existing:
+                # รวมค่าเดิม (ถ้ามี) กับค่าใหม่ - key ซ้ำให้ค่าใหม่ทับค่าเดิม
+                # (PngInfo() ใหม่เริ่มจากศูนย์เสมอ ถ้าไม่ทำแบบนี้ iTXt/tEXt เดิมจะหายไป)
+                merged = dict(img.text)
+                merged.update(data)
+            else:
+                # เขียนเฉพาะ data ที่ส่งมา - key เดิมที่ไม่ได้อยู่ใน data จะถูก "ลบ" ออกจริง
+                # (editor ที่โหลด metadata ทั้งหมดมาแล้วต้องใช้โหมดนี้ เพื่อให้การลบ field ทำงานได้)
+                merged = dict(data)
 
             metadata = PngInfo()
             for key, value in merged.items():
                 metadata.add_itxt(key, value, zip=is_compress)
 
-            img.save(save_file_path, "PNG", pnginfo=metadata)
+            # เขียนลงไฟล์ชั่วคราวก่อนเสมอ (แม้ save_file_path == file_path ที่กำลังเปิดอ่านอยู่)
+            # กัน PIL เขียนทับไฟล์ต้นฉบับขณะที่ยังถืออ่านอยู่ ซึ่งเสี่ยงไฟล์เสียหาย
+            tmp_path = f"{save_file_path}.tmp"
+            img.save(tmp_path, "PNG", pnginfo=metadata)
 
+        os.replace(tmp_path, save_file_path)
         print(f"[+] Successfully wrote metadata to: {save_file_path}")
 
     def read_itxt_chunk(self, file_path: str) -> dict:
@@ -182,7 +271,7 @@ class MetadataPNGHandler:
                     payload = chunk_data.decode("utf-8")
                 except UnicodeDecodeError:
                     return None
-                return [k for k in payload.split(",") if k]
+                return [k for k in payload.split(TOC_DELIMITER) if k]
 
         return None
         

@@ -234,8 +234,24 @@ class MultiFileDropWidget(QFrame):
             if not self.selected_files:
                 self.scroll_area.hide() # ถ้าไม่มีไฟล์แล้ว ให้ซ่อนกรอบ
                 
-            self.update_drop_zone_state()    
+            self.update_drop_zone_state()
             self.files_changed.emit(self.selected_files)
+
+    def clear_all(self):
+        """ล้างไฟล์ที่เลือกไว้ทั้งหมด กลับไปเป็นกล่อง drop zone ค่าเริ่มต้น"""
+        # ลบแถว FileItemWidget ทั้งหมดออกจาก layout
+        while self.list_layout.count():
+            item = self.list_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+
+        self.selected_files.clear()
+        self._preview_pixmap = None
+        self.scroll_area.hide()
+
+        self.update_drop_zone_state()
+        self.files_changed.emit(self.selected_files)
 
     # --- Event Overrides ---
     def resizeEvent(self, event):

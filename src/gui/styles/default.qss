@@ -427,3 +427,174 @@ QPushButton#btnRemoveFile:hover {
 QPushButton#btnRemoveFile:pressed {
     background-color: rgba(244, 63, 94, 0.2);
 }
+
+
+
+/* --- Metadata: Selected File Info Card --- */
+QFrame#fileInfoCard {
+    background-color: #252525;
+    border: 1px solid #304B57;
+    border-radius: 10px;
+}
+
+/* กรอบไอคอนไฟล์ */
+QFrame#fileInfoIconBox {
+    background-color: rgba(56, 189, 248, 0.1);
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    border-radius: 8px;
+}
+
+/* ชื่อไฟล์ */
+QLabel#fileInfoName {
+    color: #E2E8F0;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+/* บรรทัดรายละเอียด (ขนาด · ระยะเวลา · บิตเรต · เวอร์ชันแท็ก ฯลฯ) */
+QLabel#fileInfoDetail {
+    color: #94A3B8;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+}
+
+/* Badge กลาง (สี default = neutral) */
+QLabel#fileInfoBadge {
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 5px;
+    background-color: rgba(148, 163, 184, 0.08);
+    border: 1px solid #343434;
+    color: #94A3B8;
+}
+
+/* Badge สีฟ้า เช่น ID3v2.4 / PNG */
+QLabel#fileInfoBadge[badgeColor="blue"] {
+    background-color: rgba(56, 189, 248, 0.1);
+    border: 1px solid rgba(56, 189, 248, 0.5);
+    color: #38BDF8;
+}
+
+/* Badge สีเขียว เช่น UTF-8 */
+QLabel#fileInfoBadge[badgeColor="green"] {
+    background-color: rgba(52, 211, 153, 0.1);
+    border: 1px solid rgba(52, 211, 153, 0.5);
+    color: #34D399;
+}
+
+/* ปุ่มเปลี่ยนไฟล์ */
+QPushButton#ChangeFileBtn {
+    background-color: transparent;
+    border: 1px solid #343434;
+    border-radius: 6px;
+    color: #94A3B8;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 7px 14px;
+}
+
+QPushButton#ChangeFileBtn:hover {
+    border: 1px solid #38bdf8;
+    color: #E2E8F0;
+}
+
+QPushButton#ChangeFileBtn:pressed {
+    background-color: rgba(56, 189, 248, 0.15);
+}
+
+/* Badge สีม่วง/ส้ม เพิ่มเติม (ใช้ร่วมกับ #fileInfoBadge[badgeColor=...] เดิม) */
+QLabel#fileInfoBadge[badgeColor="purple"] {
+    background-color: rgba(167, 139, 250, 0.1);
+    border: 1px solid rgba(167, 139, 250, 0.5);
+    color: #A78BFA;
+}
+QLabel#fileInfoBadge[badgeColor="orange"] {
+    background-color: rgba(245, 158, 15, 0.1);
+    border: 1px solid rgba(245, 158, 15, 0.5);
+    color: #F59E0F;
+}
+
+
+
+/* --- MP3 Metadata Editor --- */
+
+/* ข้อความ hint เล็กๆ ท้าย header (เช่น "แสดงเสมอไม่ว่าจะมีข้อมูลไหม") */
+QLabel#hintLabel {
+    color: #64748B;
+    font-size: 10px;
+    font-style: italic;
+}
+
+/* ปุ่มรอง (Cancel, Replace, Revert, Add Frame) */
+QPushButton#SecondaryBtn {
+    background-color: transparent;
+    border: 1px solid #343434;
+    border-radius: 6px;
+    color: #94A3B8;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 7px 14px;
+}
+QPushButton#SecondaryBtn:hover {
+    border: 1px solid #38bdf8;
+    color: #E2E8F0;
+}
+QPushButton#SecondaryBtn:pressed {
+    background-color: rgba(56, 189, 248, 0.15);
+}
+
+/* ปุ่มลิงก์ข้อความล้วน (+ เพิ่ม instance) */
+QPushButton#LinkBtn {
+    background-color: transparent;
+    border: none;
+    color: #38BDF8;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 0px;
+}
+QPushButton#LinkBtn:hover {
+    color: #7dd3fc;
+    text-decoration: underline;
+}
+
+/* Dropdown (Picture Type / Add Frame) */
+QComboBox {
+    background-color: #252525;
+    border: 1px solid rgba(56, 189, 248, 0.20);
+    border-radius: 6px;
+    padding: 6px 10px;
+    color: #e2e8f0;
+    font-size: 12px;
+}
+QComboBox:hover {
+    border: 1px solid #38bdf8;
+}
+QComboBox::drop-down {
+    border: none;
+    width: 24px;
+}
+QComboBox QAbstractItemView {
+    background-color: #252525;
+    border: 1px solid #343434;
+    selection-background-color: rgba(56, 189, 248, 0.2);
+    color: #e2e8f0;
+    outline: none;
+}
+
+/* การ์ดรูป APIC */
+QFrame#apicCard {
+    background-color: #252525;
+    border: 1px solid #343434;
+    border-radius: 8px;
+}
+
+/* กล่อง preview รูปใน APIC card - สีพื้นหลังหมุนเวียนตาม index กันดูจืดเวลามีหลายรูป */
+QFrame#apicPreview {
+    border-radius: 8px 8px 0px 0px;
+}
+QFrame#apicPreview[tintColor="blue"] { background-color: rgba(56, 189, 248, 0.12); }
+QFrame#apicPreview[tintColor="purple"] { background-color: rgba(167, 139, 250, 0.12); }
+QFrame#apicPreview[tintColor="green"] { background-color: rgba(52, 211, 153, 0.12); }
+QFrame#apicPreview[tintColor="orange"] { background-color: rgba(245, 158, 15, 0.12); }
