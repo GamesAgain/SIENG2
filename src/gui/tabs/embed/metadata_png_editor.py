@@ -189,7 +189,7 @@ class PNGMetadataEditor(QFrame):
         title_icon.setPixmap(create_icon_pixmap(ICON_DIR / "tags.svg", size=16))
         title_label = QLabel("Standard Metadata")
         title_label.setObjectName("cardTitle")
-        hint = QLabel("Always shown — keys File Explorer reads")
+        hint = QLabel("Always shown")
         hint.setObjectName("hintLabel")
         title_layout.addWidget(title_icon)
         title_layout.addWidget(title_label)

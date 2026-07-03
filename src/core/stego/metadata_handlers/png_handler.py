@@ -13,22 +13,20 @@ from PIL.PngImagePlugin import PngInfo
 # ออกแบบตามกฎตัวอักษรพิมพ์เล็ก-ใหญ่ (Bit 5) ของมาตรฐาน PNG
 # =====================================================================
 # 's' (เล็ก)  : Ancillary    -> เป็นส่วนเสริม โปรแกรมที่ไม่รู้จักสามารถข้ามได้ (ภาพไม่พัง)
-# 't' (เล็ก)  : Private      -> ระบุว่าสร้างขึ้นเอง (ไม่ชนกับมาตรฐานสากล)
+# 't' (เล็ก)  : Private      -> ระบุว่าสร้างขึ้นเอง (ไม่ชนกับมาตรฐาน)
 # 'W' (ใหญ่) : Reserved     -> กฎบังคับ PNG: ตัวอักษรที่ 3 "ต้อง" เป็นพิมพ์ใหญ่เสมอ
 # 'o' (เล็ก)  : Safe-to-copy -> ข้อมูลไม่สูญหาย แม้ภาพจะถูกนำไปปรับแต่งหรือแก้ไข
 # =====================================================================
-MAKER_TYPE = "stWo"
+MAKER_TYPE = "stWo" # มาจาก SIENG 2 [TWO]
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
-# ตัวคั่นรายชื่อ key ใน TOC (stWo) - ใช้ newline เพราะ PNG keyword ตามสเปกห้ามมี newline
-# (Latin-1 33-126, 161-255) แต่ "อนุญาต" comma ได้ -> ถ้าใช้ comma คั่น key ที่มี comma จะพัง
+# ตัวคั่นรายชื่อ key ใน TOC (stWo)
 TOC_DELIMITER = "\n"
-
 
 # =====================================================================
 # PNG Textual Keyword Registry
 # =====================================================================
-# keyword มาตรฐานตามสเปก PNG (ISO/IEC 15948 §11.3.4.2) + ชื่อ/คำอธิบายที่อ่านง่าย
+# keyword มาตรฐานตามสเปก PNG (ISO/IEC 15948 §11.3.4.2) + ชื่อ/คำอธิบาย
 # ตัวที่ File Explorer / Windows Properties มักดึงไปแสดง = STANDARD_KEYWORDS
 PNG_TEXT_KEYWORDS = {
     "Title":         ("Title", "Short title or caption for the image"),
@@ -49,6 +47,9 @@ STANDARD_KEYWORDS = ["Title", "Author", "Description", "Copyright", "Creation Ti
 # ความยาว keyword สูงสุดตามสเปก PNG (bytes)
 MAX_KEYWORD_LENGTH = 79
 
+# ==========================================
+# Main Class
+# ==========================================
 
 class MetadataPNGHandler:
     """
@@ -115,35 +116,6 @@ class MetadataPNGHandler:
                 print(f"[!] Warning: key '{key}' อยู่ใน stWo แต่ไม่พบใน iTXt")
 
         return result
-
-    # ================= Utility: สำรองไฟล์ก่อนแก้ไข =================
-
-    def safe_copy(self, file_path: str, suffix: str = "_backup") -> str:
-        """
-        สร้างไฟล์สำรอง (สำเนาของไฟล์ก่อนแก้ไข) ไว้เผื่อกู้คืน
-        เหมือนกับ MetadataMP3Handler.safe_copy()
-
-        Args:
-            file_path: path ของไฟล์ที่จะ copy
-            suffix: suffix ที่จะเพิ่มในชื่อไฟล์สำรอง (ค่าเริ่มต้น "_backup")
-
-        Returns:
-            str: path ของไฟล์สำรอง
-        """
-        src_path = Path(file_path)
-
-        if not src_path.exists():
-            raise FileNotFoundError(f"File not found: {src_path}")
-
-        dst_path = src_path.with_stem(f"{src_path.stem}{suffix}")
-
-        # ถ้ามีชื่อซ้ำให้เพิ่ม timestamp กำกับ
-        if dst_path.exists():
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            dst_path = src_path.with_stem(f"{src_path.stem}{suffix}_{ts}")
-
-        shutil.copy2(src_path, dst_path)
-        return str(dst_path)
 
     # ================= iTXt: metadata มาตรฐาน (ผ่าน PIL) =================
 
@@ -274,66 +246,32 @@ class MetadataPNGHandler:
                 return [k for k in payload.split(TOC_DELIMITER) if k]
 
         return None
-        
-if __name__ == "__main__":
-    png_handler = MetadataPNGHandler()
     
-    # คำนวณตำแหน่งไฟล์รูปภาพจำลอง
-    sample_dir = Path(__file__).resolve().parent.parent.parent.parent.parent
-    img_path = sample_dir / "sample" / "img" / "1.png"
-    output_path = sample_dir / "sample" / "img" / "1_edited.png"
-    
-    print(f"[*] Target Image Path: {img_path}")
-    
-    # ข้อมูลลับที่จะใช้ทดสอบระบบ (Payload)
-    payload = {
-        "Author": "SIENG2",
-        "Copyright": "Studio 2026",
-        "Description": "ทดสอบภาษาไทยผ่าน iTXt",
-        "SecretFlag": "FLAG{STEGO_MASTER}"
-    }
-    
-    if img_path.exists():
-        print("[*] Metadata PNG Handler Initialized Ready.\n")
-        
-        # ==========================================================
-        # STEP 1: ทดสอบการฝังข้อมูล (Embed) - ทำงาน 2 ชั้น (iTXt + stWo)
-        # ==========================================================
-        print(f"[*] === STEP 1: Embedding Metadata ===")
-        print(f"    Payload ที่ต้องการซ่อน: {list(payload.keys())}")
-        
-        try:
-            saved_file = png_handler.embed_metadata(str(img_path), payload, str(output_path))
-            print(f"[+] ฝังข้อมูลสำเร็จ! ไฟล์ถูกบันทึกที่: {saved_file}\n")
-        except Exception as e:
-            print(f"[-] เกิดข้อผิดพลาดในการ Embed: {e}\n")
-            
-        # ==========================================================
-        # STEP 2: ทดสอบการสกัดข้อมูล (Extract) - อ่านผ่านสารบัญ stWo
-        # ==========================================================
-        print(f"[*] === STEP 2: Extracting Metadata ===")
-        if output_path.exists():
-            try:
-                print(f"    กำลังอ่านข้อมูลจากไฟล์: {output_path.name}")
-                extracted_data = png_handler.extract_metadata(str(output_path))
-                
-                print("\n[+] สกัดข้อมูลสำเร็จ! ผลลัพธ์ที่ได้:")
-                for k, v in extracted_data.items():
-                    print(f"    -> {k} : {v}")
-                    
-                # ตรวจสอบความถูกต้อง (Validation)
-                if len(extracted_data) == len(payload):
-                    print("\n[✔] ยืนยันความถูกต้อง: ข้อมูลที่สกัดได้ตรงกับต้นฉบับ 100%")
-                else:
-                    print("\n[!] คำเตือน: ข้อมูลสูญหายหรือไม่ครบถ้วน")
-                    
-            except Exception as e:
-                print(f"[-] เกิดข้อผิดพลาดในการ Extract: {e}")
-        else:
-            print(f"[-] Error: ไม่พบไฟล์ผลลัพธ์ {output_path.name} สำหรับทำการทดสอบ Extract")
-            
-    else:
-        print(f"[-] Error: หาไฟล์ภาพไม่เจอในตำแหน่ง: {img_path}")
-        print("    แนะนำ: โปรดตรวจสอบ Path ของรูปภาพต้นฉบับอีกครั้ง")
-        
-    print("\n[*] Script finished execution.")
+    # ================= Utility: สำรองไฟล์ก่อนแก้ไข =================
+
+    def safe_copy(self, file_path: str, suffix: str = "_backup") -> str:
+        """
+        สร้างไฟล์สำรอง (สำเนาของไฟล์ก่อนแก้ไข) ไว้เผื่อกู้คืน
+        เหมือนกับ MetadataMP3Handler.safe_copy()
+
+        Args:
+            file_path: path ของไฟล์ที่จะ copy
+            suffix: suffix ที่จะเพิ่มในชื่อไฟล์สำรอง (ค่าเริ่มต้น "_backup")
+
+        Returns:
+            str: path ของไฟล์สำรอง
+        """
+        src_path = Path(file_path)
+
+        if not src_path.exists():
+            raise FileNotFoundError(f"File not found: {src_path}")
+
+        dst_path = src_path.with_stem(f"{src_path.stem}{suffix}")
+
+        # ถ้ามีชื่อซ้ำให้เพิ่ม timestamp กำกับ
+        if dst_path.exists():
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            dst_path = src_path.with_stem(f"{src_path.stem}{suffix}_{ts}")
+
+        shutil.copy2(src_path, dst_path)
+        return str(dst_path)

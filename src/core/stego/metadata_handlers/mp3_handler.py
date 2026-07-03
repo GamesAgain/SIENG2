@@ -1,26 +1,4 @@
-"""
-MP3Handler - จัดการ metadata สำหรับไฟล์ MP3 (ID3v2.4 + UTF-8)
-ผสานความสามารถจากทั้งสองไฟล์เดิม
-
-ติดตั้ง library ก่อนใช้งาน:
-    pip install mutagen
-
-ตัวอย่างการใช้งาน:
-    handler = MP3Handler()
-    
-    # อ่าน metadata แบบง่าย
-    meta = handler.read_metadata("song.mp3")
-    
-    # อ่าน metadata แบบแยกประเภท
-    std, user, complex = handler.read_metadata_categorized("song.mp3")
-    
-    # แก้ไขและบันทึก (โดยอัตโนมัติสำรองไฟล์ต้นฉบับ)
-    meta["TIT2"] = "ชื่อเพลงใหม่"
-    handler.write_metadata(meta, "song.mp3")
-"""
-
 from pathlib import Path
-from pprint import pprint
 import shutil
 from datetime import datetime
 from typing import Any
@@ -172,21 +150,11 @@ APIC_TYPES = {
     20: "Publisher/Studio logotype"
 }
 
-
-# ==========================================
-# Constants
-# ==========================================
-
 # frame ที่เป็น timestamp (ใช้ format ISO 8601 เช่น "2024-03-15")
 TIMESTAMP_FRAMES = {"TDRC", "TDRL", "TDEN", "TDOR", "TDTG"}
 
 # frame ที่มีได้หลาย instance ในไฟล์เดียว (ต่างกันที่ desc/lang)
 MULTI_INSTANCE_FRAMES = {"TXXX", "WXXX", "COMM", "USLT", "APIC", "GEOB", "UFID", "PRIV", "POPM", "SYLT", "SIGN", "USER"}
-
-
-# ==========================================
-# Helper Functions
-# ==========================================
 
 def frame_to_str(frame: Any) -> str:
     """แปลง ID3 frame เป็น string"""
@@ -214,16 +182,18 @@ class MetadataMP3Handler:
     - embed_metadata() → ฝัง metadata ลงไฟล์ MP3
     - extract_metadata() → ถอด metadata ของไฟล์ MP3
     
-    - read_metadata() → คืน dict {frame_id: value} (จาก mp3_handler.py)
-    - read_metadata_categorized() → คืน tuple (std, user, complex) (จาก metadata.py)
+    - read_metadata() → คืน dict {frame_id: value}
+    - read_metadata_categorized() → คืน tuple (std, user, complex)
     - write_metadata() → เขียน metadata โดยอัตโนมัติสำรองไฟล์ต้นฉบับ
     - safe_copy() → สร้างไฟล์สำรองก่อนแก้ไข
     """
 
     def __init__(self):
         self.enc = Encoding.UTF8
-        self._cipher = SymmetricEncryption()
-
+        self.cipher = SymmetricEncryption()
+        
+    # ================= PUBLIC API: embed / extract =================
+    
     def embed_metadata(self, file_path: str, data: dict, save_path: str = None, password: str = None, clear_existing: bool = False) -> str:
         """
         เขียน metadata ลงไฟล์ MP3 แบบ "merge" กับ frame เดิม (ไม่ล้างของเดิมทิ้ง)
@@ -250,12 +220,11 @@ class MetadataMP3Handler:
             for frame in self._build_frames(frame_id, value):
                 toc_keys.append(frame.HashKey)
 
-        # 2. แปะสารบัญ PRIV:S2M เฉพาะตอนมีอะไรจะ track จริงๆ (ถ้า data ว่างเปล่า ไม่ต้องเติม marker
-        #    ค้างไว้ - ไม่งั้นไฟล์ที่ตั้งใจให้ว่างจริงๆ เช่นตอนกด Clear แล้ว Save เลย จะเหลือ frame ค้าง 1 อัน)
+        # 2. แปะสารบัญ PRIV:S2M เฉพาะตอนมีอะไรจะ track จริงๆ (ถ้า data ว่างเปล่า ไม่ต้องเติม marker ค้างไว้)
         if toc_keys:
             key_bytes = ",".join(toc_keys).encode('utf-8')
             if password:
-                key_bytes = self._cipher.encrypt(key_bytes, password)
+                key_bytes = self.cipher.encrypt(key_bytes, password)
 
             if "PRIV" not in data:
                 data["PRIV"] = []
@@ -296,7 +265,7 @@ class MetadataMP3Handler:
             raw_toc = frame.data
             if password:
                 try:
-                    raw_toc = self._cipher.decrypt(raw_toc, password)
+                    raw_toc = self.cipher.decrypt(raw_toc, password)
                 except ValueError:
                     print("[-] ถอดรหัสสารบัญไม่สำเร็จ: รหัสผ่านไม่ถูกต้อง")
                     return {}
@@ -634,8 +603,7 @@ class MetadataMP3Handler:
 
     def write_metadata(self, data: dict, save_path: str, source_path: str = None, create_backup: bool = True, clear_existing: bool = False) -> str:
         """
-        เขียน metadata ลงไฟล์ MP3 ที่ save_path โดยตรง (ผลลัพธ์อยู่ที่ save_path เสมอ
-        ไม่ใช่ไฟล์สำรอง — ต่างจากพฤติกรรมเดิมที่ path ที่คืนค่าไม่ตรงกับ save_path ที่ส่งเข้ามา)
+        เขียน metadata ลงไฟล์ MP3 ที่ save_path โดยตรง
 
         เขียนแบบ "merge" ระดับ instance เดียว: แทนที่เฉพาะ frame ที่ตรง HashKey เป๊ะๆ
         (เช่น "TXXX:SIENG_SECRET") ส่วน frame อื่นที่เหลือ - ทั้งประเภทที่ไม่เกี่ยวข้องเลย
@@ -893,9 +861,7 @@ class MetadataMP3Handler:
         print(f"[!] Warning: ไม่รองรับการเขียน frame '{frame_id}' ข้ามไป")
         return []
 
-    # ──────────────────────────────────────────────────────────────
-    # Utility Functions
-    # ──────────────────────────────────────────────────────────────
+    # ========== Utility Functions ==========
 
     def safe_copy(self, file_path: str, suffix: str = "_backup") -> str:
         """
@@ -947,107 +913,3 @@ class MetadataMP3Handler:
             str: คำอธิบายประเภทรูปภาพ
         """
         return APIC_TYPES.get(type_id, f"Unknown type {type_id}")
-
-
-# ==========================================
-# Main Function - Demo
-# ==========================================
-
-def main():
-    """ตัวอย่างการใช้งานและทดสอบระบบ SIENG2 MP3 Metadata Handler"""
-    
-    # 1. กำหนดและคำนวณ Path สำหรับไฟล์ทดสอบ
-    sample_dir = Path(__file__).resolve().parent.parent.parent.parent.parent
-    mp3_path = sample_dir / "sample" / "mp3" / "sample-3s.mp3"
-    cover_img_path = sample_dir / "sample" / "img" / "1.png"
-    output_path = sample_dir / "sample" / "mp3" / "sample-3s_edited.mp3"
-    
-    if not mp3_path.exists():
-        print(f"[-] [Error] ไม่พบไฟล์: {mp3_path}")
-        print("    กรุณาสร้างไฟล์ MP3 ตัวอย่างหรือปรับ path ให้ถูกต้อง")
-        return
-    
-    print("=" * 70)
-    print("SIENG 2 : MP3 Metadata Handler Test")
-    print("=" * 70)
-    
-    # สร้าง Handler Instance
-    handler = MetadataMP3Handler()
-    
-    # ==========================================
-    # ส่วนที่ 1: การจัดการ Metadata พื้นฐาน (Standard Operations)
-    # ==========================================
-    print("\n[*] --- ส่วนที่ 1: ตรวจสอบข้อมูลต้นฉบับ ---")
-    meta = handler.read_metadata(str(mp3_path))
-    print(f"[+] อ่านไฟล์ต้นฉบับสำเร็จ พบข้อมูลทั้งหมด {len(meta)} frames")
-    
-    # ==========================================
-    # ส่วนที่ 2: ทดสอบระบบสารบัญซ่อนข้อมูล (Steganography / Embed & Extract)
-    # ==========================================
-    print("\n[*] --- ส่วนที่ 2: ทดสอบระบบสารบัญซ่อนข้อมูล (S2M TOC) ---")
-    
-    # ข้อมูลลับที่ต้องการนำไปฝัง (Payload)
-    secret_payload = {
-        "TIT2": "SIENG 2 - MP3 Steganography Test",
-        "TPE1": "ผู้พัฒนาแพลตฟอร์ม",
-        "TALB": "Secret Workspace",
-        "COMM": [{
-            "lang": "tha",
-            "desc": "HiddenData",
-            "text": "ข้อความลับนี้ถูกดึงผ่านสารบัญ PRIV S2M"
-        }],
-        "TXXX": [{
-            "desc": "SIENG_KEY",
-            "text": "FLAG{MP3_STEGO_MASTER_2026}"
-        }]
-    }
-    
-    # แนบรูปภาพปก (ถ้ามีไฟล์อยู่จริง)
-    if cover_img_path.exists():
-        secret_payload["APIC"] = [{
-            "desc": "Secret Cover",
-            "type": 3,
-            "path": str(cover_img_path)
-        }]
-
-    print(f"    กำลังฝังข้อมูล (Embed) คีย์ต่อไปนี้ลงสารบัญ: {list(secret_payload.keys())}")
-    
-    try:
-        # ทดสอบการ Embed (ฟังก์ชันนี้จะสร้าง PRIV S2M ให้โดยอัตโนมัติ)
-        saved_file = handler.embed_metadata(str(mp3_path), secret_payload, str(output_path))
-        print(f"[+] บันทึกไฟล์ที่ซ่อนข้อมูลสำเร็จ: {Path(saved_file).name}")
-        
-        # ทดสอบการ Extract (ระบบจะต้องอ่านเจอเฉพาะคีย์ที่อยู่ในสารบัญ PRIV S2M เท่านั้น)
-        print("\n    กำลังสกัดข้อมูล (Extract) ผ่านสารบัญ...")
-        extracted_data = handler.extract_metadata(saved_file)
-        
-        if not extracted_data:
-            print("[-] [Error] สกัดข้อมูลไม่สำเร็จ หรือไม่พบสารบัญ S2M")
-        else:
-            print("[+] สกัดข้อมูลสำเร็จ! ผลลัพธ์ที่ดึงออกมาได้:")
-            for key, value in extracted_data.items():
-                # ตัดทอนข้อมูล APIC ไม่ให้รกหน้าจอเวลา Print
-                if key == "APIC" and isinstance(value, list):
-                    print(f"    -> {key} : [Image Data Included]")
-                else:
-                    print(f"    -> {key} : {value}")
-            
-            # ตรวจสอบความถูกต้อง (Validation)
-            # ลบ PRIV ทิ้งชั่วคราวตอนเทียบ เพราะ embed_metadata แอบยัด PRIV ลงไปในตัวแปร dict ด้วย
-            test_keys = set(secret_payload.keys()) - {"PRIV"}
-            extracted_keys = set(extracted_data.keys())
-            
-            if test_keys.issubset(extracted_keys):
-                print("\n[✔] PASS: ข้อมูลที่ Extract ได้ตรงกับ Payload ต้นฉบับ 100%")
-            else:
-                print("\n[!] FAIL: ข้อมูลสูญหายระหว่างทาง")
-                
-    except Exception as e:
-        print(f"[-] [Error] เกิดข้อผิดพลาดในระบบ Embed/Extract: {e}")
-
-    print("\n" + "=" * 70)
-    print("ทดสอบเสร็จสิ้น พร้อมนำไปประกอบหน้าต่าง GUI แล้ว!")
-    print("=" * 70)
-
-if __name__ == "__main__":
-    main()
