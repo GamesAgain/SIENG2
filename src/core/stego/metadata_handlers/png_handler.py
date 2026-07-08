@@ -20,6 +20,10 @@ from PIL.PngImagePlugin import PngInfo
 MAKER_TYPE = "stWo" # มาจาก SIENG 2 [TWO]
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
+# IEND chunk เต็ม 12 bytes = จุดจบไฟล์ PNG จริง ใช้แยก bytes ที่ต่อท้ายหลัง IEND
+# (เช่น payload EOF ของ Locomotive) ออกมาเก็บไว้ กันโดน re-encode ลบทิ้ง
+PNG_IEND = b"\x00\x00\x00\x00IEND\xaeB\x60\x82"
+
 # ตัวคั่นรายชื่อ key ใน TOC (stWo)
 TOC_DELIMITER = "\n"
 
@@ -76,6 +80,10 @@ class MetadataPNGHandler:
         if save_path is None:
             save_path = file_path
 
+        # เก็บ bytes ท้ายไฟล์ (payload EOF เช่นของ Locomotive) จากต้นฉบับก่อน
+        # เพราะ write_itxt/inject_custom_chunk จะ re-encode PNG แล้วตัด trailing ทิ้ง
+        trailing = self.read_trailing(file_path)
+
         # สำรองไฟล์เฉพาะตอนเขียนทับที่เดิม (Save As ไปไฟล์ใหม่ ต้นฉบับไม่ถูกแตะ จึงไม่ต้อง backup)
         if create_backup and Path(save_path).resolve() == Path(file_path).resolve():
             backup_path = self.safe_copy(file_path)
@@ -91,7 +99,19 @@ class MetadataPNGHandler:
         if data:
             self.inject_custom_chunk(save_path, save_path, MAKER_TYPE, key_string)
 
+        # 3. ต่อ bytes ท้ายไฟล์กลับ (payload EOF ของ Locomotive) หลัง re-encode เสร็จ
+        if trailing:
+            with open(save_path, "ab") as f:
+                f.write(trailing)
+
         return save_path
+
+    def read_trailing(self, file_path: str) -> bytes:
+        """คืน bytes ที่อยู่ 'หลัง IEND' ของไฟล์ PNG (เช่น payload EOF ของ Locomotive)
+        คืน b'' ถ้าเป็น PNG ปกติที่ไม่มีอะไรต่อท้าย"""
+        raw = Path(file_path).read_bytes()
+        idx = raw.find(PNG_IEND)
+        return raw[idx + len(PNG_IEND):] if idx != -1 else b""
 
     def extract_metadata(self, file_path: str) -> dict:
         """

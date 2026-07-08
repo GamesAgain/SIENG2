@@ -5,7 +5,7 @@ from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
     QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea,
-    QTabWidget, QVBoxLayout, QWidget,
+    QStackedWidget, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from src.core.stego.metadata_handlers.mp3_handler import (
@@ -13,6 +13,8 @@ from src.core.stego.metadata_handlers.mp3_handler import (
 )
 from src.gui.components.file_drop import FileDropWidget
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, create_icon_state, format_file_size
+from src.gui.components.linked_step_toggle import LinkedStepToggle
+from src.gui.components.step_output_picker import StepOutputPicker
 
 ICON_DIR = Path(__file__).parent.parent.parent / "assets" / "svg"
 
@@ -613,8 +615,11 @@ class ApicCard(QFrame):
         caption.setObjectName("fileInfoName")
         info_layout.addWidget(caption)
 
-        size_bytes = len(apic_data.get("data") or b"")
-        format_label = QLabel(f"{apic_data.get('mime', 'image')} · {format_file_size(size_bytes)}")
+        if "linked_step_index" in apic_data:
+            format_label = QLabel(f"Linked: {apic_data.get('linked_label') or 'step'} — not on disk yet")
+        else:
+            size_bytes = len(apic_data.get("data") or b"")
+            format_label = QLabel(f"{apic_data.get('mime', 'image')} · {format_file_size(size_bytes)}")
         format_label.setObjectName("fileInfoDetail")
         info_layout.addWidget(format_label)
 
@@ -658,11 +663,15 @@ class ApicCard(QFrame):
 class MP3ImagesTab(QWidget):
     changed = pyqtSignal()
 
-    def __init__(self):
+    def __init__(self, pipeline_mode: bool = False):
         super().__init__()
+        self.pipeline_mode = pipeline_mode  # True → โชว์ toggle Manual Upload/Linked from Step บนฟอร์ม Add Image
         self.apic_list = []
         self._pending_image_bytes = None
         self._pending_image_mime = None
+        self._pending_linked_index: int | None = None
+        self._pending_linked_label: str | None = None
+        self._link_candidates: dict[int, dict] = {}
 
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(0, 12, 0, 0)
@@ -722,14 +731,30 @@ class MP3ImagesTab(QWidget):
         title_layout.addWidget(title_icon)
         title_layout.addWidget(title_label)
         title_layout.addStretch()
+
+        self.image_drop_zone = FileDropWidget("Drop image here", "JPEG · PNG", allowed_extensions=["jpg", "jpeg", "png"])
+        self.image_drop_zone.file_selected.connect(self.on_image_file_selected)
+
+        if self.pipeline_mode:
+            self.image_linked_toggle = LinkedStepToggle()
+            title_layout.addWidget(self.image_linked_toggle)
         layout.addWidget(title_container)
 
         form_row = QHBoxLayout()
         form_row.setSpacing(16)
 
-        self.image_drop_zone = FileDropWidget("Drop image here", "JPEG · PNG", allowed_extensions=["jpg", "jpeg", "png"])
-        self.image_drop_zone.file_selected.connect(self.on_image_file_selected)
-        form_row.addWidget(self.image_drop_zone, 1)
+        if self.pipeline_mode:
+            # สลับระหว่าง drop zone (Manual Upload) กับ StepOutputPicker (Linked from Step)
+            # max_selection=1 เพราะแต่ละรูปที่ "Add" ครั้งนึงมาจาก step เดียว
+            self.image_source_stack = QStackedWidget()
+            self.image_source_stack.addWidget(self.image_drop_zone)
+            self.image_picker = StepOutputPicker(max_selection=1)
+            self.image_picker.selectionChanged.connect(self._on_image_link_changed)
+            self.image_source_stack.addWidget(self.image_picker)
+            self.image_linked_toggle.modeChanged.connect(self._on_image_link_mode_changed)
+            form_row.addWidget(self.image_source_stack, 1)
+        else:
+            form_row.addWidget(self.image_drop_zone, 1)
 
         right_col = QVBoxLayout()
         right_col.setSpacing(8)
@@ -759,7 +784,7 @@ class MP3ImagesTab(QWidget):
         cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         cancel_btn.clicked.connect(self.reset_add_form)
         add_btn = QPushButton("+ Add Image")
-        add_btn.setObjectName("EmbedBtn")
+        add_btn.setObjectName("PrimaryActionBtn")
         add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         add_btn.clicked.connect(self.confirm_add_image)
         btn_row.addWidget(cancel_btn)
@@ -783,16 +808,24 @@ class MP3ImagesTab(QWidget):
         self._pending_image_mime = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png"}.get(ext, "image/jpeg")
 
     def confirm_add_image(self):
-        if not self._pending_image_bytes:
+        if self._pending_linked_index is not None:
+            apic_data = {
+                "type": self.type_combo.currentData(),
+                "desc": self.desc_input.text().strip(),
+                "linked_step_index": self._pending_linked_index,  # GUI bookkeeping — configurable_page แปลงเป็น path ref ตอน commit
+                "linked_label": self._pending_linked_label,
+            }
+        elif self._pending_image_bytes:
+            apic_data = {
+                "mime": self._pending_image_mime,
+                "type": self.type_combo.currentData(),
+                "desc": self.desc_input.text().strip(),
+                "data": self._pending_image_bytes,
+            }
+        else:
             QMessageBox.warning(self, "Notice", "Please select an image first")
             return
 
-        apic_data = {
-            "mime": self._pending_image_mime,
-            "type": self.type_combo.currentData(),
-            "desc": self.desc_input.text().strip(),
-            "data": self._pending_image_bytes,
-        }
         self.apic_list.append(apic_data)
         self.rebuild_cards()
         self.reset_add_form()
@@ -804,6 +837,37 @@ class MP3ImagesTab(QWidget):
         self._reset_type_combo()
         self._pending_image_bytes = None
         self._pending_image_mime = None
+        self._pending_linked_index = None
+        self._pending_linked_label = None
+        if self.pipeline_mode:
+            self.image_linked_toggle.set_linked(False)
+            self.image_source_stack.setCurrentIndex(0)
+            self.image_picker.clear_selection()
+
+    # --- Linked-from-Step (Configurable Pipeline เท่านั้น) ---
+    def set_link_candidates(self, candidates: list[dict]):
+        self._link_candidates = {c["index"]: c for c in candidates}
+        self.image_picker.set_candidates(candidates)
+
+    def _on_image_link_mode_changed(self, is_linked: bool):
+        self.image_source_stack.setCurrentIndex(1 if is_linked else 0)
+        if not is_linked:
+            self.image_picker.clear_selection()
+            self._pending_linked_index = None
+            self._pending_linked_label = None
+        else:
+            self._pending_image_bytes = None
+            self._pending_image_mime = None
+            self.image_drop_zone.clear_file()
+
+    def _on_image_link_changed(self, indices: list[int]):
+        if not indices:
+            self._pending_linked_index = None
+            self._pending_linked_label = None
+            return
+        candidate = self._link_candidates.get(indices[0])
+        self._pending_linked_index = indices[0]
+        self._pending_linked_label = candidate["label"] if candidate else f"Step {indices[0] + 1}"
 
     def rebuild_cards(self):
         while self.cards_grid.count():
@@ -837,6 +901,8 @@ class MP3ImagesTab(QWidget):
             return
         path_obj = Path(file_path)
         ext = path_obj.suffix.lower()
+        card.apic_data.pop("linked_step_index", None)  # แทนที่ด้วยไฟล์จริง — เลิกเป็น linked entry
+        card.apic_data.pop("linked_label", None)
         card.apic_data["data"] = path_obj.read_bytes()
         card.apic_data["mime"] = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png"}.get(ext, "image/jpeg")
         self.rebuild_cards()
@@ -846,6 +912,14 @@ class MP3ImagesTab(QWidget):
         """ลบรูป APIC ทั้งหมด (reset หน้า editor ให้โล่ง)"""
         self.apic_list = []
         self.rebuild_cards()
+
+    def clear_linked_images(self):
+        """ลบเฉพาะ APIC ที่ linked จาก step อื่น (เก็บรูป manual ไว้) + reset ฟอร์ม add
+        — ใช้เวลา step ต้นทางถูกลบ ทำให้ link ค้าง"""
+        self.apic_list = [a for a in self.apic_list if "linked_step_index" not in a]
+        self.rebuild_cards()
+        if self.pipeline_mode:
+            self.reset_add_form()
 
     # --- Load / Save ---
     def load_existing(self, apic_items: list):
@@ -867,11 +941,12 @@ class MP3ImagesTab(QWidget):
 class MP3MetadataEditor(QFrame):
     save_completed = pyqtSignal(str)
 
-    def __init__(self):
+    def __init__(self, pipeline_mode: bool = False):
         super().__init__()
         self.handler = MetadataMP3Handler()
         self.file_path = None
         self._clear_before_save = False
+        self.pipeline_mode = pipeline_mode
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 12, 0, 0)
@@ -882,7 +957,7 @@ class MP3MetadataEditor(QFrame):
         self.tabs.setIconSize(QSize(16, 16))
 
         self.text_frames_tab = MP3TextFramesTab()
-        self.images_tab = MP3ImagesTab()
+        self.images_tab = MP3ImagesTab(pipeline_mode=pipeline_mode)
 
         text_scroll = QScrollArea()
         text_scroll.setWidgetResizable(True)
@@ -916,9 +991,11 @@ class MP3MetadataEditor(QFrame):
         status_row.addWidget(clear_btn)
 
         save_btn = QPushButton("Save metadata")
-        save_btn.setObjectName("EmbedBtn")
+        save_btn.setObjectName("PrimaryActionBtn")
         save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         save_btn.clicked.connect(self.save_metadata)
+        # ใน pipeline: save = embed (execute) → เป็นหน้าที่ของ Run Pipeline ไม่ใช่ตอนตั้งค่า step
+        save_btn.setVisible(not pipeline_mode)
         status_row.addWidget(save_btn)
 
         layout.addLayout(status_row)
@@ -972,10 +1049,9 @@ class MP3MetadataEditor(QFrame):
         self._clear_before_save = True
         self.update_status()
 
-    def save_metadata(self):
-        if not self.file_path:
-            return
-
+    def collect_data(self) -> dict:
+        """รวม metadata ที่กรอกทั้งหมด (text frames + APIC images) เป็น dict เดียว
+        ใช้ทั้งตอน save (standalone) และให้ pipeline ดึงไปเป็น meta_dict ของ backend"""
         data = {}
         data.update(self.text_frames_tab.get_standard_data())
         data.update(self.text_frames_tab.get_other_data())
@@ -983,6 +1059,13 @@ class MP3MetadataEditor(QFrame):
         apic_items = self.images_tab.get_value()
         if apic_items:
             data["APIC"] = apic_items
+        return data
+
+    def save_metadata(self):
+        if not self.file_path:
+            return
+
+        data = self.collect_data()
 
         # ถ้าเพิ่งกด Clear มา ยอมให้ data ว่างได้ (ตั้งใจ save ไฟล์เปล่าจริงๆ)
         if not data and not self._clear_before_save:

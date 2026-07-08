@@ -1,3 +1,4 @@
+import io
 from pathlib import Path
 from PIL import Image
 import cv2
@@ -36,6 +37,25 @@ DEFAULT_LSBPP_CONFIG = {
 MAGIC_SYM = b"SES" # Steganography Encryption Symmetric
 MAGIC_ASYM = b"SEA" # Steganography Encryption Asymmetric
 MAGIC_NONE = b"SEN" # Steganography Encryption None
+
+# IEND chunk เต็ม 12 bytes (length 0 + "IEND" + CRC) = จุดจบไฟล์ PNG จริง
+# ใช้แยก bytes ที่ต่อท้ายหลัง IEND ออก (เช่น payload EOF ของ Locomotive)
+PNG_IEND = b"\x00\x00\x00\x00IEND\xaeB\x60\x82"
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def iterate_png_chunks(raw_data_bytes: bytes):
+    """ไล่อ่านไฟล์ PNG เป็น (chunk_type, full_chunk_bytes)
+    (length 4B + type 4B + data + crc 4B) จนถึง IEND"""
+    pos = 8  # ข้าม PNG signature
+    while pos + 8 <= len(raw_data_bytes):
+        length = int.from_bytes(raw_data_bytes[pos:pos + 4], "big")
+        chunk_type = raw_data_bytes[pos + 4:pos + 8]
+        end = pos + 12 + length
+        yield chunk_type, raw_data_bytes[pos:end]
+        pos = end
+        if chunk_type == b"IEND":
+            break
 
 class LSBPP:
     def __init__(self, config: dict = None):
@@ -104,10 +124,46 @@ class LSBPP:
         # 8. Embed message
         stego_image = self.message_embedding(cover_image, data_package, pixel_order, capacity_map)
         
-        stego_name = f"{cover_image_name}_stego.png"
+        # 9. Merge Stego Image bytes
+        stego_image_bytes = self.merge_stego_bytes(cover_image_path, stego_image)
         
-        return stego_image, stego_name
-    
+        # 10. Export File name
+        stego_name = f"{cover_image_name}_stego.png"
+
+        return stego_image_bytes, stego_name
+
+    def merge_stego_bytes(self, cover_image_path: str, stego_image: Image) -> bytes :
+        """ Merge Stego Image(LSB++) กับ Original Cover Image เพื่อรักษาของเดิมของ cover ไว้ครบ:
+          1) ancillary chunks เดิม (tEXt/iTXt + custom เช่น stWo) เพื่อให้ metadata ไม่หาย
+          2) bytes ท้ายไฟล์หลัง IEND เพื่อให้ payload EOF ของ Locomotive ไม่หาย
+
+        LSB++ แก้แค่ pixel (IDAT) โดย chunk อื่นกับ trailing อยู่คนละส่วน จึงเอาของเดิมมาต่อกลับได้
+        ทำให้ซ้อนหลายเทคนิคบนไฟล์เดียวได้โดยลำดับไม่ถูกบังคับ
+        """
+
+        # bytes ที่ PIL เขียน = มีแค่ IHDR / IDAT (pixel ใหม่) / IEND
+        buffer = io.BytesIO()
+        stego_image.save(buffer, format="PNG")
+        new_chunks = list(iterate_png_chunks(buffer.getvalue()))
+
+        original_raw = Path(cover_image_path).read_bytes()
+        # เก็บ chunk เดิมที่ไม่เกี่ยว pixel ไว้ (ทุกอันที่ไม่ใช่ IHDR/IDAT/IEND) เช่น Custom chunk อย่าง stWo chunk
+        kept_chunks = [chunk_data for chunk_type, chunk_data in iterate_png_chunks(original_raw) if chunk_type not in (b"IHDR", b"IDAT", b"IEND")]
+        # bytes ต่อท้ายหลัง IEND ของต้นฉบับ (payload ของ Locomotive ถ้ามี)
+        idx = original_raw.find(PNG_IEND)
+        tail = original_raw[idx + len(PNG_IEND):] if idx != -1 else b""
+
+        # ประกอบใหม่: signature + IHDR + [chunk เดิม] + IDAT ใหม่ + IEND + tail
+        out = bytearray(PNG_SIGNATURE)
+        inserted = False
+        for chunk_type, chunk in new_chunks:
+            if chunk_type == b"IDAT" and not inserted:
+                out += b"".join(kept_chunks)   # แทรก chunk เดิมก่อน IDAT ตัวแรก
+                inserted = True
+            out += chunk
+        out += tail
+        return bytes(out)
+
     def extract(self, stego_image_path: str, private_key_path: str = None, password: str = None):
         """
         Extract payload message from stego image using LSB++ algorithm
@@ -673,4 +729,3 @@ if __name__ == "__main__":
     
     print(f"Case 3 - Message length: {len(message)}")
     print(f"Case 3 - Message : {message}")
-

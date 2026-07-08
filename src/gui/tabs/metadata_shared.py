@@ -125,7 +125,7 @@ class FileInfoBar(QFrame):
         layout.addLayout(self.badge_layout)
 
         change_file_btn = QPushButton("Change File")
-        change_file_btn.setObjectName("ChangeFileBtn")
+        change_file_btn.setObjectName("SecondaryBtn")
         change_file_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         change_file_btn.clicked.connect(self.change_file_requested.emit)
         layout.addWidget(change_file_btn)

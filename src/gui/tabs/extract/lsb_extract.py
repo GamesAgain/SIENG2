@@ -76,7 +76,7 @@ class LSBExtractTab(QFrame):
         # Execute Extract Data
         execute_extract_btn = QPushButton("Extract Data")
         execute_extract_btn.setFixedHeight(50)
-        execute_extract_btn.setObjectName("ExtractBtn")
+        execute_extract_btn.setObjectName("PrimaryActionBtn")
         final_layout.addWidget(execute_extract_btn)
         execute_extract_btn.clicked.connect(self.execute_extraction)
         
@@ -176,7 +176,8 @@ class LSBExtractTab(QFrame):
         
         # --- SYMMETRIC MODE BUTTON ---
         self.btn_symmetric = QPushButton("Password") 
-        self.btn_symmetric.setObjectName("passwordBtn")
+        self.btn_symmetric.setObjectName("encryptOptionBtn")
+        self.btn_symmetric.setProperty("accentColor", "purple")
         self.btn_symmetric.setCheckable(True)
         self.btn_symmetric.setCursor(Qt.CursorShape.PointingHandCursor)
         
@@ -189,7 +190,8 @@ class LSBExtractTab(QFrame):
         
         # --- ASYMMETRIC MODE BUTTON ---
         self.btn_asymmetric = QPushButton("Private Key")
-        self.btn_asymmetric.setObjectName("publicKeyBtn")
+        self.btn_asymmetric.setObjectName("encryptOptionBtn")
+        self.btn_asymmetric.setProperty("accentColor", "green")
         self.btn_asymmetric.setCheckable(True)
         self.btn_asymmetric.setCursor(Qt.CursorShape.PointingHandCursor)
         

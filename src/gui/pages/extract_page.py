@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QPushButton, QSta
 
 from src.gui.components.gui_utils import create_icon_state
 from src.gui.pages.sub_pages.extract.standalone_page import ExtractStandalonePage
+from src.gui.pages.sub_pages.extract.configurable_page import ExtractConfigurablePage
 
 ICON_DIR = Path(__file__).resolve().parent.parent / "assets" / "svg"
 MODE_ICON_SIZE = 16
@@ -35,7 +36,7 @@ class ExtractPage(QFrame):
         self.mode_stack = QStackedWidget()
         
         self.mode_stack.addWidget(ExtractStandalonePage())
-        self.mode_stack.addWidget(self.build_configurable_mode())
+        self.mode_stack.addWidget(ExtractConfigurablePage())
         
         self.mode_group.idClicked.connect(self.mode_stack.setCurrentIndex)
         main_layout.addWidget(self.mode_selection)
@@ -53,7 +54,8 @@ class ExtractPage(QFrame):
         
         # --- STANDALONE MODE BUTTON ---
         self.btn_standalone = QPushButton(" Standalone Mode") 
-        self.btn_standalone.setObjectName("modeStandaloneBtn")
+        self.btn_standalone.setObjectName("modeOptionBtn")
+        self.btn_standalone.setProperty("accentColor", "blue")
         self.btn_standalone.setCheckable(True)
         self.btn_standalone.setCursor(Qt.CursorShape.PointingHandCursor)
         # ADD ICON
@@ -65,7 +67,8 @@ class ExtractPage(QFrame):
         
         # --- CONFIGURABLE PIPELINE BUTTON ---
         self.btn_configurable = QPushButton(" Configurable Pipeline")
-        self.btn_configurable.setObjectName("modeConfigurableBtn")
+        self.btn_configurable.setObjectName("modeOptionBtn")
+        self.btn_configurable.setProperty("accentColor", "orange")
         self.btn_configurable.setCheckable(True)
         self.btn_configurable.setCursor(Qt.CursorShape.PointingHandCursor)
         
@@ -81,10 +84,5 @@ class ExtractPage(QFrame):
         
         # Set default selection
         self.btn_standalone.setChecked(True)
-        
+
         return mode_selection
-    
-    def build_configurable_mode(self):
-        placeholder = QLabel("Configurable Mode Placeholder")
-        placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        return placeholder

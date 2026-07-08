@@ -127,7 +127,7 @@ class PNGCustomRow(QFrame):
 class PNGMetadataEditor(QFrame):
     save_completed = pyqtSignal(str)
 
-    def __init__(self):
+    def __init__(self, pipeline_mode: bool = False):
         super().__init__()
         self.handler = MetadataPNGHandler()
         self.file_path = None
@@ -145,10 +145,10 @@ class PNGMetadataEditor(QFrame):
         self.content_layout.setContentsMargins(0, 0, 0, 0)
         self.content_layout.setSpacing(16)
 
-        self.content_layout.addWidget(self._build_standard_card())
-        self.other_card = self._build_other_card()
+        self.content_layout.addWidget(self.build_standard_card())
+        self.other_card = self.build_other_card()
         self.content_layout.addWidget(self.other_card)
-        self.content_layout.addWidget(self._build_add_card())
+        self.content_layout.addWidget(self.build_add_card())
         self.content_layout.addStretch()
 
         scroll = QScrollArea()
@@ -168,15 +168,17 @@ class PNGMetadataEditor(QFrame):
         status_row.addWidget(clear_btn)
 
         save_btn = QPushButton("Save metadata")
-        save_btn.setObjectName("EmbedBtn")
+        save_btn.setObjectName("PrimaryActionBtn")
         save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         save_btn.clicked.connect(self.save_metadata)
+        # ใน pipeline: save = embed (execute) → เป็นหน้าที่ของ Run Pipeline ไม่ใช่ตอนตั้งค่า step
+        save_btn.setVisible(not pipeline_mode)
         status_row.addWidget(save_btn)
 
         layout.addLayout(status_row)
 
     # --- Builders ---
-    def _build_standard_card(self) -> QFrame:
+    def build_standard_card(self) -> QFrame:
         card = QFrame()
         card.setObjectName("card")
         add_shadow_effect(card)
@@ -209,7 +211,7 @@ class PNGMetadataEditor(QFrame):
 
         return card
 
-    def _build_other_card(self) -> QFrame:
+    def build_other_card(self) -> QFrame:
         card = QFrame()
         card.setObjectName("card")
         add_shadow_effect(card)
@@ -238,7 +240,7 @@ class PNGMetadataEditor(QFrame):
 
         return card
 
-    def _build_add_card(self) -> QFrame:
+    def build_add_card(self) -> QFrame:
         card = QFrame()
         card.setObjectName("card")
         add_shadow_effect(card)

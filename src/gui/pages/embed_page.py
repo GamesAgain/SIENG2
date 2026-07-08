@@ -1,6 +1,7 @@
 from pathlib import Path
 from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QLabel, QPushButton, QStackedWidget, QVBoxLayout
+from src.gui.pages.sub_pages.embed.configurable_page import EmbedConfigurablePage
 from src.gui.pages.sub_pages.embed.standalone_page import EmbedStandalonePage
 from src.gui.components.gui_utils import create_icon_state
 
@@ -20,7 +21,7 @@ class EmbedPage(QFrame):
         
         main_layout = QVBoxLayout()
         self.setLayout(main_layout)
-        
+
         # Mode Selection
         self.mode_selection = self.build_mode_selection()
         
@@ -34,7 +35,7 @@ class EmbedPage(QFrame):
         self.mode_stack = QStackedWidget()
         
         self.mode_stack.addWidget(EmbedStandalonePage())
-        self.mode_stack.addWidget(self.build_configurable_mode())
+        self.mode_stack.addWidget(EmbedConfigurablePage())
         
         self.mode_group.idClicked.connect(self.mode_stack.setCurrentIndex)
         main_layout.addWidget(self.mode_selection)
@@ -53,7 +54,8 @@ class EmbedPage(QFrame):
         
         # --- STANDALONE MODE BUTTON ---
         self.btn_standalone = QPushButton(" Standalone Mode") 
-        self.btn_standalone.setObjectName("modeStandaloneBtn")
+        self.btn_standalone.setObjectName("modeOptionBtn")
+        self.btn_standalone.setProperty("accentColor", "blue")
         self.btn_standalone.setCheckable(True)
         self.btn_standalone.setCursor(Qt.CursorShape.PointingHandCursor)
         # ADD ICON
@@ -65,7 +67,8 @@ class EmbedPage(QFrame):
         
         # --- CONFIGURABLE PIPELINE BUTTON ---
         self.btn_configurable = QPushButton(" Configurable Pipeline")
-        self.btn_configurable.setObjectName("modeConfigurableBtn")
+        self.btn_configurable.setObjectName("modeOptionBtn")
+        self.btn_configurable.setProperty("accentColor", "orange")
         self.btn_configurable.setCheckable(True)
         self.btn_configurable.setCursor(Qt.CursorShape.PointingHandCursor)
         
@@ -83,13 +86,3 @@ class EmbedPage(QFrame):
         self.btn_standalone.setChecked(True)
         
         return mode_selection
-    
-    def build_standalone_mode(self):
-        placeholder = QLabel("Standalone Mode Placeholder")
-        placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        return placeholder
-    
-    def build_configurable_mode(self):
-        placeholder = QLabel("Configurable Mode Placeholder")
-        placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        return placeholder
