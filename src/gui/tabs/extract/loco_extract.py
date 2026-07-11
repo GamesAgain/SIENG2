@@ -150,28 +150,30 @@ class LocomotiveExtractTab(QFrame):
         
         # --- SYMMETRIC MODE BUTTON ---
         self.btn_symmetric = QPushButton("Password") 
-        self.btn_symmetric.setObjectName("passwordBtn")
+        self.btn_symmetric.setObjectName("encryptOptionBtn")
+        self.btn_symmetric.setProperty("accentColor", "purple")
         self.btn_symmetric.setCheckable(True)
         self.btn_symmetric.setCursor(Qt.CursorShape.PointingHandCursor)
         
         # ADD ICON
         symmetric_icon_path = ICON_DIR / "lock-open.svg"
         if symmetric_icon_path.exists():
-            standalone_icon = create_icon_state(str(symmetric_icon_path), ICON_SIZE, color_checked=COLOR_CHECKED_SYM)
-            self.btn_symmetric.setIcon(standalone_icon)
+            symmetric_icon = create_icon_state(str(symmetric_icon_path), ICON_SIZE, color_checked=COLOR_CHECKED_SYM)
+            self.btn_symmetric.setIcon(symmetric_icon)
             self.btn_symmetric.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
         
         # --- ASYMMETRIC MODE BUTTON ---
-        self.btn_asymmetric = QPushButton("Public Key")
-        self.btn_asymmetric.setObjectName("publicKeyBtn")
+        self.btn_asymmetric = QPushButton("Private Key")
+        self.btn_asymmetric.setObjectName("encryptOptionBtn")
+        self.btn_asymmetric.setProperty("accentColor", "green")
         self.btn_asymmetric.setCheckable(True)
         self.btn_asymmetric.setCursor(Qt.CursorShape.PointingHandCursor)
         
         # ADD ICON
         asymmetric_icon_path = ICON_DIR / "key.svg"
         if asymmetric_icon_path.exists():
-            configurable_icon = create_icon_state(str(asymmetric_icon_path), ICON_SIZE, color_checked=COLOR_CHECKED_ASYM)
-            self.btn_asymmetric.setIcon(configurable_icon)
+            asymmetric_icon = create_icon_state(str(asymmetric_icon_path), ICON_SIZE, color_checked=COLOR_CHECKED_ASYM)
+            self.btn_asymmetric.setIcon(asymmetric_icon)
             self.btn_asymmetric.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
         
         decrypt_layout.addWidget(self.btn_symmetric)
@@ -349,7 +351,7 @@ class LocomotiveExtractTab(QFrame):
         # Execute Extract Data
         execute_extract_btn = QPushButton("Extract Data")
         execute_extract_btn.setFixedHeight(50)
-        execute_extract_btn.setObjectName("ExtractBtn")
+        execute_extract_btn.setObjectName("PrimaryActionBtn")
         
         execute_extract_btn.clicked.connect(self.execute_extraction)
         execution_box.addWidget(execute_extract_btn)
