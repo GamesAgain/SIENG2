@@ -145,10 +145,16 @@ class EmbedConfigurablePage(QFrame):
         main_layout.addLayout(self.inline_slot)
 
         main_layout.addStretch()
-        main_layout.addLayout(self.build_execution_bar())
 
         scroll.setWidget(content)
         page_layout.addWidget(scroll)
+
+        # execution bar อยู่นอก scroll area โดยตั้งใจ — ตรึงไว้ขอบล่างสุดของหน้าเสมอ ไม่เลื่อนหายไป
+        # ตอน pipeline ยาวจน scroll (เดิมอยู่ใน main_layout/scroll เดียวกับการ์ด เลยเลื่อนหายได้)
+        execution_wrap = QVBoxLayout()
+        execution_wrap.setContentsMargins(4, 0, 4, 4)
+        execution_wrap.addLayout(self.build_execution_bar())
+        page_layout.addLayout(execution_wrap)
 
     # --- การ์ด Pipeline Builder ---
     def build_pipeline_builder_card(self):
@@ -332,6 +338,7 @@ class EmbedConfigurablePage(QFrame):
             "sub": sub_text or STEP_META[step_type]["sub"],
             "valid": valid,
             "step_id_custom": False,
+            "guidenote": "",   # คำใบ้ optional ให้ผู้รับ — ไหลไปติด extract-node ตอน generate
         }
         # provisional step_id (auto, unique) — commit จะ regenerate จาก content จริงถ้าผู้ใช้ไม่แก้เอง
         step["step_id"] = self._unique_step_id(self._step_id_base(step_type), len(self.steps))
@@ -478,6 +485,7 @@ class EmbedConfigurablePage(QFrame):
             "type": module, "step_id": s["step_id"], "step_id_custom": True,
             "valid": True, "imported": True,
             "linked_cover_index": [], "linked_payload_index": [],
+            "guidenote": s.get("guidenote", ""),
         }
 
         # -- covers: แยก manual (resolve var → path) ออกจาก linked (step ref → slot) --
@@ -724,10 +732,12 @@ class EmbedConfigurablePage(QFrame):
             widget.deleteLater()
             step["inputs"] = None
 
-    def commit_step(self, idx, inner, step_id_text, is_custom):
-        """อ่านค่าจาก inner widget → เก็บ backend inputs + Step ID · คืน False ถ้า validate ไม่ผ่าน
+    def commit_step(self, idx, inner, step_id_text, is_custom, guidenote=""):
+        """อ่านค่าจาก inner widget → เก็บ backend inputs + Step ID + Guidenote · คืน False ถ้า
+        validate ไม่ผ่าน
         step_id_text/is_custom มาจากช่อง Step ID บนหัว shell · is_custom=True (พิมพ์เอง) → ใช้ค่านั้น
-        แต่ต้องไม่ว่าง+ไม่ซ้ำ · is_custom=False → auto-gen จาก technique+content แล้วต่อ suffix กันซ้ำ"""
+        แต่ต้องไม่ว่าง+ไม่ซ้ำ · is_custom=False → auto-gen จาก technique+content แล้วต่อ suffix กันซ้ำ
+        guidenote = คำใบ้ optional ให้ผู้รับ เก็บลง step เฉยๆ ไม่ validate อะไร"""
         step = self.steps[idx]
         step_type = step["type"]
         is_custom = is_custom or step.get("step_id_custom", False)
@@ -832,6 +842,7 @@ class EmbedConfigurablePage(QFrame):
             step["step_id"] = self._unique_step_id(base, idx)
             step["step_id_custom"] = False
 
+        step["guidenote"] = guidenote
         step["valid"] = True
         return True
 
@@ -854,12 +865,15 @@ class EmbedConfigurablePage(QFrame):
             if module == "metadata":
                 inputs["meta_dict"] = self.resolve_linked_apic(inputs.get("meta_dict", {}))
 
-            embed_steps.append({
+            node = {
                 "step_id": step_id,
                 "module": module,
                 "inputs": inputs,
                 "outputs": self.build_outputs(i, step_id, module, inputs),
-            })
+            }
+            if step.get("guidenote"):   # optional — คำใบ้ให้ผู้รับ ไม่ใส่ถ้าไม่มี (กัน yaml รก)
+                node["guidenote"] = step["guidenote"]
+            embed_steps.append(node)
         return {"workflows": {"embed": embed_steps}}
 
     def build_export_dict(self) -> dict:
@@ -1057,19 +1071,20 @@ class EmbedConfigurablePage(QFrame):
             inner.set_payload_link_candidates(self.available_link_candidates(idx, slot="payload_any"))
         if hasattr(inner, "set_apic_link_candidates"):
             inner.set_apic_link_candidates(self.available_link_candidates(idx, slot="payload_image"))
-        commit = lambda sid, custom: self.commit_step(idx, inner, sid, custom)
+        commit = lambda sid, custom, guidenote: self.commit_step(idx, inner, sid, custom, guidenote)
         step_id_default = step["step_id"]
         initial_custom = step.get("step_id_custom", False)
+        guidenote_default = step.get("guidenote", "")
 
         if self.config_variant == "popup":
-            dialog = StepConfigDialog(title, step_id_default, initial_custom, inner, commit, self.window())
+            dialog = StepConfigDialog(title, step_id_default, initial_custom, inner, commit, self.window(), guidenote_default)
             dialog.exec()
             self.park_inner(inner)      # เก็บ inner กลับ (persist state) ก่อน dialog ถูกลบ
             dialog.deleteLater()
             self.render_nodes()
         else:
             self.close_inline_panel()
-            panel = StepConfigPanel(title, step_id_default, initial_custom, inner, commit)
+            panel = StepConfigPanel(title, step_id_default, initial_custom, inner, commit, guidenote_default)
             panel.saved.connect(self.on_inline_saved)
             panel.cancelled.connect(self.close_inline_panel)
             self.inline_slot.addWidget(panel)

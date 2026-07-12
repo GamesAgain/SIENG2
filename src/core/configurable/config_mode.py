@@ -447,6 +447,8 @@ def generate_extract_pipeline(config_dict: dict, embed_results: dict = None) -> 
         enc = s.get("inputs", {}).get("encryption")
         if enc:
             node["decrypt"] = {"mode": enc["mode"]}   # บอกว่า step นี้เข้ารหัสแบบไหน (ผู้รับต้องกรอก password/private key เอง — ไม่เก็บ secret ลงไฟล์)
+        if s.get("guidenote"):
+            node["guidenote"] = s["guidenote"]   # คำใบ้ที่ผู้ส่งเขียนไว้ตอน embed — ไม่ใช่ secret ปลอดภัยที่จะติดไปกับ extract config
         nodes.append(node)
 
     # ทรัพยากรตั้งต้น = ไฟล์ output ที่ไม่ถูก consume ต่อเป็นราย slot (ทั้ง cover และ payload)
@@ -458,11 +460,23 @@ def generate_extract_pipeline(config_dict: dict, embed_results: dict = None) -> 
             if not consumed:
                 available.add(f"file:{sid}#{i}")
 
+    return order_extract_nodes(nodes, available)
+
+
+def order_extract_nodes(nodes: list, available) -> list:
+    """จัดลำดับ extract nodes ตาม dependency (topological) + heuristic 'เผยเบาะแสก่อน':
+    ในบรรดา node ที่ needs ครบพร้อมรัน เลือก node ที่ 'ไม่ต้องใช้ secret' ก่อนเสมอ แล้วค่อยเป็น
+    node ที่ล็อกด้วย password/key — เพื่อให้ผู้รับเห็น step ที่เผย clue (เช่น 'Pass', 'word') ก่อน
+    step ที่ต้องเอา clue นั้นไปประกอบเป็นรหัส (นี่คือ soft dependency ที่ topo-sort ล้วน ๆ มองไม่เห็น
+    เพราะ clue ไม่ได้เป็น needs/provides edge — ผู้รับประกอบรหัสเองด้วยมือ) ใช้ร่วมกันทั้งตอน generate
+    config (ฝั่งผู้ส่ง) และตอนแสดงผลการ์ดฝั่งผู้รับ ให้ลำดับตรงกัน"""
+    available = set(available)
     ordered, pending = [], list(nodes)
     while pending:
-        run = next((n for n in pending if set(n["needs"]) <= available), None)
-        if run is None:
+        runnable = [n for n in pending if set(n["needs"]) <= available]
+        if not runnable:
             raise ValueError(f"extract deadlock: {[n['step_id'] for n in pending]}")
+        run = next((n for n in runnable if not n.get("decrypt")), runnable[0])
         ordered.append(run)
         available.update(run["provides"])
         pending.remove(run)

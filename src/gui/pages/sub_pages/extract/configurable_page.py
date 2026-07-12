@@ -3,15 +3,17 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
-    QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMessageBox,
+    QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
     QProgressBar, QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap
+from src.gui.components.result_viewers import PayloadResultViewer
 from src.gui.pages.sub_pages.embed.pipeline_constants import STEP_META
+from src.gui.tabs.extract.metadata_extract import AllFramesDialog, MP3MetadataViewer, PNGAllChunksDialog, PNGMetadataViewer
 
 from src.core.configurable.config_mode import (
-    ExtractSession, extract_nodes, read_yaml, required_resources,
+    ExtractSession, extract_nodes, order_extract_nodes, read_yaml, required_resources,
 )
 
 ICON_DIR = Path(__file__).resolve().parents[3] / "assets" / "svg"
@@ -19,14 +21,12 @@ ICON_SIZE = 16
 
 
 def res_label(res: str, hints: dict) -> str:
-    """แปลง resource id → ข้อความอ่านง่ายสำหรับ needs/provides
-    file:X#i → ชื่อไฟล์ (จาก hints) · recovered:X / payload:X → 'จาก X'"""
+    """แปลง resource id → ข้อความอ่านง่ายสำหรับ Need
+    file:X#i → ชื่อไฟล์ (จาก hints) · payload:X → 'จาก X'"""
     if res.startswith("file:"):
         return hints.get(res, res[len("file:"):].split("#")[0])
-    if res.startswith("recovered:"):
-        return f"recovered file: {res[len('recovered:'):]}"
     if res.startswith("payload:"):
-        return f"secret: {res[len('payload:'):]}"
+        return f"output of {res[len('payload:'):]}"
     return res
 
 
@@ -87,8 +87,8 @@ class ExtractConfigurablePage(QFrame):
         super().__init__()
         self.extract_config = None       # dict ที่ import มา
         self.resource_rows = []          # ResourceRow ต่อไฟล์ตั้งต้น
-        self.session = None              # ExtractSession ระหว่างรัน (คงอยู่ข้าม on_run/_retry_node — resume ได้)
-        self.workflow_rows = {}          # embed_id -> {"row","status_label","retry_btn"} สำหรับอัปเดตสถานะสด
+        self.session = None              # ExtractSession — สร้างตอน import, res_path อัปเดตสดตามที่แนบไฟล์
+        self.workflow_rows = {}          # embed_id -> refs สำหรับอัปเดตสถานะสด
         self.setup_ui()
 
     def setup_ui(self):
@@ -110,10 +110,14 @@ class ExtractConfigurablePage(QFrame):
         main.addWidget(self.build_resources_card())
         main.addWidget(self.build_workflow_card())
         main.addStretch()
-        main.addLayout(self.build_execution_bar())
 
         scroll.setWidget(content)
         page_layout.addWidget(scroll)
+
+        status_layout = QVBoxLayout()
+        status_layout.setContentsMargins(4, 0, 4, 4)
+        status_layout.addWidget(self.build_status_bar())
+        page_layout.addLayout(status_layout)
 
     def _card(self, icon_name, title):
         """การ์ดเปล่า + หัวข้อ (icon + title) คืน (card_frame, body_layout ที่ต่อเนื้อหาได้)"""
@@ -173,43 +177,30 @@ class ExtractConfigurablePage(QFrame):
         card, layout = self._card("list-numbers.svg", "Extract Workflow")
         self.workflow_layout = QVBoxLayout()
         self.workflow_layout.setSpacing(8)
-        self.workflow_hint = QLabel("The ordered extract steps will appear here after import.")
+        self.workflow_hint = QLabel("The ordered extract steps will appear here after import. Extract each step yourself once its required file(s) are ready.")
         self.workflow_hint.setObjectName("hintLabel")
         self.workflow_hint.setWordWrap(True)
         layout.addWidget(self.workflow_hint)
         layout.addLayout(self.workflow_layout)
         return card
 
-    # ── 4) Execute bar ──
-    def build_execution_bar(self):
-        bar = QHBoxLayout()
-        bar.setContentsMargins(0, 0, 0, 0)
-        bar.setSpacing(8)
-
-        status_card = QFrame()
-        status_card.setObjectName("card")
-        sl = QVBoxLayout(status_card)
+    # ── 4) Status bar — ไม่มีปุ่ม Execute (ถอดทีละการ์ดเองแล้ว) แค่โชว์ความคืบหน้ารวม ──
+    def build_status_bar(self):
+        card = QFrame()
+        card.setObjectName("card")
+        add_shadow_effect(card)
+        layout = QVBoxLayout(card)
         self.status_label = QLabel("Status: Ready")
         self.status_label.setObjectName("statusLabel")
-        sl.addWidget(self.status_label)
+        layout.addWidget(self.status_label)
         self.progress_bar = QProgressBar()
         self.progress_bar.setObjectName("loadingIndicator")
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setFixedHeight(10)
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
-        sl.addWidget(self.progress_bar)
-        bar.addWidget(status_card, 1)
-
-        self.run_btn = QPushButton(" Run Extract Pipeline")
-        self.run_btn.setObjectName("PrimaryActionBtn")
-        self.run_btn.setFixedHeight(50)
-        self.run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.run_btn.setIcon(QIcon(create_icon_pixmap(ICON_DIR / "lock-open.svg", color_hex="#FFFFFF", size=ICON_SIZE)))
-        self.run_btn.setEnabled(False)
-        self.run_btn.clicked.connect(self.on_run)
-        bar.addWidget(self.run_btn)
-        return bar
+        layout.addWidget(self.progress_bar)
+        return card
 
     # ── Import handler → populate resources + workflow ──
     def on_import(self):
@@ -225,13 +216,11 @@ class ExtractConfigurablePage(QFrame):
             return
 
         self.extract_config = config
-        self.session = None   # config ใหม่ — session เก่า (ถ้ามี) ใช้ต่อไม่ได้แล้ว
+        self.session = ExtractSession(config, {})   # res_path เริ่มว่าง เติมสดทีละไฟล์ตอนแนบ
         self.import_btn.setText(f" {Path(path).name}")
         self._populate_resources(config)
         self._populate_workflow(config)
-        self.run_btn.setEnabled(True)
-        self.run_btn.setText(" Run Extract Pipeline")
-        self.status_label.setText("Status: Config loaded — attach the required files, then run.")
+        self._refresh_all_rows()
 
     def _clear_layout(self, layout):
         while layout.count():
@@ -248,8 +237,13 @@ class ExtractConfigurablePage(QFrame):
         self.resources_hint.setVisible(not resources)
         for res_id, suggested in resources:
             row = ResourceRow(res_id, suggested)
+            row.attached.connect(lambda r=row: self._on_resource_attached(r))
             self.resources_layout.addWidget(row)
             self.resource_rows.append(row)
+
+    def _on_resource_attached(self, row: ResourceRow):
+        self.session.res_path[row.resource_id] = row.file_path
+        self._refresh_all_rows()
 
     def _populate_workflow(self, config):
         self._clear_layout(self.workflow_layout)
@@ -257,14 +251,41 @@ class ExtractConfigurablePage(QFrame):
         nodes = extract_nodes(config)
         hints = config.get("resources", {})
         self.workflow_hint.setVisible(not nodes)
-        for i, node in enumerate(nodes):
-            row, refs = self._step_row(i + 1, node, hints)
+        if not nodes:
+            return
+
+        # จัดลำดับการ์ดใหม่ด้วย heuristic เดียวกับ generate (เผยเบาะแสก่อน step ที่ล็อกรหัส) —
+        # ไม่เชื่อลำดับดิบใน .yaml เผื่อ config เก่าถูก generate ด้วย sort เวอร์ชันก่อนหน้า
+        provided = {p for nd in nodes for p in nd["provides"]}
+        initial = {r for nd in nodes for r in nd["needs"] if r not in provided}
+        nodes = order_extract_nodes(nodes, initial)
+
+        # resource_id → เลข step ที่ผลิตมัน (ใช้แปลง need ที่เป็นไฟล์กลางให้เป็น 'จาก Step #N')
+        res_to_stepnum = {p: i for i, nd in enumerate(nodes, 1) for p in nd["provides"]}
+
+        for i, node in enumerate(nodes, 1):
+            row, refs = self._step_row(i, node, hints, res_to_stepnum)
             self.workflow_layout.addWidget(row)
             self.workflow_rows[node["embed_id"]] = refs
 
-    def _step_row(self, n, node, hints):
-        """คืน (row widget, {"row","status_label","retry_btn","result_label"}) — เก็บ ref ไว้ใน
-        workflow_rows เพื่อให้ _refresh_workflow_status() อัปเดตสถานะ + ผลที่แกะได้สดระหว่างรัน"""
+    def _need_text(self, node: dict, hints: dict, res_to_stepnum: dict) -> str:
+        """Need ที่ผู้รับอ่านรู้เรื่อง: ไฟล์ตั้งต้นโชว์ชื่อไฟล์ (ที่ต้องแนบ), ไฟล์กลางโชว์ 'จาก Step #N'
+        (ต้องถอด step นั้นก่อน) — แทนการโชว์ resource id ดิบ (file:pdf_fragment#0) ที่ผู้รับงง"""
+        parts = []
+        for r in node.get("needs", []):
+            if r in hints:                      # ไฟล์ตั้งต้นที่ผู้รับอัปโหลดเอง
+                label = hints[r]
+            elif r in res_to_stepnum:           # ไฟล์กลางจาก step ก่อนหน้า
+                label = f"from Step #{res_to_stepnum[r]}"
+            else:
+                label = res_label(r, hints)
+            if label not in parts:              # dedup (เช่น 2 need ที่มาจาก step เดียวกัน)
+                parts.append(label)
+        return ", ".join(parts) if parts else "(nothing)"
+
+    # ── 1 การ์ด step: #no · {Technique} — {step_id} · Need · Extracted Data · Guidenote ·
+    # (ถ้าเข้ารหัส) ช่องกรอก secret แทรกในตัว · [View Result][Extract] ──
+    def _step_row(self, n, node, hints, res_to_stepnum):
         meta = STEP_META.get(node["module"], {"label": node["module"], "accent": "blue"})
         row = QFrame()
         row.setObjectName("extractStepRow")
@@ -279,11 +300,11 @@ class ExtractConfigurablePage(QFrame):
         rl.addWidget(no)
 
         col = QVBoxLayout()
-        col.setSpacing(2)
+        col.setSpacing(4)
 
         title_row = QHBoxLayout()
         title_row.setSpacing(6)
-        title = QLabel(f"{node['embed_id']}  —  {meta['label']}")
+        title = QLabel(f"{meta['label']} — {node['embed_id']}")
         title.setObjectName("extractStepTitle")
         title.setProperty("accentColor", meta["accent"])
         title_row.addWidget(title)
@@ -292,198 +313,272 @@ class ExtractConfigurablePage(QFrame):
             lock_icon.setPixmap(create_icon_pixmap(ICON_DIR / "lock.svg", color_hex="#F59E0F", size=13))
             lock_icon.setToolTip("Needs a password / private key to decrypt")
             title_row.addWidget(lock_icon)
+        status_label = QLabel("Pending")
+        status_label.setObjectName("extractStepStatus")
+        title_row.addWidget(status_label)
         title_row.addStretch()
         col.addLayout(title_row)
 
-        needs = ", ".join(res_label(r, hints) for r in node.get("needs", []))
-        provides = ", ".join(res_label(r, hints) for r in node.get("provides", []))
-        sub = QLabel(f"needs: {needs}  →  provides: {provides}")
-        sub.setObjectName("extractStepSub")
-        sub.setWordWrap(True)
-        col.addWidget(sub)
+        need_label = QLabel(f"Need: {self._need_text(node, hints, res_to_stepnum)}")
+        need_label.setObjectName("extractStepSub")
+        need_label.setWordWrap(True)
+        col.addWidget(need_label)
 
-        status_label = QLabel("Pending")
-        status_label.setObjectName("extractStepStatus")
-        col.addWidget(status_label)
+        extracted_label = QLabel("Extracted: not extracted yet")
+        extracted_label.setObjectName("extractStepSub")
+        extracted_label.setWordWrap(True)
+        extracted_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        col.addWidget(extracted_label)
 
-        # โชว์ผลที่แกะได้จาก step นี้ทันทีที่เสร็จ (ไม่ต้องรอ popup สรุปตอนจบ) — ข้อความ select
-        # ได้ด้วยเมาส์ (ไม่มีปุ่ม Copy แยก) เพื่อให้ copy เอาไปกรอกเป็น secret ของ step ถัดไปได้ตรง ๆ
-        # เช่น เห็น 'Part1: Pass' + 'Part2: word' ก่อนจะโดนถาม password ของ step ที่เข้ารหัส
-        result_label = QLabel("")
-        result_label.setObjectName("extractStepResult")
-        result_label.setWordWrap(True)
-        result_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        result_label.setCursor(Qt.CursorShape.IBeamCursor)
-        result_label.setVisible(False)
-        col.addWidget(result_label)
+        if node.get("guidenote"):
+            guidenote_label = QLabel(f"Guidenote: {node['guidenote']}")
+            guidenote_label.setObjectName("extractStepGuidenote")
+            guidenote_label.setWordWrap(True)
+            col.addWidget(guidenote_label)
+
+        refs = {
+            "row": row, "status_label": status_label, "extracted_label": extracted_label,
+            "secret_row": None, "secret_password_edit": None, "key_path": None, "key_path_label": None,
+        }
+
+        if node.get("decrypt"):
+            secret_row = QHBoxLayout()
+            secret_row.setSpacing(8)
+            if node["decrypt"]["mode"] == "symmetric":
+                pw_edit = QLineEdit()
+                pw_edit.setObjectName("formInput")
+                pw_edit.setEchoMode(QLineEdit.EchoMode.Password)
+                pw_edit.setPlaceholderText("Password for this step")
+                secret_row.addWidget(pw_edit, 1)
+                refs["secret_password_edit"] = pw_edit
+            else:
+                key_btn = QPushButton(" Choose private key...")
+                key_btn.setObjectName("SecondaryBtn")
+                key_btn.setProperty("textColor", "white")
+                key_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                key_btn.setIcon(QIcon(create_icon_pixmap(ICON_DIR / "key.svg", color_hex="#FFFFFF", size=ICON_SIZE)))
+                key_btn.clicked.connect(lambda: self._browse_key_for_row(node))
+                key_path_label = QLabel("No file selected")
+                key_path_label.setObjectName("hintLabel")
+                secret_row.addWidget(key_btn)
+                secret_row.addWidget(key_path_label, 1)
+                refs["key_path_label"] = key_path_label
+            secret_row_frame = QFrame()
+            secret_row_frame.setLayout(secret_row)
+            col.addWidget(secret_row_frame)
+            refs["secret_row"] = secret_row_frame
 
         rl.addLayout(col, 1)
 
-        # icon placeholder: ยังไม่มี retry/refresh icon โดยเฉพาะใน assets — ใช้ key.svg ไปก่อน
-        # (สื่อว่าต้องกรอก credential) เปลี่ยนได้ทีหลังถ้ามี icon ที่เหมาะกว่า
-        retry_btn = QPushButton(" Retry")
-        retry_btn.setObjectName("SecondaryBtn")
-        retry_btn.setProperty("textColor", "white")
-        retry_btn.setIcon(QIcon(create_icon_pixmap(ICON_DIR / "key.svg", color_hex="#FFFFFF", size=ICON_SIZE)))
-        retry_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        retry_btn.setVisible(False)
-        retry_btn.clicked.connect(lambda: self._retry_node(node))
-        rl.addWidget(retry_btn)
+        actions = QVBoxLayout()
+        actions.setSpacing(6)
+        view_btn = QPushButton(" View Result")
+        view_btn.setObjectName("SecondaryBtn")
+        view_btn.setProperty("textColor", "white")
+        view_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        view_btn.setIcon(QIcon(create_icon_pixmap(ICON_DIR / "file-search.svg", color_hex="#FFFFFF", size=ICON_SIZE)))
+        view_btn.setEnabled(False)
+        view_btn.clicked.connect(lambda: self._on_view_result_clicked(node))
+        extract_btn = QPushButton(" Extract")
+        extract_btn.setObjectName("PrimaryActionBtn")
+        extract_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        extract_btn.setIcon(QIcon(create_icon_pixmap(ICON_DIR / "lock-open.svg", color_hex="#FFFFFF", size=ICON_SIZE)))
+        extract_btn.setEnabled(False)
+        extract_btn.clicked.connect(lambda: self._on_extract_clicked(node))
+        actions.addWidget(view_btn)
+        actions.addWidget(extract_btn)
+        rl.addLayout(actions)
 
-        return row, {"row": row, "status_label": status_label, "retry_btn": retry_btn, "result_label": result_label}
+        refs["view_btn"] = view_btn
+        refs["extract_btn"] = extract_btn
+        return row, refs
 
-    # ── Run handler — interactive, resumable: รันทุกอย่างที่ไม่ต้องใช้ secret ก่อนเสมอ, step ที่
-    # เข้ารหัสถามทีเดียวตอนเพิ่ง ready (ถ้า cancel/ไม่รู้ตอนนี้ → ข้ามไปก่อน ไม่ abort ทั้งหมด —
-    # กด Retry ที่แถวนั้นทีหลังได้เรื่อย ๆ หลังเห็นเบาะแสจาก step อื่นที่แกะออกมาได้แล้ว) ──
-    def on_run(self):
-        if not self.extract_config:
+    def _browse_key_for_row(self, node: dict):
+        path, _ = QFileDialog.getOpenFileName(
+            self, f"Private key for '{node['embed_id']}'", "", "Key files (*.pem *.der *.ssh);;All files (*.*)"
+        )
+        if not path:
             return
-        if self.session is None:
-            missing = [r for r in self.resource_rows if not r.file_path]
-            if missing:
-                QMessageBox.warning(self, "Run Extract", "Please attach all required files first.")
-                return
-            resource_files = {r.resource_id: r.file_path for r in self.resource_rows}
-            self.session = ExtractSession(self.extract_config, resource_files)
+        refs = self.workflow_rows[node["embed_id"]]
+        refs["key_path"] = path
+        refs["key_path_label"].setText(Path(path).name)
 
-        self.status_label.setText("Status: Extracting...")
-        try:
-            self._run_ready_and_ask()
-            while not self.session.is_done:
-                blocked_ready = [n for n in self.session.ready_nodes() if n.get("decrypt")]
-                if not blocked_ready:
-                    break   # ไม่มีอะไรพร้อมรันเพิ่มแล้ว (ต้องรอ node อื่นก่อน ไม่ใช่รอ secret)
-                progressed = self._ask_and_run(blocked_ready)
-                self._run_ready_and_ask()
-                if not progressed:
-                    break   # ผู้ใช้ cancel ทุกตัวที่ถามได้รอบนี้ — หยุดรอกด Retry เอง
-        except Exception as e:
-            self.status_label.setText("Status: Extraction failed.")
-            QMessageBox.critical(self, "Run Extract", f"Extraction failed:\n{e}")
-            self._refresh_workflow_status()
-            return
-
-        self._refresh_workflow_status()
-        self._finish_or_wait()
-
-    def _run_ready_and_ask(self):
-        self.session.run_ready_without_secrets()
-
-    def _ask_and_run(self, nodes: list) -> bool:
-        """ถาม secret ทีละ node ใน nodes แล้วรันถ้าได้คำตอบ · คืน True ถ้ามีอย่างน้อย 1 node คืบหน้า"""
-        progressed = False
-        for node in nodes:
-            secret = self._ask_secret(node)
-            if secret is None:
-                continue   # ยังไม่รู้ตอนนี้ — ข้ามไปก่อน ไม่ถามซ้ำจนกว่าจะกด Retry
-            self.session.run_node(node, secret)
-            progressed = True
-        return progressed
-
-    def _ask_secret(self, node: dict):
-        """ถาม password/private key สำหรับ node เดียว · คืน None ถ้าผู้ใช้ cancel/ไม่กรอก"""
-        decrypt = node["decrypt"]
-        eid = node["embed_id"]
-        if decrypt["mode"] == "symmetric":
-            pw, ok = QInputDialog.getText(
-                self, "Password required", f"Password for '{eid}':", QLineEdit.EchoMode.Password
-            )
-            return {"password": pw} if ok else None
-        if decrypt["mode"] == "asymmetric":
-            key, _ = QFileDialog.getOpenFileName(
-                self, f"Private key for '{eid}'", "", "Key files (*.pem *.der *.ssh);;All files (*.*)"
-            )
-            return {"private_key_path": key} if key else None
-        return {}
-
-    def _retry_node(self, node: dict):
-        """ปุ่ม Retry ต่อแถวที่ blocked — ถามใหม่แล้วรันต่อ (รวม node อื่นที่เพิ่งปลดล็อกด้วย)"""
+    # ── ปุ่ม Extract ต่อการ์ด — รันเฉพาะ node นี้ทีเดียว (ไม่ cascade ต่อให้เอง ต้องกดทีละการ์ด) ──
+    def _on_extract_clicked(self, node: dict):
         if self.session is None or not self.session.is_ready(node):
+            QMessageBox.warning(
+                self, "Extract",
+                "This step isn't ready yet — extract the step(s) it depends on first, or attach any missing files above."
+            )
             return
-        secret = self._ask_secret(node)
-        if secret is None:
-            return
+
+        secret = None
+        if node.get("decrypt"):
+            refs = self.workflow_rows[node["embed_id"]]
+            if node["decrypt"]["mode"] == "symmetric":
+                pw = refs["secret_password_edit"].text()
+                if not pw:
+                    QMessageBox.warning(self, "Extract", "Enter a password for this step first.")
+                    return
+                secret = {"password": pw}
+            else:
+                if not refs["key_path"]:
+                    QMessageBox.warning(self, "Extract", "Select a private key file for this step first.")
+                    return
+                secret = {"private_key_path": refs["key_path"]}
+
         try:
             self.session.run_node(node, secret)
-            self._run_ready_and_ask()
         except Exception as e:
-            QMessageBox.critical(self, "Run Extract", f"Extraction failed:\n{e}")
-        self._refresh_workflow_status()
-        self._finish_or_wait()
+            QMessageBox.critical(self, "Extract", f"Extraction failed:\n{e}")
+            return
+        self._refresh_all_rows()
 
-    def _refresh_workflow_status(self):
-        """อัปเดต Pending/Done/Blocked + โชว์-ซ่อนปุ่ม Retry + preview ผลที่แกะได้ต่อแถว ให้ตรงกับ
-        session ปัจจุบัน"""
+    # ── ปุ่ม View Result — เปิด dialog ที่ reuse ตัว viewer เดียวกับ Standalone extract ──
+    def _on_view_result_clicked(self, node: dict):
+        eid, module = node["embed_id"], node["module"]
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Result — {eid}")
+        layout = QVBoxLayout(dialog)
+
+        is_mp3 = False
+        if module == "metadata":
+            source_path = self.session.res_path.get(node["needs"][0], "")
+            is_mp3 = source_path.lower().endswith(".mp3")
+            viewer = MP3MetadataViewer() if is_mp3 else PNGMetadataViewer()
+            viewer.load_file(source_path)
+            layout.addWidget(viewer)
+        else:
+            # ผลจริงของ node นี้อาจอยู่ที่ payload:eid (ผลลัพธ์สุดท้าย) หรือ file:eid#i (ไฟล์
+            # กลางที่ป้อนให้ step ถัดไปกินต่อ — เช่น Locomotive ที่ recover ภาพซ้อนอีกชั้นหนึ่ง ไม่ใช่
+            # secret ปลายทาง) แล้วแต่ node นี้เป็น "ปลายทาง" หรือ "ทางผ่าน" — โชว์ทุกอันที่มีค่าจริง
+            # (ปกติมีอันเดียว มีมากกว่า 1 เฉพาะ Locomotive ที่ payload มาจากหลาย producer พร้อมกัน)
+            provided_ids = list(node["provides"])
+            if f"payload:{eid}" not in provided_ids:
+                provided_ids.insert(0, f"payload:{eid}")
+            values = [self.session.recovered[p] for p in provided_ids if p in self.session.recovered]
+            if not values:
+                values = [None]
+
+            scroll = QScrollArea()
+            scroll.setObjectName("pipelineScroll")
+            scroll.setWidgetResizable(True)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            content = QWidget()
+            content_layout = QVBoxLayout(content)
+            content_layout.setContentsMargins(0, 0, 0, 0)
+            content_layout.setSpacing(10)
+            for value in values:
+                sub_viewer = PayloadResultViewer()
+                if isinstance(value, str) and Path(value).exists():
+                    # Locomotive คืน path ไฟล์จริง — โชว์เป็นไฟล์ตามนามสกุลเดิม (.pdf เซฟเป็น .pdf)
+                    # ตัดคำนำหน้า '{eid}_' ที่ engine เติมตอนเซฟลง workspace ออก ให้ default ชื่อสะอาด
+                    name = Path(value).name
+                    if name.startswith(eid + "_"):
+                        name = name[len(eid) + 1:]
+                    sub_viewer.show_result(Path(value).read_bytes(), name)
+                else:
+                    # lsbpp คืนข้อความล้วน
+                    sub_viewer.show_text(str(value) if value is not None else "(no result to show)")
+                content_layout.addWidget(sub_viewer)
+            scroll.setWidget(content)
+            layout.addWidget(scroll)
+
+        close_row = QHBoxLayout()
+        if module == "metadata":
+            # เผื่อ guidenote บอกว่ารหัส/เบาะแสซ่อนอยู่ใน frame/chunk ที่ไม่ได้อยู่ใน TOC ของเราเอง
+            # (เช่น "รหัสอยู่ใน COMM ของไฟล์นี้") — ต้อง scan ทุก frame/chunk ที่มีจริงในไฟล์ดิบ ๆ
+            # ไม่ใช่แค่ที่ระบบ SIENG2 filter ให้ (ปุ่มนี้มีอยู่แล้วฝั่ง Standalone — reuse ตรง ๆ)
+            scan_btn = QPushButton(f" View All {'Frames' if is_mp3 else 'Text Chunks'}")
+            scan_btn.setObjectName("SecondaryBtn")
+            scan_btn.setProperty("textColor", "white")
+            scan_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            scan_btn.setIcon(QIcon(create_icon_pixmap(ICON_DIR / "report.svg", color_hex="#FFFFFF", size=ICON_SIZE)))
+            if is_mp3:
+                scan_btn.clicked.connect(lambda: AllFramesDialog(source_path, dialog).exec())
+            else:
+                scan_btn.clicked.connect(lambda: PNGAllChunksDialog(source_path, dialog).exec())
+            close_row.addWidget(scan_btn)
+        close_btn = QPushButton("Close")
+        close_btn.setObjectName("SecondaryBtn")
+        close_btn.setProperty("textColor", "white")
+        close_btn.clicked.connect(dialog.accept)
+        close_row.addStretch()
+        close_row.addWidget(close_btn)
+        layout.addLayout(close_row)
+
+        dialog.resize(560, 620)
+        dialog.exec()
+
+    # ── อัปเดตสถานะ/ปุ่ม/preview ของทุกการ์ด ให้ตรงกับ session ปัจจุบัน ──
+    def _refresh_all_rows(self):
         if self.session is None:
             return
         for node in self.session.nodes:
             refs = self.workflow_rows.get(node["embed_id"])
             if not refs:
                 continue
-            done = node["embed_id"] in self.session.done_ids
-            blocked = (not done) and self.session.is_ready(node) and bool(node.get("decrypt"))
-            status = "done" if done else ("blocked" if blocked else "pending")
-            refs["status_label"].setText({"done": "Done", "blocked": "Blocked — needs password/key", "pending": "Pending"}[status])
-            refs["retry_btn"].setVisible(blocked)
-            refs["row"].setProperty("stepStatus", status)
+            eid = node["embed_id"]
+            done = eid in self.session.done_ids
+            ready = self.session.is_ready(node)
+
+            # 4 สถานะแยกด้วยตา: done(เขียว) / ready(ฟ้า พร้อมถอด) / locked(ส้ม รอกรอกรหัส) /
+            # waiting(เทา รอ step ก่อนหน้า) — เดิม ready กับ waiting เป็นเทาเหมือนกัน แยกไม่ออก
+            if done:
+                status = "done"
+            elif not ready:
+                status = "waiting"
+            elif node.get("decrypt"):
+                status = "locked"
+            else:
+                status = "ready"
+            refs["status_label"].setText({
+                "done": "Done", "ready": "Ready to extract",
+                "locked": "Ready — enter password/key", "waiting": "Waiting for earlier steps",
+            }[status])
+            # QSS มี stepStatus: done / ready / blocked(=locked ส้ม) / pending(=waiting เทา)
+            refs["row"].setProperty("stepStatus", {"done": "done", "ready": "ready", "locked": "blocked", "waiting": "pending"}[status])
             refs["row"].style().unpolish(refs["row"])
             refs["row"].style().polish(refs["row"])
 
-            preview = self._result_preview(node) if done else ""
-            refs["result_label"].setText(preview)
-            refs["result_label"].setVisible(bool(preview))
+            refs["extract_btn"].setEnabled(ready and not done)
+            refs["view_btn"].setEnabled(done)
+            if refs["secret_row"] is not None:
+                refs["secret_row"].setVisible(ready and not done)
 
-    def _result_preview(self, node: dict) -> str:
-        """ข้อความ preview สั้น ๆ ของสิ่งที่ step นี้แกะได้ — โชว์ทันทีที่เสร็จ ไม่ต้องรอ popup
-        สรุปตอนจบ ให้เห็นเบาะแส (เช่น password fragment จาก metadata) ก่อนจะโดนถาม secret ของ
-        step ถัดไป · เลือกได้เฉพาะ payload ของตัวเอง (ไม่ยุ่งกับไฟล์ที่ผลิตให้ step อื่นไปกินต่อ)"""
+            refs["extracted_label"].setText(f"Extracted: {self._extracted_summary(node)}" if done else "Extracted: not extracted yet")
+
+        self._refresh_status_bar()
+
+    def _refresh_status_bar(self):
+        """สรุปความคืบหน้ารวม — ไม่มีปุ่ม Execute ตรงนี้แล้ว แค่โชว์ผลจากการกด Extract ทีละการ์ด"""
+        total = len(self.session.nodes)
+        done = len(self.session.done_ids)
+        self.progress_bar.setValue(round(done / total * 100) if total else 0)
+        if done == total:
+            self.status_label.setText("Status: Extraction complete.")
+        else:
+            self.status_label.setText(f"Status: {done} of {total} step(s) extracted — use Extract on a card below.")
+
+    def _extracted_summary(self, node: dict) -> str:
+        """ตัวอย่างสั้น ๆ ของสิ่งที่ step นี้แกะได้ — รายละเอียดเต็มอยู่ใน View Result"""
         value = self.session.recovered.get(f"payload:{node['embed_id']}")
         if value is None:
             n_files = sum(1 for p in node["provides"] if p.startswith("file:"))
-            return f"→ produced {n_files} file(s) for a later step" if n_files else ""
-        if isinstance(value, str):
-            # ค่าที่เป็น path ไฟล์จริง (เช่น Locomotive คืน path ไฟล์ไบนารี/zip) ไม่ใช่ text ให้อ่าน
-            if Path(value).exists():
-                return f"Recovered file: {Path(value).name}"
-            return f'Recovered: "{value}"'
+            return f"{n_files} file(s) passed to a later step" if n_files else "no readable output"
         if isinstance(value, dict):
-            lines = []
-            for key, v in value.items():
-                if key == "APIC":
-                    n = len(v) if isinstance(v, list) else 1
-                    lines.append(f"{n} image(s) recovered")
-                elif isinstance(v, list):
-                    for item in v:
-                        if isinstance(item, dict) and "text" in item:
-                            lines.append(f"{item.get('desc') or key}: {item['text']}")
-                        else:
-                            lines.append(f"{key}: {item}")
-                else:
-                    lines.append(f"{key}: {v}")
-            return "  |  ".join(lines) if lines else ""
+            n_tags = sum(1 for k in value if k != "APIC")
+            apic = value.get("APIC")
+            n_imgs = len(apic) if isinstance(apic, list) else (1 if apic else 0)
+            parts = []
+            if n_tags:
+                parts.append(f"{n_tags} tag(s)")
+            if n_imgs:
+                parts.append(f"{n_imgs} image(s)")
+            return ", ".join(parts) if parts else "no tags found"
+        if isinstance(value, str) and Path(value).exists():
+            return f"file: {Path(value).name}"
+        if isinstance(value, str):
+            preview = value if len(value) <= 40 else value[:37] + "..."
+            return f'"{preview}"'
         return str(value)
-
-    def _finish_or_wait(self):
-        if self.session.is_done:
-            self.progress_bar.setValue(100)
-            self._show_results(self.session.recovered)
-            self.status_label.setText("Status: Extraction complete.")
-            self.run_btn.setEnabled(False)
-        else:
-            n_left = len(self.session.remaining_nodes())
-            n_total = len(self.session.nodes)
-            self.progress_bar.setValue(round((n_total - n_left) / n_total * 100))
-            self.status_label.setText(
-                f"Status: {n_left} of {n_total} step(s) left — click Retry on a blocked step below once you know its password/key."
-            )
-            self.run_btn.setText(" Continue Extraction")
-
-    def _show_results(self, recovered: dict):
-        lines = []
-        for res, value in recovered.items():
-            if res.startswith("payload:"):   # ความลับจริงที่กู้ได้ (recovered:* เป็นไฟล์ชั้นในระหว่างทาง)
-                who = res[len("payload:"):]
-                shown = value if not isinstance(value, str) else value
-                lines.append(f"- {who}:\n    {shown}")
-        body = "\n\n".join(lines) if lines else "(no text payloads — check the extract workspace for recovered files)"
-        QMessageBox.information(self, "Extraction Result", f"Recovered {len(lines)} secret(s):\n\n{body}")
