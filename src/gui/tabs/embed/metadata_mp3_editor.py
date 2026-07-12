@@ -15,6 +15,7 @@ from src.gui.components.file_drop import FileDropWidget
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, create_icon_state, format_file_size
 from src.gui.components.linked_step_toggle import LinkedStepToggle
 from src.gui.components.step_output_picker import StepOutputPicker
+from src.gui.components.visibility_stack import VisibilityStack
 
 ICON_DIR = Path(__file__).parent.parent.parent / "assets" / "svg"
 
@@ -746,7 +747,7 @@ class MP3ImagesTab(QWidget):
         if self.pipeline_mode:
             # สลับระหว่าง drop zone (Manual Upload) กับ StepOutputPicker (Linked from Step)
             # max_selection=1 เพราะแต่ละรูปที่ "Add" ครั้งนึงมาจาก step เดียว
-            self.image_source_stack = QStackedWidget()
+            self.image_source_stack = VisibilityStack()
             self.image_source_stack.addWidget(self.image_drop_zone)
             self.image_picker = StepOutputPicker(max_selection=1)
             self.image_picker.selectionChanged.connect(self._on_image_link_changed)
@@ -867,7 +868,8 @@ class MP3ImagesTab(QWidget):
             return
         candidate = self._link_candidates.get(indices[0])
         self._pending_linked_index = indices[0]
-        self._pending_linked_label = candidate["label"] if candidate else f"Step {indices[0] + 1}"
+        step_no = indices[0][0] + 1 if isinstance(indices[0], tuple) else indices[0] + 1
+        self._pending_linked_label = candidate["label"] if candidate else f"Step {step_no}"
 
     def rebuild_cards(self):
         while self.cards_grid.count():

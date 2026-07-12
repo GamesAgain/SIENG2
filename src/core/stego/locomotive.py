@@ -23,7 +23,7 @@ MAGIC_SIG = b'LOCO'                              # Fragment signature
     
 class Locomotive:
     def __init__(self):
-        pass
+        self.last_session_id = None   # set by create_session_block() during embed()
     
     # ==================== Main Public Methods ====================
     
@@ -61,9 +61,15 @@ class Locomotive:
             
         return output_files
     
-    def extract(self, stego_image_paths: tuple[str], private_key_path: str = None, password: str = None) -> tuple[str, bytes]:
+    def extract(self, stego_image_paths: tuple[str], private_key_path: str = None, password: str = None, session_id: int = None) -> tuple[str, bytes]:
         """
         Extract payload file from stego images using Locomotive algorithm
+
+        session_id: which LOCO session to reconstruct, if the given images carry more
+        than one (e.g. a Locomotive step stacked on top of another Locomotive's own
+        cover file -- both sessions coexist in that one file). Omit to fall back to
+        the historical "latest session found" behavior (correct only when the given
+        images carry exactly one session, which is the common case).
         """
         
         all_sessions = {}
@@ -92,29 +98,38 @@ class Locomotive:
                 if cursor + header_size > len(encrypted_payload): break # Not enough data for header
                 
                 # 5. Extract session ID, part index, total parts, and chunk size
-                session_id, part_index, total_parts, chunk_size = struct.unpack('>IIII', encrypted_payload[cursor+len(MAGIC_SIG):cursor+header_size])
+                # (named chunk_session_id, NOT session_id -- this loop must not shadow the
+                # session_id PARAMETER, or explicit session targeting silently breaks)
+                chunk_session_id, part_index, total_parts, chunk_size = struct.unpack('>IIII', encrypted_payload[cursor+len(MAGIC_SIG):cursor+header_size])
                 cursor += header_size
-                
+
                 if cursor + chunk_size > len(encrypted_payload): break # Not enough data for chunk
-                
+
                 # 6. Extract chunk data
                 chunk_data = encrypted_payload[cursor:cursor+chunk_size]
-                
+
                 # 7. Store chunk data
-                if session_id not in all_sessions:
-                    all_sessions[session_id] = { 'total_parts': total_parts, 'data': {} }
-                    session_order.append(session_id) 
-                all_sessions[session_id]['data'][part_index] = chunk_data
+                if chunk_session_id not in all_sessions:
+                    all_sessions[chunk_session_id] = { 'total_parts': total_parts, 'data': {} }
+                    session_order.append(chunk_session_id)
+                all_sessions[chunk_session_id]['data'][part_index] = chunk_data
                 
                 cursor += chunk_size
                 
         if not all_sessions:
             raise ValueError("No valid payload found. Are you sure these are stego images ?")
-        
-        # 8. Get the latest session
-        latest_session_id = session_order[-1]
-        expected_total_parts = all_sessions[latest_session_id]['total_parts']
-        extracted_data = all_sessions[latest_session_id]['data']
+
+        # 8. Pick the target session -- explicit session_id if given (needed whenever the
+        # images carry more than one session), else fall back to "the latest one found"
+        if session_id is not None:
+            if session_id not in all_sessions:
+                raise ValueError(f"Session {session_id} not found in the given stego image(s) "
+                                  f"(found: {list(all_sessions)}).")
+            target_session_id = session_id
+        else:
+            target_session_id = session_order[-1]
+        expected_total_parts = all_sessions[target_session_id]['total_parts']
+        extracted_data = all_sessions[target_session_id]['data']
         
         # Data Validation
         if len(extracted_data) != expected_total_parts:
@@ -167,6 +182,7 @@ class Locomotive:
         Create session blocks for embedding
         """
         session_id = random.getrandbits(32) # Session ID 4 bytes
+        self.last_session_id = session_id   # exposed so callers can record which session this embed() call used
         blocks = []
         for part_idx in range(num_parts):
             start_idx = part_idx * chunk_size

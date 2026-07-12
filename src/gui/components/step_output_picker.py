@@ -1,5 +1,5 @@
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout
 
 STEP_COL_W = 64      # กว้างคอลัมน์ "STEP"
 MODULE_COL_W = 120   # กว้างคอลัมน์ "MODULE"
@@ -16,6 +16,13 @@ class StepOutputRow(QFrame):
         self.setProperty("accentColor", accent)
         self.setProperty("selected", False)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Fixed vertically -- a parent stack/card can end up taller than this
+        # picker's natural content (matching a sibling card's height, or a
+        # leftover QStackedWidget reservation); without this a bare QVBoxLayout
+        # would stretch each row to fill that extra space instead of leaving
+        # it as blank space below the rows (see the trailing addStretch() in
+        # StepOutputPicker.__init__).
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
         row = QHBoxLayout(self)
         row.setContentsMargins(10, 7, 10, 7)
@@ -77,9 +84,17 @@ class StepOutputPicker(QFrame):
         self._empty_label.setWordWrap(True)
         self._layout.addWidget(self._empty_label)
 
+        # Absorb any leftover vertical space here instead of letting the
+        # header/rows above stretch to fill it (rows are size-policy Fixed —
+        # see StepOutputRow — so without this stretch Qt would have nowhere
+        # else to put extra space and the layout would look sparse/bloated
+        # with few rows while looking fine with many).
+        self._layout.addStretch()
+
     def _build_header(self) -> QFrame:
         header = QFrame()
         header.setObjectName("stepOutputHeader")
+        header.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         row = QHBoxLayout(header)
         row.setContentsMargins(10, 4, 10, 4)
         row.setSpacing(8)
@@ -106,7 +121,10 @@ class StepOutputPicker(QFrame):
             row = StepOutputRow(c["step_no"], c["module"], c["output"], c["accent"])
             row.set_selected(c["index"] in self._selected)
             row.clicked.connect(lambda idx=c["index"]: self._on_row_clicked(idx))
-            self._layout.addWidget(row)
+            # insert before the trailing stretch (always the last layout item)
+            # -- addWidget would append AFTER it, putting the gap above the
+            # rows instead of below them.
+            self._layout.insertWidget(self._layout.count() - 1, row)
             self._rows[c["index"]] = row
 
     def _clear_rows(self):

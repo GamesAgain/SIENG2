@@ -314,6 +314,36 @@ QLabel#extractStepSub {
     border: none;
 }
 
+/* สถานะแถว step ระหว่างรัน (interactive extraction — รันทีละ node, ข้าม/retry ได้) */
+QFrame#extractStepRow[stepStatus="done"] {
+    border: 1px solid #3B8766;
+}
+QFrame#extractStepRow[stepStatus="blocked"] {
+    border: 1px solid #F59E0F;
+}
+QLabel#extractStepStatus {
+    font-size: 10px;
+    font-weight: 600;
+    background: transparent;
+    border: none;
+}
+QFrame#extractStepRow[stepStatus="pending"] QLabel#extractStepStatus  { color: #52525B; }
+QFrame#extractStepRow[stepStatus="done"]    QLabel#extractStepStatus  { color: #34D399; }
+QFrame#extractStepRow[stepStatus="blocked"] QLabel#extractStepStatus  { color: #F59E0F; }
+
+/* ผลที่แกะได้ต่อ step — โชว์ทันทีที่เสร็จ (เช่น password fragment) เลือก/copy ข้อความได้ */
+QLabel#extractStepResult {
+    color: #E2E8F0;
+    background-color: #1C292F;
+    border: 1px solid #224A5B;
+    border-radius: 4px;
+    padding: 5px 8px;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    selection-background-color: #38BDF8;
+    selection-color: #0B0F12;
+}
+
 /* --- Tab Style --- */
 /* เส้นแนวนอนยาวที่ฐานของ Tab */
 QTabWidget::pane {

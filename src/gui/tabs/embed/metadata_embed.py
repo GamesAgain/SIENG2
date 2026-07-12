@@ -5,6 +5,7 @@ from src.gui.components.file_drop import FileDropWidget
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap
 from src.gui.components.linked_step_toggle import LinkedStepToggle
 from src.gui.components.step_output_picker import StepOutputPicker
+from src.gui.components.visibility_stack import VisibilityStack
 from src.gui.tabs.embed.metadata_mp3_editor import MP3MetadataEditor
 from src.gui.tabs.embed.metadata_png_editor import PNGMetadataEditor
 from src.gui.tabs.metadata_shared import FileInfoBar, get_file_display_info
@@ -71,7 +72,7 @@ class MetadataEmbedTab(QFrame):
             title_layout.addWidget(self.linked_toggle)
 
             # สลับระหว่าง drop zone (Manual Upload) กับ StepOutputPicker (Linked from Step)
-            self.cover_source_stack = QStackedWidget()
+            self.cover_source_stack = VisibilityStack()
             self.cover_source_stack.addWidget(self.drop_zone)
             self.cover_picker = StepOutputPicker(max_selection=1)
             self.cover_picker.selectionChanged.connect(self.on_cover_link_changed)

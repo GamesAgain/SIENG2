@@ -9,6 +9,7 @@ from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, 
 from src.gui.components.linked_step_toggle import LinkedStepToggle
 from src.gui.components.step_output_picker import StepOutputPicker
 from src.gui.components.toggle_switch import ToggleSwitch
+from src.gui.components.visibility_stack import VisibilityStack
 
 ICON_DIR = Path(__file__).parent.parent.parent / "assets" / "svg"
 
@@ -328,7 +329,7 @@ class LSBEmbedInputs(QFrame):
             title_layout.addWidget(self.linked_toggle)
 
             # สลับระหว่าง drop zone (Manual Upload) กับ StepOutputPicker (Linked from Step)
-            self.cover_source_stack = QStackedWidget()
+            self.cover_source_stack = VisibilityStack()
             self.cover_source_stack.addWidget(drop_zone)
             self.cover_picker = StepOutputPicker(max_selection=1)
             self.cover_picker.selectionChanged.connect(self.on_cover_link_changed)

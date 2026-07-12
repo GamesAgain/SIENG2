@@ -1,3 +1,4 @@
+import re
 import shutil
 from pathlib import Path
 
@@ -17,13 +18,26 @@ from src.gui.tabs.embed.loco_embed import LocoEmbedInputs
 from src.gui.tabs.embed.metadata_embed import MetadataEmbedTab
 
 from src.core.configurable.config_mode import (
-    CONFIG_WORKSPACE, deliverable_step_ids, generate_extract_pipeline, ref_step, run_embed_pipeline, write_yaml,
+    CONFIG_WORKSPACE, REF_PATTERN, deliverable_step_ids, generate_extract_pipeline, read_yaml,
+    ref_step_slot, run_embed_pipeline, write_yaml,
 )
 
 from src.gui.pages.sub_pages.embed.pipeline_constants import (
     ADD_SIZE, CHIP_ICON_SIZE, CLEAR_CHIP_COLOR, ICON_DIR, ICON_SIZE, SCENARIOS,
     STEP_META, TECHNIQUE_CHIPS,
 )
+
+# โฟลเดอร์ .yaml ตัวอย่าง (src/templates) — configurable_page.py อยู่ที่ src/gui/pages/sub_pages/embed/
+TEMPLATES_DIR = Path(__file__).resolve().parents[4] / "templates"
+
+# (label ที่โชว์ใน dropdown, ชื่อไฟล์ใน TEMPLATES_DIR) — ลำดับตรงกับตัวเลขนำหน้าไฟล์
+PIPELINE_TEMPLATES = [
+    ("Distributed Key-Split & Locomotive Decoy", "01_distributed_key_split.yaml"),
+    ("Nested Concealment → MP3 Carrier",          "02_nested_mp3_carrier.yaml"),
+    ("Multi-Cover Fan-Out (DAG)",                 "03_multicover_fanout.yaml"),
+    ("Cross-Media Password Split",                "04_crossmedia_key_split.yaml"),
+    ("Triple-Stack on One Carrier",               "05_triple_stack_one_carrier.yaml"),
+]
 
 
 def encryption_config(password, public_key):
@@ -34,6 +48,61 @@ def encryption_config(password, public_key):
     if public_key:
         return {"mode": "asymmetric", "public_key": public_key}
     return None
+
+
+# --- Export Config: promote literal path/text (manual, ไม่ใช่ step ref) → ${{ variables.X }} ---
+# แนวคิด: pipeline.yaml เป็น "สูตร" ส่วนตัวของผู้ส่งที่ reuse ได้ (ไม่เคยส่งให้ผู้รับ) — ถ้า export
+# ออกมาแล้วมีแต่ literal path ฝังทุก step ครั้งหน้าจะเปลี่ยนไฟล์ต้องไล่หาทีละ step อีก ให้ auto-
+# promote เป็น variables: block แทน ไม่ว่า pipeline จะมาจาก template ที่มี variables อยู่แล้ว
+# (ซึ่งถูก resolve เป็น literal ไปแล้วตอน import) หรือสร้างสด ๆ ในมือ GUI ล้วน ๆ ก็ตาม
+# · ไม่แตะ step ref (${{ steps.X... }}) เพราะไม่ใช่ literal · ค่าเดิมซ้ำกัน (เช่น public key ไฟล์
+# เดียวใช้หลาย step) ใช้ variable เดียวกัน ไม่สร้างซ้ำ
+_NO_PROMOTE_KEYS = {"mode", "type", "desc", "mime"}   # ค่า structural/label ไม่ใช่ path หรือ secret
+
+
+def _var_tag(step_id: str) -> str:
+    """step_id → prefix สำหรับตั้งชื่อ variable เช่น 'LSB++ Embed text in PNG' → 'LSB_EMBED_TEXT_IN_PNG'"""
+    return re.sub(r"[^A-Za-z0-9]+", "_", step_id).strip("_").upper() or "STEP"
+
+
+def _unique_var_name(base: str, used_names: set) -> str:
+    base = re.sub(r"[^A-Za-z0-9_]+", "_", base).strip("_").upper() or "VAR"
+    if base not in used_names:
+        return base
+    n = 2
+    while f"{base}_{n}" in used_names:
+        n += 1
+    return f"{base}_{n}"
+
+
+def _promote_literals(value, tag_parts: list, variables: dict, value_to_var: dict, used_names: set):
+    """เดิน value (str/list/dict) แบบ recursive แทนที่ literal string ที่ไม่ใช่ step ref ด้วย
+    ${{ variables.NAME }} แล้วเติมชื่อ+ค่าเข้า variables ระหว่างทาง · int/bool/None ปล่อยผ่าน"""
+    if isinstance(value, str):
+        if not value or ref_step_slot(value):
+            return value
+        if value in value_to_var:
+            return f"${{{{ variables.{value_to_var[value]} }}}}"
+        name = _unique_var_name("_".join(tag_parts), used_names)
+        variables[name] = value
+        value_to_var[value] = name
+        used_names.add(name)
+        return f"${{{{ variables.{name} }}}}"
+    if isinstance(value, list):
+        n = len(value)
+        return [
+            _promote_literals(item, tag_parts if n == 1 else tag_parts + [str(i + 1)],
+                               variables, value_to_var, used_names)
+            for i, item in enumerate(value)
+        ]
+    if isinstance(value, dict):
+        return {
+            k: (v if k.lower() in _NO_PROMOTE_KEYS else
+                _promote_literals(v, tag_parts + [k], variables, value_to_var, used_names))
+            for k, v in value.items()
+        }
+    return value
+
 
 # ══════════════════════════════════════════════════════════════════════════
 # EmbedConfigurablePage
@@ -118,12 +187,9 @@ class EmbedConfigurablePage(QFrame):
 
         self.template_combo = QComboBox()
         self.template_combo.addItem("Select a Pipeline Example (Template)", "")
-        self.template_combo.addItem("1. Single Technique — LSB++ เดี่ยว", "single-lsb")
-        self.template_combo.addItem("2. Distributed & Nested Steganography", "distributed-nested")
-        self.template_combo.addItem("3. Nested Concealment & Cross-Media Key Distribution", "cross-media")
-        self.template_combo.addItem("4. Locomotive — Multi-Cover Fragmentation", "loco-fragment")
-        self.template_combo.addItem("5. Metadata — Cross-File Key Split (PNG + MP3)", "meta-split")
-        # self.template_combo.currentIndexChanged.connect(self.on_template_selected) TODO
+        for i, (label, fname) in enumerate(PIPELINE_TEMPLATES, 1):
+            self.template_combo.addItem(f"{i}. {label}", fname)
+        self.template_combo.currentIndexChanged.connect(self.on_template_selected)
         template_row.addWidget(self.template_combo, 1)
 
         self.import_config_btn = QPushButton(" Import Config")
@@ -288,7 +354,7 @@ class EmbedConfigurablePage(QFrame):
         for step in self.steps:
             links = (step.get("linked_cover_index") or []) + (step.get("linked_payload_index") or [])
             links += self.apic_linked_index(step.get("module_inputs", {}).get("meta_dict", {}))
-            if any(j >= removed_idx for j in links):
+            if any(self._slot_step(j) >= removed_idx for j in links):
                 step["linked_cover_index"] = []
                 step["linked_payload_index"] = []
                 step["valid"] = False
@@ -332,17 +398,162 @@ class EmbedConfigurablePage(QFrame):
 
     # --- template / import / export / run ---
     def on_template_selected(self, index):
-        pass
+        """เลือก template จาก dropdown → โหลด .yaml ใน src/templates มาสร้าง pipeline จริง
+        (dropdown reset กลับหัวข้อหลังโหลด เพื่อให้เลือกตัวเดิมซ้ำได้)"""
+        fname = self.template_combo.itemData(index)
+        if not fname:
+            return
+        path = TEMPLATES_DIR / fname
+        if not path.exists():
+            QMessageBox.warning(self, "Template", f"ไม่พบไฟล์ template:\n{path}")
+        else:
+            try:
+                n = self.load_config(read_yaml(path))
+                self.status_label.setText(f"Loaded template ({n} steps): {fname}")
+            except Exception as e:
+                QMessageBox.critical(self, "Template", f"โหลด template ไม่สำเร็จ:\n{e}")
+        self.template_combo.blockSignals(True)     # กลับไปหัวข้อหลัก ไม่ให้ค้างที่ชื่อ template
+        self.template_combo.setCurrentIndex(0)
+        self.template_combo.blockSignals(False)
 
     def on_import_config(self):
+        """Import ไฟล์ .yaml (ที่ export ไว้ หรือเขียนเอง) กลับมาเป็น pipeline ที่รันต่อได้"""
         path, _ = QFileDialog.getOpenFileName(self, "Import Config", "", "YAML config (*.yaml *.yml)")
         if not path:
             return
-        QMessageBox.information(
-            self, "Import Config",
-            f'(Mock) เลือกไฟล์: "{path}"\n\n'
-            "ของจริง: parse ไฟล์ .yaml ที่เคย export ไว้ แล้ว rebuild step ทั้งหมดกลับมาแก้ต่อ",
-        )
+        try:
+            n = self.load_config(read_yaml(path))
+            self.status_label.setText(f"Imported config ({n} steps)")
+            QMessageBox.information(self, "Import Config", f"โหลด {n} step จาก:\n{path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Import Config", f"Import ไม่สำเร็จ:\n{e}")
+
+    # --- โหลด config_dict → step model ที่รันได้จริง (ผกผันกับ build_config_dict) ---
+    def load_config(self, config_dict: dict) -> int:
+        """แปลง config_dict (variables + workflows.embed) → self.steps ที่รัน Run Pipeline ได้ทันที
+
+        โครงสร้าง step ที่สร้างตรงกับที่ commit_step ผลิต (module_inputs + linked_*_index + valid)
+        ดังนั้นไม่ต้องสร้าง/กรอก widget เลย — build_config_dict อ่านจาก module_inputs โดยตรง
+        · variable ref (${{ variables.X }}) ถูก resolve เป็นค่าจริง · step ref (${{ steps.Y... }})
+        ถูกแปลงเป็น linked_*_index (คู่ (step_index, output_pos)) ให้ตรงกับโมเดล Linked-from-Step
+        · step ถูก mark 'imported' ไว้ — เปิดแก้ใน panel ครั้งแรกจะเตือนว่าเริ่มจากฟอร์มเปล่า"""
+        embed = (config_dict.get("workflows") or {}).get("embed") or []
+        if not embed:
+            raise ValueError("config นี้ไม่มี workflows.embed ให้โหลด")
+        variables = config_dict.get("variables", {})
+        id_to_index = {s.get("step_id"): i for i, s in enumerate(embed)}
+
+        self.clear_pipeline()
+        for s in embed:
+            module = s.get("module")
+            if module not in ("lsbpp", "locomotive", "metadata"):
+                raise ValueError(f"step '{s.get('step_id')}' ใช้ module ที่ไม่รู้จัก: {module!r}")
+            self.steps.append(self._step_from_config(s, variables, id_to_index))
+        self.render_nodes()
+        return len(self.steps)
+
+    @staticmethod
+    def _resolve_vars(value, variables):
+        """resolve เฉพาะ ${{ variables.X }} (ทุกที่ใน str/list/dict) · ปล่อย ${{ steps... }} ไว้
+        (step ref จัดการแยกเป็น linked index) — ไม่ใช้ resolve_value ของ backend เพราะมันจะพยายาม
+        resolve step ref แล้ว error เนื่องจากตอนโหลดยังไม่มี context ของ step outputs"""
+        if isinstance(value, str):
+            if ref_step_slot(value):
+                return value
+            return REF_PATTERN.sub(
+                lambda m: str(variables.get(m.group(1).strip()[len("variables."):], m.group(0)))
+                if m.group(1).strip().startswith("variables.") else m.group(0),
+                value,
+            )
+        if isinstance(value, list):
+            return [EmbedConfigurablePage._resolve_vars(v, variables) for v in value]
+        if isinstance(value, dict):
+            return {k: EmbedConfigurablePage._resolve_vars(v, variables) for k, v in value.items()}
+        return value
+
+    def _step_from_config(self, s: dict, variables: dict, id_to_index: dict) -> dict:
+        module = s["module"]
+        inputs = s.get("inputs", {}) or {}
+        step = {
+            "type": module, "step_id": s["step_id"], "step_id_custom": True,
+            "valid": True, "imported": True,
+            "linked_cover_index": [], "linked_payload_index": [],
+        }
+
+        # -- covers: แยก manual (resolve var → path) ออกจาก linked (step ref → slot) --
+        manual_covers, linked_cover = [], []
+        for cover in inputs.get("covers", []) or []:
+            if (slot := ref_step_slot(cover)):
+                linked_cover.append((id_to_index[slot[0]], slot[1]))
+            else:
+                manual_covers.append(self._resolve_vars(cover, variables))
+        step["linked_cover_index"] = linked_cover
+
+        enc = self._resolve_vars(inputs.get("encryption"), variables)
+
+        if module == "lsbpp":
+            mi = {"covers": manual_covers or [""], "encryption": enc}
+            if inputs.get("text_payload") is not None:
+                mi["text_payload"] = self._resolve_vars(inputs.get("text_payload"), variables)
+            if inputs.get("text_file") is not None:
+                mi["text_file"] = self._resolve_vars(inputs.get("text_file"), variables)
+            step["module_inputs"] = mi
+
+        elif module == "locomotive":
+            mi = {"covers": manual_covers or [""], "encryption": enc}
+            linked_payload = []
+            if inputs.get("file_payload"):
+                manual_files = []
+                for item in inputs["file_payload"]:
+                    if (slot := ref_step_slot(item)):
+                        linked_payload.append((id_to_index[slot[0]], slot[1]))
+                    else:
+                        manual_files.append(self._resolve_vars(item, variables))
+                mi["file_payload"] = manual_files   # linked ถูก override ใน build_config_dict
+            elif inputs.get("text_payload") is not None:
+                mi["text_payload"] = self._resolve_vars(inputs.get("text_payload"), variables)
+            step["linked_payload_index"] = linked_payload
+            step["module_inputs"] = mi
+
+        else:  # metadata
+            meta_dict, apic_links = self._meta_from_config(inputs.get("meta_dict") or {}, variables, id_to_index)
+            step["linked_payload_index"] = apic_links
+            step["module_inputs"] = {
+                "covers": [manual_covers[0] if manual_covers else None],
+                "meta_dict": meta_dict,
+                "encryption": enc,
+            }
+
+        step["sub"] = self._imported_sub(module, manual_covers, linked_cover)
+        return step
+
+    def _meta_from_config(self, meta_dict: dict, variables: dict, id_to_index: dict):
+        """คืน (meta_dict ที่พร้อมใช้, apic_links) · APIC entry ที่ path เป็น output ของ step อื่น
+        ถูกแปลงเป็น marker {"linked_step_index": (idx,pos), ...} แบบเดียวกับที่ GUI สร้างตอน link
+        (build_config_dict → resolve_linked_apic จะแปลง marker เป็น path ref ตอนรัน)"""
+        apic_links, out = [], {}
+        for key, val in meta_dict.items():
+            if key == "APIC" and isinstance(val, list):
+                apic_out = []
+                for item in val:
+                    if isinstance(item, dict) and (slot := ref_step_slot(item.get("path"))):
+                        pair = (id_to_index[slot[0]], slot[1])
+                        apic_links.append(pair)
+                        apic_out.append({"linked_step_index": pair,
+                                          "type": item.get("type", 3), "desc": item.get("desc", "")})
+                    else:
+                        apic_out.append(self._resolve_vars(item, variables))
+                out["APIC"] = apic_out
+            else:
+                out[key] = self._resolve_vars(val, variables)
+        return out, apic_links
+
+    def _imported_sub(self, module, manual_covers, linked_cover) -> str:
+        if linked_cover:
+            return f"linked: {self._slot_label(linked_cover[0])}"
+        if manual_covers:
+            return Path(manual_covers[0]).name if len(manual_covers) == 1 else f"{len(manual_covers)} covers"
+        return STEP_META[module]["sub"]
 
     def _steps_ready(self, title) -> bool:
         """เช็คว่ามี step และทุก step commit แล้ว (มี module_inputs) ก่อน export/run"""
@@ -361,7 +572,7 @@ class EmbedConfigurablePage(QFrame):
         if not path:
             return
         try:
-            write_yaml(self.build_config_dict(), path)
+            write_yaml(self.build_export_dict(), path)
             QMessageBox.information(self, "Export Config", f"Config saved ({len(self.steps)} steps):\n{path}")
         except Exception as e:
             QMessageBox.critical(self, "Export Config", f"Export failed:\n{e}")
@@ -417,9 +628,9 @@ class EmbedConfigurablePage(QFrame):
         if not covers:
             return step_id
         cover = covers[cover_pos] if cover_pos < len(covers) else covers[0]
-        producer = ref_step(cover)   # ${{ steps.X... }} → X, ไฟล์ path ธรรมดา → None
-        if producer and producer in by_id:
-            return self._root_stem(by_id, producer, 0)   # linked ใช้ output[0] ของ producer = cover[0]
+        slot = ref_step_slot(cover)   # ${{ steps.X.outputs.Y[i] }} → (X, i), ไฟล์ path ธรรมดา → None
+        if slot and slot[0] in by_id:
+            return self._root_stem(by_id, slot[0], slot[1])   # ไล่ต่อไปหา cover[i] ของ producer ตาม output slot ที่ ref จริง
         return Path(cover).stem
 
     @staticmethod
@@ -456,7 +667,8 @@ class EmbedConfigurablePage(QFrame):
                     resources[f"file:{step_id}#{i}"] = name
 
             # 2) เขียน extract config (workflows.extract + resources filename hint — ไม่มี inputs ฝั่ง embed)
-            extract_cfg = {"workflows": {"extract": generate_extract_pipeline(self.last_run_config)}, "resources": resources}
+            #    last_run_results ให้ session_id ของ Locomotive แต่ละ step แนบไปด้วย (ดู generate_extract_pipeline)
+            extract_cfg = {"workflows": {"extract": generate_extract_pipeline(self.last_run_config, self.last_run_results)}, "resources": resources}
             write_yaml(extract_cfg, dest / "extract_config.yaml")
 
             # 3) เคลียร์ workspace + ปิดปุ่ม (ไม่มี output ให้ save แล้ว ต้อง run ใหม่)
@@ -540,7 +752,7 @@ class EmbedConfigurablePage(QFrame):
             cover, payload_text, password, public_key = data
             linked = inner.get_linked_cover_index()
             if linked:
-                step["sub"] = f"linked: {self.step_id_for_index(linked[0])}"
+                step["sub"] = f"linked: {self._slot_label(linked[0])}"
             else:
                 step["sub"] = Path(cover).name if cover else STEP_META["lsbpp"]["sub"]
             step["linked_cover_index"] = linked
@@ -584,7 +796,7 @@ class EmbedConfigurablePage(QFrame):
             linked_cover = inner.get_linked_cover_index()
             if linked_cover:
                 cover_ref = None   # build จะ override covers จาก linked_cover_index
-                step["sub"] = f"linked: {self.step_id_for_index(linked_cover[0])}"
+                step["sub"] = f"linked: {self._slot_label(linked_cover[0])}"
                 meta_fmt = self.output_type_of_step(linked_cover[0]).upper()
             else:
                 if not inner.cover_file:
@@ -650,6 +862,18 @@ class EmbedConfigurablePage(QFrame):
             })
         return {"workflows": {"embed": embed_steps}}
 
+    def build_export_dict(self) -> dict:
+        """เหมือน build_config_dict() แต่ auto-promote literal path/text ที่ manual (ไม่ใช่ step
+        ref) ทุกอันเป็น ${{ variables.X }} + generate variables: block ไว้บนสุด — ใช้เฉพาะตอน
+        Export Config (ไม่ใช้กับ Run Pipeline ซึ่งต้องการ literal ตรง ๆ ตอนรันจริง) ให้ไฟล์ที่
+        export ออกมาเป็น 'สูตร' reuse ได้ทันที ไม่ต้องไล่หา path ทีละ step ตอนจะใช้ไฟล์ใหม่"""
+        config = self.build_config_dict()
+        variables, value_to_var, used_names = {}, {}, set()
+        for step in config["workflows"]["embed"]:
+            tag = _var_tag(step["step_id"])
+            step["inputs"] = _promote_literals(step["inputs"], [tag], variables, value_to_var, used_names)
+        return {"variables": variables, **config}
+
     def build_outputs(self, idx, step_id, module, inputs) -> dict:
         """ตั้งชื่อไฟล์ output ต่อ step (backend เติม path ใต้ config_workspace ให้เอง)"""
         if module == "locomotive":
@@ -685,12 +909,39 @@ class EmbedConfigurablePage(QFrame):
         return f"{base} - {n}"
 
     # --- Linked-from-Step: id/ref ของ output ต่อ step + รายชื่อ candidate ที่ link ได้ ---
-    def step_id_for_index(self, idx) -> str:
-        return self.steps[idx]["step_id"]
+    # "target" ที่ฟังก์ชันกลุ่มนี้รับ คือค่า "index" ที่ candidate ส่งกลับมาจาก available_link_candidates
+    # — สำหรับ cover role เป็น tuple (step_idx, output_pos) เพราะเลือกได้เจาะจงเป็นราย output
+    # (multi-output producer เอาคนละ output ไป link คนละ step ได้) ส่วน payload/APIC role ยังเป็น
+    # step_idx เฉยๆ (ผูกทั้ง step, เจาะจง output ไม่ได้ — ดู available_link_candidates) ทุกฟังก์ชัน
+    # ด้านล่าง unwrap ด้วย pattern เดียวกัน: `step_idx, out_pos = target if tuple else (target, 0)`
+    # เพื่อรองรับทั้งสองแบบโดยไม่ต้องแยกโค้ดเป็นสองชุด
+    @staticmethod
+    def _slot_step(target) -> int:
+        """เอาแค่ step_idx ออกจาก target ไม่ว่าจะเป็น slot tuple หรือ step_idx เดี่ยว ๆ"""
+        return target[0] if isinstance(target, tuple) else target
 
-    def output_type_of_step(self, idx) -> str:
-        """ชนิดไฟล์ output ของ step[idx] ('png'/'mp3') — ใช้ทั้งกรอง candidate ใน
-        StepOutputPicker และตอนตั้งนามสกุลไฟล์ output ของ metadata step ที่ link คนอื่นต่อ"""
+    def _n_outputs(self, idx) -> int:
+        """จำนวนไฟล์ output จริงของ step[idx] ตามที่ commit ไว้แล้ว — มีแค่ Locomotive ที่ได้
+        มากกว่า 1 (เท่าจำนวน cover) เทคนิคอื่นมี output เดียวเสมอ"""
+        step = self.steps[idx]
+        if step["type"] != "locomotive":
+            return 1
+        linked = step.get("linked_cover_index") or []
+        covers = step.get("module_inputs", {}).get("covers") or []
+        return max(len(linked) if linked else len(covers), 1)
+
+    def _slot_label(self, target) -> str:
+        """label ของ output slot หนึ่งอัน เช่น 'Step 1' หรือ 'Step 1 · O2' ถ้า producer มีหลาย
+        output (ไม่งั้นจะไม่รู้ว่า linked ไป output ไหน) — ใช้โชว์ใน step['sub'] ตอน commit"""
+        step_idx, out_pos = target if isinstance(target, tuple) else (target, 0)
+        label = self.steps[step_idx]["step_id"]
+        return f"{label} · O{out_pos + 1}" if self._n_outputs(step_idx) > 1 else label
+
+    def output_type_of_step(self, target) -> str:
+        """ชนิดไฟล์ output ของ step ('png'/'mp3') — ใช้ทั้งกรอง candidate ใน StepOutputPicker
+        และตอนตั้งนามสกุลไฟล์ output ของ metadata step ที่ link คนอื่นต่อ (ทุก output ของ step
+        เดียวเป็นชนิดเดียวกันเสมอ เลยไม่ต้องสน out_pos)"""
+        idx = self._slot_step(target)
         step = self.steps[idx]
         if step["type"] in ("lsbpp", "locomotive"):
             return "png"
@@ -703,12 +954,14 @@ class EmbedConfigurablePage(QFrame):
             return "mp3" if str(covers[0]).lower().endswith(".mp3") else "png"
         return "png"
 
-    def output_ref_for_index(self, idx) -> str:
-        """สร้าง ${{ steps.ID.outputs... }} อ้างถึง output ของ step[idx] — ใช้ตอน step ถัดไป
-        'link' เอา output ตัวนี้ไปเป็น cover ของตัวเอง (schema เดียวกับ config_mode.REF_PATTERN)"""
-        step_id = self.step_id_for_index(idx)
-        if self.steps[idx]["type"] == "locomotive":
-            return f"${{{{ steps.{step_id}.outputs.stego_files[0] }}}}"
+    def output_ref_for_index(self, target) -> str:
+        """สร้าง ${{ steps.ID.outputs... }} อ้างถึง output ของ target (slot tuple หรือ step_idx
+        เดี่ยว ๆ = output[0]) — ใช้ตอน step ถัดไป 'link' เอา output ตัวนี้ไปเป็น cover/payload
+        ของตัวเอง (schema เดียวกับ config_mode.REF_PATTERN)"""
+        step_idx, out_pos = target if isinstance(target, tuple) else (target, 0)
+        step_id = self.steps[step_idx]["step_id"]
+        if self.steps[step_idx]["type"] == "locomotive":
+            return f"${{{{ steps.{step_id}.outputs.stego_files[{out_pos}] }}}}"
         return f"${{{{ steps.{step_id}.outputs.stego_file }}}}"
 
     def apic_linked_index(self, meta_dict: dict) -> list:
@@ -733,24 +986,27 @@ class EmbedConfigurablePage(QFrame):
         ]
         return {**meta_dict, "APIC": resolved}
 
-    def claimed_step_index(self, exclude_idx=None) -> set:
-        """index ของ step ที่ output ถูก step อื่น link ไปใช้แล้ว ไม่ว่า role ไหน (cover หรือ
-        payload) — ห้าม step ไหน ref ซ้ำ ไม่งั้น extract-chain ของ backend งงว่าใครคือ consumer
-        จริง (แต่ละ output claim ได้แค่ 1 ครั้งรวมทุก role ตามที่ตกลงกันไว้)"""
+    def claimed_slots(self, exclude_idx=None) -> set:
+        """(step_idx, output_pos) ที่ถูก step อื่น link ไปใช้แล้ว ไม่ว่า role ไหน (cover/payload/
+        APIC) — ห้าม slot ไหนถูก ref ซ้ำ ไม่งั้น extract-chain ของ backend งงว่าใครคือ consumer
+        จริง (แต่ละ output slot claim ได้แค่ 1 ครั้งรวมทุก role — backend รองรับ per-slot chaining
+        ทั้ง cover และ payload แล้ว ทุก role เลย claim แค่ slot จริงที่เลือกเหมือนกันหมด)"""
         claimed = set()
         for i, step in enumerate(self.steps):
             if i == exclude_idx:
                 continue
             claimed.update(step.get("linked_cover_index") or [])
-            claimed.update(step.get("linked_payload_index") or [])   # metadata เก็บ APIC link ไว้ที่นี่ด้วย
+            claimed.update(step.get("linked_payload_index") or [])
         return claimed
 
-    # slot กำหนดว่า type ไหนใช้ได้: "cover" ตาม module ปัจจุบัน (lsbpp/loco=png, metadata=png/mp3)
+    # slot กำหนดว่า type ไหนใช้ได้ — ทุก role แสดง candidate แยกรายจริง (index ที่คืนเป็น tuple
+    # (step_idx, output_pos)) เพราะ backend chain ได้ระดับ slot ทั้ง cover และ payload แล้ว:
+    # · "cover" ตาม module ปัจจุบัน (lsbpp/loco=png, metadata=png/mp3)
     # · "payload_any" ไม่จำกัด type (Locomotive file_payload ฝังไฟล์อะไรก็ได้)
     # · "payload_image" ต้องเป็นรูป (Metadata-MP3 APIC) — ระบบเราสร้าง output ได้แค่ png/mp3 เลยเหลือแค่ png
     def available_link_candidates(self, idx, slot: str = "cover") -> list:
-        """list ของ step ก่อนหน้า idx ที่ยัง 'ว่าง' (ไม่ถูกใครจอง) + commit แล้ว + type ตรงกับ
-        slot ที่ขอ — ป้อนให้ StepOutputPicker ทุกครั้งก่อนเปิด step config"""
+        """list ของ output ก่อนหน้า idx ที่ยัง 'ว่าง' (ไม่ถูกใครจอง) + step ต้น commit แล้ว + type
+        ตรงกับ slot ที่ขอ — ป้อนให้ StepOutputPicker ทุกครั้งก่อนเปิด step config"""
         current_module = self.steps[idx]["type"]
         if slot == "payload_any":
             allowed_types = {"png", "mp3"}
@@ -758,29 +1014,41 @@ class EmbedConfigurablePage(QFrame):
             allowed_types = {"png"}
         else:  # "cover"
             allowed_types = {"png"} if current_module in ("lsbpp", "locomotive") else {"png", "mp3"}
-        claimed = self.claimed_step_index(exclude_idx=idx)
+        claimed = self.claimed_slots(exclude_idx=idx)
 
         candidates = []
         for j in range(idx):  # backward-only — step ทีหลังจะ ref step ก่อนไม่ได้
             step = self.steps[j]
-            if not step.get("valid") or j in claimed:
+            if not step.get("valid") or self.output_type_of_step(j) not in allowed_types:
                 continue
-            if self.output_type_of_step(j) not in allowed_types:
-                continue
-            candidates.append({
-                "index": j,
-                "step_no": j + 1,
-                "module": STEP_META[step["type"]]["label"],
-                "output": step["sub"],
-                "label": f"Step {j + 1} — {STEP_META[step['type']]['label']}",   # ใช้ตอนโชว์ใน FileInfoBar (metadata)
-                "accent": STEP_META[step["type"]]["accent"],
-                "type": self.output_type_of_step(j),
-            })
+            n = self._n_outputs(j)
+            for pos in range(n):
+                if (j, pos) in claimed:
+                    continue
+                suffix = f" (Output {pos + 1}/{n})" if n > 1 else ""
+                candidates.append({
+                    "index": (j, pos),
+                    "step_no": j + 1,
+                    "module": STEP_META[step["type"]]["label"],
+                    "output": step["sub"] if n == 1 else f"Output {pos + 1}/{n}",
+                    "label": f"Step {j + 1} — {STEP_META[step['type']]['label']}{suffix}",   # ใช้ตอนโชว์ใน FileInfoBar (metadata)
+                    "accent": STEP_META[step["type"]]["accent"],
+                    "type": self.output_type_of_step(j),
+                })
         return candidates
 
     def open_step_config(self, idx):
         step = self.steps[idx]
         step_type = step["type"]
+        # step ที่ import มา: config รันได้เลยจาก module_inputs แต่ widget ยังเป็นฟอร์มเปล่า
+        # (ยังไม่ทำ rehydrate) — เตือนครั้งเดียวว่าถ้ากด Save Step จะเขียนทับค่าที่ import มา
+        if step.pop("imported", False):
+            QMessageBox.information(
+                self, "Imported step",
+                "สเต็ปนี้โหลดมาจาก template/config และจะรันตามค่าที่โหลดมาได้เลย\n\n"
+                "การเปิดแก้ที่นี่จะเริ่มจากฟอร์มเปล่า — ถ้ากด Save Step จะเขียนทับค่าที่โหลดมา "
+                "(ถ้าแค่อยากรัน ไม่ต้องเปิดแก้ กด Run Pipeline ได้เลย)",
+            )
         title = f"Step {idx + 1} : {STEP_META[step_type]['label']}"
         inner = self.get_step_inner(idx)
         if hasattr(inner, "set_cover_link_candidates"):

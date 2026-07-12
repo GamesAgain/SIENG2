@@ -1,0 +1,92 @@
+# =============================================================================
+# Template 1 — Distributed Key-Split & Locomotive Decoy
+#   (ตัวอย่างที่ 1 ของผู้ใช้ — "I LOVE YOU ALICE")
+#
+# ระดับความยาก: ปานกลาง
+# เทคนิคที่ใช้: LSB++ (x2) + Metadata-PNG + Locomotive
+# ไฟล์ที่ผู้รับต้องมี: 002_stego_stego.png, 003_stego_stego.png + Private Key
+#
+# แนวคิด:
+#   1) ซ่อนความลับจริง "I LOVE YOU ALICE" ในภาพ 1 ด้วย LSB++ พร้อมเข้ารหัส
+#      (password "password")
+#   2) "เบาะแสของรหัสผ่าน" ถูกแบ่งเป็น 2 ชิ้น ("pass" + "word") แล้วนำไปซ่อน
+#      กระจายไว้คนละที่: ชิ้นแรกใน LSB++ ของภาพ 2, ชิ้นสองใน Metadata ของภาพ 3
+#   3) ภาพ 1 (ที่ถือความลับจริง) ถูก "ซ่อนหาย" ด้วย Locomotive โดยใช้ภาพ 2 และ
+#      ภาพ 3 เป็นหัวรถพ่วง (carrier) เพื่อตบตา — ผู้สังเกตเห็นแค่ 2 ภาพธรรมดา
+#
+# การถอด (ระบบสร้าง extract-workflow ให้อัตโนมัติ):
+#   Locomotive แกะ → ได้ภาพ 1 กลับมา · LSB++/Metadata แกะ 2 ชิ้นรหัส → ต่อกัน
+#   เป็น "password" → เอาไปปลดล็อก LSB++ ของภาพ 1 → ได้ "I LOVE YOU ALICE"
+#
+# หมายเหตุ: แก้ค่าใน variables ให้ชี้ไฟล์ของคุณเองได้เลย ทุก step อ้างอิงจากตรงนี้
+# =============================================================================
+variables:
+  # -- ไฟล์ต้นฉบับ (Cover images) --
+  SRC_IMG1: "d:/SRY-DEV/cs-project/Program/Doing/GUI/SIENG2/img/001.png"
+  SRC_IMG2: "d:/SRY-DEV/cs-project/Program/Doing/GUI/SIENG2/img/002.png"
+  SRC_IMG3: "d:/SRY-DEV/cs-project/Program/Doing/GUI/SIENG2/img/003.png"
+
+  # -- กุญแจสาธารณะของผู้รับ (ใช้เข้ารหัสชั้น Locomotive) --
+  RECEIVER_PUB_KEY: "d:/SRY-DEV/cs-project/Program/Doing/GUI/SIENG2/yaml/data/pub_key.pem"
+
+  # -- ความลับและเบาะแสรหัสผ่าน (แก้ข้อความได้ตามต้องการ) --
+  SECRET_MESSAGE: "I LOVE YOU ALICE"
+  LSB_PASSWORD: "password"
+  PASS_PART_1: "pass"       # ชิ้นที่ 1 ของ password → ซ่อนใน LSB++ ภาพ 2
+  PASS_PART_2: "word"       # ชิ้นที่ 2 ของ password → ซ่อนใน Metadata ภาพ 3
+
+workflows:
+  embed:
+    # 1) ความลับจริง → LSB++ ในภาพ 1 (เข้ารหัส symmetric)
+    - step_id: "secret_in_img1"
+      module: "lsbpp"
+      inputs:
+        covers:
+          - ${{ variables.SRC_IMG1 }}
+        text_payload: ${{ variables.SECRET_MESSAGE }}
+        encryption:
+          mode: "symmetric"
+          password: ${{ variables.LSB_PASSWORD }}
+      outputs:
+        stego_file: "output/001_stego.png"
+
+    # 2) รหัสผ่านชิ้นที่ 1 → LSB++ ในภาพ 2 (ไม่เข้ารหัส)
+    - step_id: "keypart1_in_img2"
+      module: "lsbpp"
+      inputs:
+        covers:
+          - ${{ variables.SRC_IMG2 }}
+        text_payload: ${{ variables.PASS_PART_1 }}
+        encryption: null
+      outputs:
+        stego_file: "output/002_stego.png"
+
+    # 3) รหัสผ่านชิ้นที่ 2 → Metadata-PNG ในภาพ 3 (custom key "part2")
+    - step_id: "keypart2_in_img3"
+      module: "metadata"
+      inputs:
+        covers:
+          - ${{ variables.SRC_IMG3 }}
+        meta_dict:
+          part2: ${{ variables.PASS_PART_2 }}
+        encryption: null
+      outputs:
+        stego_file: "output/003_stego.png"
+
+    # 4) Locomotive ตบตา — ใช้ภาพ 2 & 3 (ที่มีเบาะแสรหัสอยู่แล้ว) เป็นหัวรถพ่วง
+    #    ซ่อนภาพ 1 (ความลับจริง) เข้าไป · เข้ารหัสด้วย Public Key ของผู้รับ
+    - step_id: "decoy_carrier"
+      module: "locomotive"
+      inputs:
+        covers:
+          - ${{ steps.keypart1_in_img2.outputs.stego_file }}
+          - ${{ steps.keypart2_in_img3.outputs.stego_file }}
+        file_payload:
+          - ${{ steps.secret_in_img1.outputs.stego_file }}
+        encryption:
+          mode: "asymmetric"
+          public_key: ${{ variables.RECEIVER_PUB_KEY }}
+      outputs:
+        stego_files:
+          - "output/002_stego_stego.png"
+          - "output/003_stego_stego.png"

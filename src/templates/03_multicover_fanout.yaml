@@ -1,0 +1,73 @@
+# =============================================================================
+# Template 3 — Multi-Cover Fan-Out (แยก output ของ step เดียวไปคนละทาง)
+#
+# ระดับความยาก: ปานกลาง
+# เทคนิคที่ใช้: Locomotive (2 covers) + LSB++ + Metadata-PNG
+# ไฟล์ที่ผู้รับต้องมี: 001_deco.png, 002_deco.png + Private Key
+#
+# จุดเด่นที่โชว์: Locomotive 1 step ที่มี 2 cover จะได้ output 2 ไฟล์ (O1, O2) —
+#   เทมเพลตนี้ส่ง O1 ไปต่อ LSB++ และ O2 ไปต่อ Metadata "คนละเทคนิคกัน" ⇒ พิสูจน์
+#   ว่า pipeline เป็น DAG จริง ไม่ใช่โซ่เส้นตรง: output คนละช่องของ step เดียวกัน
+#   แตกไปเป็น cover ให้ step ปลายทางที่ต่างกันได้
+#
+# แนวคิด:
+#   1) ไฟล์ลับถูก "กระจาย (fragment)" ลง 2 ภาพด้วย Locomotive → O1, O2
+#      (ต้องมีครบทั้ง 2 ใบถึงจะประกอบไฟล์ลับกลับได้)
+#   2) O1 → ซ้อน LSB++ (ข้อความลวง) · O2 → ซ้อน Metadata (แท็กลวง)
+#      เพื่อให้ 2 ภาพที่ส่งออกดู "มีเนื้อหาของตัวเอง" ไม่น่าสงสัยว่าเป็นคู่หูกัน
+#
+# การถอด: LSB++/Metadata แกะชั้นลวงออก · Locomotive ประกอบ O1+O2 → คืนไฟล์ลับ
+# =============================================================================
+variables:
+  SRC_IMG1: "d:/SRY-DEV/cs-project/Program/Doing/GUI/SIENG2/img/001.png"
+  SRC_IMG2: "d:/SRY-DEV/cs-project/Program/Doing/GUI/SIENG2/img/002.png"
+  RECEIVER_PUB_KEY: "d:/SRY-DEV/cs-project/Program/Doing/GUI/SIENG2/yaml/data/pub_key.pem"
+  SECRET_FILE: "d:/SRY-DEV/cs-project/Program/Doing/GUI/SIENG2/yaml/data/file1.txt"
+
+  DECOY_TEXT: "Meeting notes: lunch at noon."      # ข้อความลวงบน O1 (LSB++)
+  DECOY_TAG:  "vacation 2024"                       # แท็กลวงบน O2 (Metadata)
+  LSB_PASSWORD: "decoy-pass"
+
+workflows:
+  embed:
+    # 1) กระจายไฟล์ลับลง 2 ภาพด้วย Locomotive (fragment) → O1, O2
+    - step_id: "fragment_secret"
+      module: "locomotive"
+      inputs:
+        covers:
+          - ${{ variables.SRC_IMG1 }}
+          - ${{ variables.SRC_IMG2 }}
+        file_payload:
+          - ${{ variables.SECRET_FILE }}
+        encryption:
+          mode: "asymmetric"
+          public_key: ${{ variables.RECEIVER_PUB_KEY }}
+      outputs:
+        stego_files:
+          - "output/frag_O1.png"
+          - "output/frag_O2.png"
+
+    # 2) O1 → ซ้อนข้อความลวงด้วย LSB++ (อ้าง output ช่องที่ 0 ของ step ข้างบน)
+    - step_id: "decoy_on_O1"
+      module: "lsbpp"
+      inputs:
+        covers:
+          - ${{ steps.fragment_secret.outputs.stego_files[0] }}
+        text_payload: ${{ variables.DECOY_TEXT }}
+        encryption:
+          mode: "symmetric"
+          password: ${{ variables.LSB_PASSWORD }}
+      outputs:
+        stego_file: "output/001_deco.png"
+
+    # 3) O2 → ซ้อนแท็กลวงด้วย Metadata-PNG (อ้าง output ช่องที่ 1 ของ step เดียวกัน)
+    - step_id: "decoy_on_O2"
+      module: "metadata"
+      inputs:
+        covers:
+          - ${{ steps.fragment_secret.outputs.stego_files[1] }}
+        meta_dict:
+          note: ${{ variables.DECOY_TAG }}
+        encryption: null
+      outputs:
+        stego_file: "output/002_deco.png"

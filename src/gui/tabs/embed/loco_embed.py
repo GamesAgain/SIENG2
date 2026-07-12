@@ -9,6 +9,7 @@ from src.gui.components.linked_step_toggle import LinkedStepToggle
 from src.gui.components.multi_file_drop import MultiFileDropWidget
 from src.gui.components.step_output_picker import StepOutputPicker
 from src.gui.components.toggle_switch import ToggleSwitch
+from src.gui.components.visibility_stack import VisibilityStack
 
 ICON_DIR = Path(__file__).parent.parent.parent / "assets" / "svg"
 ICON_SIZE = 14
@@ -94,7 +95,7 @@ class LocoEmbedInputs(QFrame):
 
             # สลับระหว่าง drop zone (Manual Upload) กับ StepOutputPicker (Linked from Step)
             # max_selection=None เพราะ Locomotive รับ cover ได้หลายภาพพร้อมกัน
-            self.cover_source_stack = QStackedWidget()
+            self.cover_source_stack = VisibilityStack()
             self.cover_source_stack.addWidget(drop_zone)
             self.cover_picker = StepOutputPicker(max_selection=None)
             self.cover_picker.selectionChanged.connect(self.on_cover_link_changed)
@@ -188,7 +189,7 @@ class LocoEmbedInputs(QFrame):
         if self.pipeline_mode:
             # สลับระหว่าง payload_tabs (Manual Upload/Text) กับ StepOutputPicker (Linked from Step)
             # max_selection=None เพราะ file_payload รับได้หลายไฟล์ — ไม่จำกัด type (Locomotive ฝังไฟล์อะไรก็ได้)
-            self.payload_source_stack = QStackedWidget()
+            self.payload_source_stack = VisibilityStack()
             self.payload_source_stack.addWidget(self.payload_tabs)
             self.payload_picker = StepOutputPicker(max_selection=None)
             self.payload_picker.selectionChanged.connect(self._on_payload_link_changed)
