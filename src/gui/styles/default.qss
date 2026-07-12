@@ -899,3 +899,116 @@ QFrame#apicPreview[tintColor="blue"] { background-color: rgba(56, 189, 248, 0.12
 QFrame#apicPreview[tintColor="purple"] { background-color: rgba(167, 139, 250, 0.12); }
 QFrame#apicPreview[tintColor="green"] { background-color: rgba(52, 211, 153, 0.12); }
 QFrame#apicPreview[tintColor="orange"] { background-color: rgba(245, 158, 15, 0.12); }
+
+/* --- Table Styles --- */
+QTableWidget#darkTable {
+    background-color: #1E1E1E; /* สีพื้นหลังให้เนียนไปกับตัวการ์ด */
+    color: #E2E8F0; /* สีตัวหนังสือหลัก */
+    gridline-color: #343434; /* สีเส้นตาราง */
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 12px;
+    border: 1px solid #343434;
+    border-radius: 4px;
+    outline: none; /* เอาเส้นประเวลาคลิกออก */
+}
+
+/* ตอนที่ผู้ใช้คลิกเลือกเซลล์ในตาราง */
+QTableWidget#darkTable::item:selected {
+    background-color: transparent; /* ไม่เปลี่ยนสีพื้นหลัง */
+    color: #38BDF8; /* ตัวหนังสือสีฟ้า */
+    border: 1px solid #38BDF8; /* เพิ่มเส้นขอบสีฟ้า */
+}
+
+/* ส่วนหัวตาราง (Header) */
+QHeaderView::section {
+    background-color: #252525; /* สีพื้นหลังหัวตารางให้เข้มกว่าตัวตารางนิดนึง */
+    color: #94A3B8; /* สีตัวหนังสือหัวตาราง */
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 11px;
+    font-weight: bold;
+    border: none;
+    border-right: 1px solid #343434; /* เส้นคั่นระหว่างคอลัมน์ */
+    border-bottom: 1px solid #343434; /* เส้นคั่นใต้หัวตาราง */
+    padding: 6px;
+}
+
+/* มุมซ้ายบนสุดของตาราง (ตรงที่หัว Row กับหัว Column มาเจอกัน) */
+QTableCornerButton::section {
+    background-color: #1E1E1E;
+    border: none;
+    border-right: 1px solid #343434;
+    border-bottom: 1px solid #343434;
+}
+
+/* ปรับแต่ง Scrollbar ของตารางให้เข้ากับธีม (แนวตั้ง) */
+QScrollBar:vertical {
+    background-color: #1E1E1E;
+    width: 10px;
+    margin: 0px;
+}
+QScrollBar::handle:vertical {
+    background-color: #343434;
+    min-height: 20px;
+    border-radius: 5px;
+}
+QScrollBar::handle:vertical:hover {
+    background-color: #536072;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px; /* ซ่อนปุ่มลูกศรบนล่าง */
+}
+
+/* --- File Structure Tree --- */
+QTreeWidget#structureTree {
+    background-color: #1E1E1E;
+    color: #E2E8F0;
+    border: 1px solid #343434;
+    border-radius: 4px;
+    outline: none;
+}
+QTreeWidget#structureTree::item:selected {
+    background-color: rgba(56, 189, 248, 0.2);
+    color: #38BDF8;
+}
+QTreeWidget#structureTree QHeaderView::section {
+    background-color: #252525;
+    color: #94A3B8;
+    border: none;
+    border-right: 1px solid #343434;
+    border-bottom: 1px solid #343434;
+    padding: 4px;
+}
+
+/* --- Binwalk Signatures List --- */
+QListWidget#binwalkList {
+    background-color: #1E1E1E;
+    color: #E2E8F0;
+    border: 1px solid #343434;
+    border-radius: 4px;
+}
+QListWidget#binwalkList::item { 
+    padding: 4px; 
+    border-bottom: 1px solid #343434; 
+}
+
+/* --- File Structure Analysis Summary --- */
+QScrollArea#transparentScroll, QWidget#transparentScrollContent {
+    background-color: transparent;
+}
+
+QFrame#summaryCard {
+    background-color: #252525;
+    border: 1px solid #343434;
+    border-radius: 10px;
+}
+
+QListWidget#summaryList {
+    background-color: transparent;
+    border: none;
+    color: #E2E8F0;
+    outline: none;
+}
+QListWidget#summaryList::item {
+    padding: 10px 4px;
+    border-bottom: 1px solid #343434;
+}
