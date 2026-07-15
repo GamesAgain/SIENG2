@@ -1,5 +1,8 @@
 from typing import Dict, Any
 from hachoir.parser import createParser
+from hachoir.core.log import log
+
+log.use_print = False
 
 def _parse_field_recursive(field) -> Dict[str, Any]:
     chunk_info = {

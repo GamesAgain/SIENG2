@@ -1,5 +1,8 @@
 from typing import Dict, Any
+from PIL import Image
+import numpy as np
 from src.core.analyzer.formats.base_handler import BaseFormatHandler
+from src.core.analyzer.modules.statistical_analyzer import StatisticalAnalyzer
 
 class PNGHandler(BaseFormatHandler):
     def analyze(self) -> Dict[str, Any]:
@@ -16,12 +19,22 @@ class PNGHandler(BaseFormatHandler):
             suspicious_count = self._tag_suspicious_chunks(hachoir_raw["structure"])
             structure_results["suspicious_chunk_count"] = suspicious_count
             structure_results["has_suspicious_chunks"] = suspicious_count > 0
+            
+        stat_results = {}
+        try:
+            with Image.open(self.file_path) as img:
+                arr = np.array(img.convert("RGB"))
+                stat_analyzer = StatisticalAnalyzer(arr)
+                stat_results = stat_analyzer.analyze()
+        except Exception as e:
+            stat_results = {"error": f"Failed to extract PNG array for stat: {e}"}
         
         return {
             "format": "PNG",
             "file_size": self.file_size,
             "metadata_analysis": metadata_results,
-            "structure_analysis": structure_results
+            "structure_analysis": structure_results,
+            "statistical_analysis": stat_results
         }
 
     def _tag_suspicious_chunks(self, chunks_list: list, parent_name: str = "") -> int:

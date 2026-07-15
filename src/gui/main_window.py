@@ -8,6 +8,7 @@ from src.gui.components.title_bar import SIENG2TitleBar
 from src.gui.pages.embed_page import EmbedPage
 from src.gui.pages.extract_page import ExtractPage
 from src.gui.pages.analyzer_page import AnalyzerPage
+from src.gui.pages.compare_page import ComparePage
 
 CURRENT_DIR = Path(__file__).resolve().parent
 ICON_DIR = CURRENT_DIR / "assets" / "svg"
@@ -64,7 +65,7 @@ class MainWindow(QMainWindow):
         self.page_container.addWidget(AnalyzerPage())
         self.page_container.addWidget(QLabel("Metadata Page"))
         self.page_container.addWidget(QLabel("Bit Statistics Page"))
-        self.page_container.addWidget(QLabel("Compare Page"))
+        self.page_container.addWidget(ComparePage())
         self.page_container.addWidget(QLabel("Report Page"))
         
         # -- Connect sidebar to page container --
@@ -112,12 +113,15 @@ class MainWindow(QMainWindow):
         sidebar_layout.addWidget(self.create_section_label("Steganalysis"))
         
         self.analyzer_btn = SidebarButton("Analyzer", ANALYZER_ICON)
+        self.compare_btn = SidebarButton("Compare", COMPARE_ICON)
         self.report_btn = SidebarButton("Report", REPORT_ICON)
         sidebar_layout.addWidget(self.analyzer_btn)
+        sidebar_layout.addWidget(self.compare_btn)
         sidebar_layout.addWidget(self.report_btn)
         
         self.sidebar_group.addButton(self.analyzer_btn, 2)
-        self.sidebar_group.addButton(self.report_btn, 3)
+        self.sidebar_group.addButton(self.compare_btn, 5)
+        self.sidebar_group.addButton(self.report_btn, 6)
         
         sidebar_layout.addStretch()
         
