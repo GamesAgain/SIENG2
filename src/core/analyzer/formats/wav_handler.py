@@ -1,5 +1,8 @@
 from typing import Dict, Any
+import numpy as np
+from scipy.io import wavfile
 from src.core.analyzer.formats.base_handler import BaseFormatHandler
+from src.core.analyzer.modules.statistical_analyzer import StatisticalAnalyzer
 
 class WAVHandler(BaseFormatHandler):
     def analyze(self) -> Dict[str, Any]:
@@ -19,12 +22,24 @@ class WAVHandler(BaseFormatHandler):
             suspicious_count = self._tag_suspicious_chunks(hachoir_raw["structure"])
             structure_results["suspicious_chunk_count"] = suspicious_count
             structure_results["has_suspicious_chunks"] = suspicious_count > 0
+            
+        stat_results = {}
+        try:
+            _, data = wavfile.read(self.file_path)
+            lsb_data = np.uint8(data & 0xFF)
+            flat = lsb_data.flatten()
+            
+            stat_analyzer = StatisticalAnalyzer(flat)
+            stat_results = stat_analyzer.analyze()
+        except Exception as e:
+            stat_results = {"error": f"Failed to extract WAV array for stat: {e}"}
         
         return {
             "format": "WAV",
             "file_size": self.file_size,
             "metadata_analysis": metadata_results,
-            "structure_analysis": structure_results
+            "structure_analysis": structure_results,
+            "statistical_analysis": stat_results
         }
 
     def _tag_suspicious_chunks(self, chunks_list: list) -> int:
@@ -63,3 +78,5 @@ class WAVHandler(BaseFormatHandler):
                 suspicious_count += self._tag_suspicious_chunks(sub_chunks)
                 
         return suspicious_count
+
+
