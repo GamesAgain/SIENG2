@@ -1,20 +1,25 @@
 from PyQt6.QtWidgets import (
-    QFrame, QVBoxLayout, QLabel, QListWidget, QListWidgetItem
+    QFrame, QVBoxLayout, QLabel, QScrollArea, QWidget
 )
-from PyQt6.QtGui import QColor, QBrush
+from PyQt6.QtGui import QColor
+
+RED = "#f43f5e"
+YELLOW = "#EAB308"
+GREEN = "#10B981"
+GRAY = "#94A3B8"
 
 STAT_LABELS = {
-    "chi_square": "Chi-Square Attack",
     "rs_analysis": "RS Analysis",
-    "spa": "Sample Pairs Analysis (SPA)",
+    "spa": "Sample Pairs (SPA)",
+    "ws": "Weighted Stego (WS)",
 }
 
 
 class ReportTab(QFrame):
     """
-    สรุปผลรวมของ Metadata/File Structure/Bit Statistics เป็นรายการเดียว -
-    ไม่เรียก analyze() เพิ่มเอง แค่รวม field ที่ analyzer_page.py คำนวณไว้แล้ว
-    ให้ผู้ใช้เห็นภาพรวมโดยไม่ต้องไล่เปิดทีละแท็บ
+    Overall analysis report — aggregates the Metadata / File Structure / Bit-Spatial
+    findings the other tabs already computed into one grouped summary, so the user
+    sees the whole picture without opening each tab. Does not re-run analyze().
     """
 
     def __init__(self):
@@ -22,71 +27,121 @@ class ReportTab(QFrame):
         self.init_ui()
 
     def init_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(15, 15, 15, 15)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
 
-        title = QLabel("Overall Summary")
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setObjectName("transparentScroll")
+
+        content = QWidget()
+        content.setObjectName("transparentScrollContent")
+        main = QVBoxLayout(content)
+        main.setContentsMargins(10, 10, 10, 10)
+        main.setSpacing(10)
+
+        card = QFrame()
+        card.setObjectName("card")
+        self.card_layout = QVBoxLayout(card)
+        self.card_layout.setContentsMargins(15, 15, 15, 15)
+        self.card_layout.setSpacing(10)
+
+        title = QLabel("Analysis Report")
         title.setObjectName("cardTitle")
-        layout.addWidget(title)
+        self.card_layout.addWidget(title)
 
-        self.summary_list = QListWidget()
-        self.summary_list.setWordWrap(True)
-        self.summary_list.setObjectName("summaryList")
-        layout.addWidget(self.summary_list)
+        self.verdict_banner = QLabel("Run analysis to generate a report.")
+        self.verdict_banner.setWordWrap(True)
+        self._style_banner(GRAY)
+        self.card_layout.addWidget(self.verdict_banner)
+
+        # domain sections are rebuilt on each load_data
+        self.sections = QVBoxLayout()
+        self.sections.setSpacing(4)
+        self.card_layout.addLayout(self.sections)
+
+        main.addWidget(card)
+        main.addStretch()
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
+
+    def _style_banner(self, color: str):
+        c = QColor(color)
+        self.verdict_banner.setStyleSheet(
+            f"padding: 10px 12px; border-radius: 6px; background: rgba({c.red()},{c.green()},{c.blue()},0.12); color: {color};")
+
+    def _clear_sections(self):
+        while self.sections.count():
+            item = self.sections.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+    def _add_section(self, title: str, findings: list):
+        """findings: list of (text, color). Renders a domain header + indented finding lines."""
+        header = QLabel(title.upper())
+        header.setObjectName("sectionLabel")
+        self.sections.addWidget(header)
+        for text, color in findings:
+            row = QLabel(f"•  {text}")
+            row.setWordWrap(True)
+            row.setStyleSheet(f"color: {color}; margin-left: 6px;")
+            self.sections.addWidget(row)
+        self.sections.addSpacing(6)
 
     def load_data(self, data: dict):
-        self.summary_list.clear()
-        findings = []
+        self._clear_sections()
 
-        # 1. Metadata anomalies
-        metadata = data.get("metadata_analysis", {})
-        meta_anomaly_count = (
-            len(metadata.get("time_anomalies", []))
-            + len(metadata.get("software_anomalies", []))
-            + len(metadata.get("text_anomalies", []))
-        )
-        if meta_anomaly_count:
-            findings.append((f"Metadata: {meta_anomaly_count} anomaly(ies) found (timestamp/software/text)", "#EF4444"))
+        if not data or not any(k in data for k in ("metadata_analysis", "structure_analysis", "statistical_analysis")):
+            self.verdict_banner.setText("Run analysis to generate a report.")
+            self._style_banner(GRAY)
+            return
+
+        worst = GREEN  # escalates to YELLOW / RED as findings are added
+
+        # --- Metadata domain ---
+        meta = data.get("metadata_analysis", {})
+        n_meta = (len(meta.get("time_anomalies", [])) + len(meta.get("software_anomalies", []))
+                  + len(meta.get("text_anomalies", [])))
+        if n_meta:
+            self._add_section("Metadata", [(f"{n_meta} anomaly(ies) found (timestamp / software / text)", RED)])
+            worst = RED
         else:
-            findings.append(("Metadata: no anomalies found", "#10B981"))
+            self._add_section("Metadata", [("No anomalies found", GREEN)])
 
-        # 2. Structure anomalies
-        structure = data.get("structure_analysis", {})
-        overlay = structure.get("overlay_analysis", {})
+        # --- File Structure domain ---
+        struct = data.get("structure_analysis", {})
+        struct_findings = []
+        overlay = struct.get("overlay_analysis", {})
         if overlay.get("has_overlay"):
-            findings.append((f"Structure: {overlay.get('overlay_size_bytes', 0)} bytes appended after the file's real end", "#EF4444"))
+            struct_findings.append((f"{overlay.get('overlay_size_bytes', 0)} bytes appended after the file's real end", RED))
+            worst = RED
+        if struct.get("suspicious_chunk_count", 0):
+            struct_findings.append((f"{struct['suspicious_chunk_count']} non-standard chunk(s)", RED))
+            worst = RED
+        for anomaly in struct.get("integrity_anomalies", []):
+            struct_findings.append((anomaly.get("detail", "integrity anomaly"), RED))
+            worst = RED
+        sigs = struct.get("binwalk_raw", {}).get("signatures", [])
+        if sigs:
+            struct_findings.append((f"{len(sigs)} file signature(s) detected by binwalk (informational)", GRAY))
+        if not struct_findings or all(c == GRAY for _, c in struct_findings):
+            struct_findings.insert(0, ("No structural anomalies found", GREEN))
+        self._add_section("File Structure", struct_findings)
 
-        suspicious_chunks = structure.get("suspicious_chunk_count", 0)
-        if suspicious_chunks:
-            findings.append((f"Structure: {suspicious_chunks} non-standard chunk(s) found", "#EF4444"))
-
-        integrity_anomalies = structure.get("integrity_anomalies", [])
-        for anomaly in integrity_anomalies:
-            findings.append((f"Structure: {anomaly.get('detail', 'integrity anomaly')}", "#EF4444"))
-
-        # binwalk always reports >1 signature for an ordinary file of most formats (e.g. a
-        # valid PNG shows both its own container AND its Zlib-compressed IDAT stream) - with
-        # no cover reference to compare against (that's what Compare mode is for), there's no
-        # safe baseline to call any particular count "extra", so just report it as information.
-        signatures = structure.get("binwalk_raw", {}).get("signatures", [])
-        if signatures:
-            findings.append((f"Structure: {len(signatures)} file signature(s) detected by binwalk (informational)", None))
-
-        if not overlay.get("has_overlay") and not suspicious_chunks and not integrity_anomalies:
-            findings.append(("Structure: no anomalies found", "#10B981"))
-
-        # 3. Statistical detectors - "detected" can be None (e.g. chi-square blind mode has no
-        # cover to compare against, see chi_square.py) meaning "not applicable", not "clean"
-        stat_results = data.get("statistical_analysis", {})
-        applicable = {k: v for k, v in stat_results.items() if isinstance(v, dict) and v.get("detected") is not None}
+        # --- Bit / Spatial domain (blind detectors only; matching/PVD live in Compare) ---
+        stat = data.get("statistical_analysis", {})
+        applicable = {k: v for k, v in stat.items() if isinstance(v, dict) and v.get("detected") is not None}
         triggered = [STAT_LABELS.get(k, k) for k, v in applicable.items() if v.get("detected")]
         if triggered:
-            findings.append((f"Statistical: {len(triggered)}/{len(applicable)} detector(s) flagged this file ({', '.join(triggered)})", "#EAB308"))
+            self._add_section("Bit / Spatial", [(f"LSB replacement flagged by {', '.join(triggered)}", RED)])
+            worst = RED
         elif applicable:
-            findings.append(("Statistical: no detector flagged this file", "#10B981"))
+            self._add_section("Bit / Spatial", [("No LSB-replacement signature (run Compare for LSB matching / PVD)", GREEN)])
 
-        for text, color in findings:
-            item = QListWidgetItem(text)
-            if color:
-                item.setForeground(QBrush(QColor(color)))
-            self.summary_list.addItem(item)
+        # --- overall verdict banner ---
+        if worst == RED:
+            self.verdict_banner.setText("<b>Suspicious — one or more domains show signs of hidden data.</b>")
+        else:
+            self.verdict_banner.setText("<b>No anomalies detected across metadata, structure, and statistical tests.</b>")
+        self._style_banner(worst)

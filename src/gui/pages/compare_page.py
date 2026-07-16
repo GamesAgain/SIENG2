@@ -163,18 +163,31 @@ class ComparePage(QFrame):
         signals = []
 
         # --- Statistical / spatial-domain LSB ---
+        # RS is the authoritative replacement detector (tight clean baseline; blind it cleanly
+        # separates replacement from matching/PVD). SPA/WS have noisy baselines whose small
+        # differential jumps cross-talk with other techniques, so they inform the table but not
+        # the headline attribution - a >10% RS rise is what names the file "LSB replacement".
         stat = diff.get("statistical_diff", {})
         cover, stego = stat.get("original", {}), stat.get("stego", {})
-        for key in ("rs_analysis", "spa", "ws"):
-            o, s = cover.get(key), stego.get(key)
-            if o and s and (s.get("estimated_embedding_rate", 0) - o.get("estimated_embedding_rate", 0)) > 0.05:
-                signals.append(f"LSB replacement (~{s['estimated_embedding_rate'] * 100:.0f}% of capacity)")
-                break
+        replacement = False
+        rs_o, rs_s = cover.get("rs_analysis"), stego.get("rs_analysis")
+        if rs_o and rs_s and (rs_s.get("estimated_embedding_rate", 0) - rs_o.get("estimated_embedding_rate", 0)) > 0.10:
+            signals.append(f"LSB replacement (~{rs_s['estimated_embedding_rate'] * 100:.0f}% of capacity)")
+            replacement = True
+        # HCF-COM's center-of-mass drop signals additive-noise embedding, but LSB replacement
+        # drops it too - so it only names "matching" when RS didn't already call replacement
+        # (priority cascade: RS > HCF-COM > PDH, each claiming only if the reliabler ones are silent).
+        matching = False
         hc_o, hc_s = cover.get("hcf_com"), stego.get("hcf_com")
-        if hc_o and hc_s and hc_o.get("hcf_com") and (hc_o["hcf_com"] - hc_s["hcf_com"]) / hc_o["hcf_com"] > 0.03:
+        if not replacement and hc_o and hc_s and hc_o.get("hcf_com") and \
+                (hc_o["hcf_com"] - hc_s["hcf_com"]) / hc_o["hcf_com"] > 0.03:
             signals.append("LSB matching / additive-noise embedding (HCF-COM dropped)")
+            matching = True
+        # The PDH step artifact also rises for replacement and (sometimes) matching, so PDH only
+        # names PVD when the other detectors are silent - PVD is the technique they all miss, so
+        # "only PDH fired" is the genuine PVD signature.
         pd_o, pd_s = cover.get("pdh"), stego.get("pdh")
-        if pd_o and pd_s and pd_o.get("pdh_step", 0) > 0 and \
+        if not replacement and not matching and pd_o and pd_s and pd_o.get("pdh_step", 0) > 0 and \
                 (pd_s.get("pdh_step", 0) - pd_o["pdh_step"]) / pd_o["pdh_step"] > 0.10:
             signals.append("PVD embedding (difference-histogram step artifact)")
 
