@@ -1,6 +1,4 @@
 from typing import Dict, Any
-from pathlib import Path
-from src.core.analyzer.handle import FileAnalyzerDispatcher
 
 def compare_results(res_original: Dict[str, Any], res_stego: Dict[str, Any], orig_path: str = None, stego_path: str = None) -> Dict[str, Any]:
     """

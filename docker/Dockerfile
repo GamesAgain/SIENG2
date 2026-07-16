@@ -3,14 +3,21 @@
 # instead of requiring these tools installed natively. See docker_bridge.py.
 FROM python:3.12-slim-bookworm
 
-# binwalk / libimage-exiftool-perl: the two external CLI tools analyzer/external_tools/*
-# shells out to. libgl1 / libglib2.0-0: shared libs opencv-python (used by avi_handler.py) needs.
+# binwalk / libimage-exiftool-perl: external CLI tools analyzer/external_tools/* shells out to.
+# libgl1 / libglib2.0-0: shared libs opencv-python (used by avi_handler.py) needs.
+# ruby: runtime for the zsteg gem (installed below) - LSB extraction/enumeration for PNG & BMP.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     binwalk \
     libimage-exiftool-perl \
     libgl1 \
     libglib2.0-0 \
+    ruby \
+    file \
     && rm -rf /var/lib/apt/lists/*
+
+# zsteg: de-facto tool for detecting/extracting LSB steganography in PNG/BMP
+# (pure-Ruby deps, no build toolchain needed).
+RUN gem install zsteg --no-document
 
 WORKDIR /app
 

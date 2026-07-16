@@ -3,8 +3,12 @@ import cv2
 import numpy as np
 from src.core.analyzer.formats.base_handler import BaseFormatHandler
 from src.core.analyzer.modules.statistical_analyzer import StatisticalAnalyzer
+from src.core.analyzer.modules.structure_integrity import riff_integrity
 
 class AVIHandler(BaseFormatHandler):
+    def _integrity_report(self, raw: bytes) -> Dict[str, Any]:
+        return riff_integrity(raw)
+
     def analyze(self) -> Dict[str, Any]:
         """
         Analyzes AVI specific structure and its metadata.
@@ -98,44 +102,42 @@ class AVIHandler(BaseFormatHandler):
 
     def _tag_suspicious_chunks(self, chunks_list: list) -> int:
         STANDARD_AVI_CHUNKS = [
-            "riff", "avi", "list", "hdrl", "avih", "strl", "strh", "strf", 
-            "movi", "idx1", "junk", "vprp", "dmlh", "strd", "strn"
+            "riff", "avi", "list", "hdrl", "avih", "strl", "strh", "strf",
+            "movi", "idx1", "junk", "vprp", "dmlh", "strd", "strn",
+            # RIFF INFO list tags (encoder/software/artist/etc. metadata) - standard, written by
+            # ffmpeg/opencv on nearly every AVI (e.g. 'isft' = Software). Omitting these made a
+            # normal encoded AVI look suspicious.
+            "info", "iarl", "iart", "icms", "icmt", "icop", "icrd", "icrp", "idim", "idpi",
+            "ieng", "ignr", "ikey", "ilgt", "imed", "inam", "iplt", "iprd", "isbj", "isft",
+            "ishp", "isrc", "isrf", "itch", "itrk", "idit", "ismp",
         ]
         
         suspicious_count = 0
         for chunk in chunks_list:
-            chunk_name = chunk.get("name", "").lower()
-            is_suspicious = False
-            suspicious_reason = ""
-            
-            if "raw" in chunk_name or "unknown" in chunk_name:
-                is_suspicious = True
-                suspicious_reason = f"Unparsed or raw data found: '{chunk_name}'"
-            
             sub_chunks = chunk.get("sub_chunks", [])
+
+            # Flag chunks whose fourCC tag isn't a standard AVI chunk type (e.g. an injected
+            # 'stEg' carrier). The old "raw/unparsed data" name heuristic was dropped - it
+            # false-flagged the raw video/audio stream payload on every valid AVI. Data hidden
+            # in a padding (JUNK) chunk is caught by riff_integrity instead.
             tag_value = None
             for sub in sub_chunks:
                 # RIFF (AVI) format often uses 'id' instead of 'tag'
                 if sub.get("name", "").lower() in ["tag", "id"]:
                     tag_value = sub.get("value", "").replace('"', '').strip().lower()
                     break
-                    
+
             if tag_value and tag_value not in STANDARD_AVI_CHUNKS:
-                # AVI streams often use tags like '00dc', '01wb', etc. for video/audio frames
-                if len(tag_value) == 4 and (tag_value.endswith("dc") or tag_value.endswith("wb") or tag_value.endswith("db") or tag_value.endswith("pc")):
-                    pass # Allow standard AVI stream chunks
-                else:
-                    is_suspicious = True
-                    suspicious_reason = f"Non-standard AVI chunk tag: '{tag_value}'"
-                
-            if is_suspicious:
-                chunk["is_suspicious"] = True
-                chunk["suspicious_reason"] = suspicious_reason
-                suspicious_count += 1
-                
+                # AVI streams use tags like '00dc', '01wb', etc. for video/audio frames - not anomalies
+                is_stream_chunk = len(tag_value) == 4 and tag_value.endswith(("dc", "wb", "db", "pc"))
+                if not is_stream_chunk:
+                    chunk["is_suspicious"] = True
+                    chunk["suspicious_reason"] = f"Non-standard AVI chunk tag: '{tag_value}'"
+                    suspicious_count += 1
+
             if isinstance(sub_chunks, list) and len(sub_chunks) > 0:
                 suspicious_count += self._tag_suspicious_chunks(sub_chunks)
-                
+
         return suspicious_count
 
 

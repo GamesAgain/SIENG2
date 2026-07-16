@@ -123,37 +123,34 @@ class FileStructureTab(QFrame):
                 self.binwalk_list.addItem(item)
                 
         # --- Handle Anomalies / Summary ---
-        summaries = []
-        
-        # 1. Overlay
+        anomaly_found = False
+
+        # 1. Overlay (bytes appended after the file's real end)
         overlay_info = structure_analysis.get("overlay_analysis", {})
         if overlay_info.get("has_overlay"):
             size = overlay_info.get("overlay_size_bytes", 0)
-            item = QListWidgetItem(f"Found {size} bytes of hidden data appended to the file")
-            item.setForeground(QBrush(QColor("#f59e0b"))) 
-            self.summary_list.addItem(item)
-            summaries.append("overlay")
-            
-        # 2. Suspicious Chunks
+            self._add_summary(f"Found {size} bytes of hidden data appended after the file's real end", "#f43f5e")
+            anomaly_found = True
+
+        # 2. Non-standard chunks (e.g. an injected carrier chunk)
         if structure_analysis.get("has_suspicious_chunks"):
             count = structure_analysis.get("suspicious_chunk_count", 0)
-            item = QListWidgetItem(f"Detected {count} abnormal or non-standard data chunks")
-            item.setForeground(QBrush(QColor("#f43f5e"))) 
-            self.summary_list.addItem(item)
-            summaries.append("suspicious")
-            
-        # 3. Signatures
-        if len(signatures) > 0:
-            item = QListWidgetItem(f"{len(signatures)} embedded file signatures")
-            item.setForeground(QBrush(QColor("#38BDF8"))) 
-            self.summary_list.addItem(item)
-            summaries.append("signatures")
-            
+            self._add_summary(f"Detected {count} non-standard data chunk(s)", "#f43f5e")
+            anomaly_found = True
+
+        # 3. Integrity anomalies (PNG CRC mismatch / data hidden in RIFF JUNK padding)
+        for anomaly in structure_analysis.get("integrity_anomalies", []):
+            self._add_summary(anomaly.get("detail", "Structural integrity anomaly"), "#f43f5e")
+            anomaly_found = True
+
         # 4. Clean
-        if not summaries:
-            item = QListWidgetItem("No structural anomalies or hidden signatures detected.")
-            item.setForeground(QBrush(QColor("#34D399"))) 
-            self.summary_list.addItem(item)
+        if not anomaly_found:
+            self._add_summary("No structural anomalies detected.", "#34D399")
+
+    def _add_summary(self, text: str, color: str):
+        item = QListWidgetItem(text)
+        item.setForeground(QBrush(QColor(color)))
+        self.summary_list.addItem(item)
             
     def _populate_tree(self, chunks: list, parent_item):
         for chunk in chunks:

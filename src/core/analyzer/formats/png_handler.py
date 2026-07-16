@@ -3,8 +3,12 @@ from PIL import Image
 import numpy as np
 from src.core.analyzer.formats.base_handler import BaseFormatHandler
 from src.core.analyzer.modules.statistical_analyzer import StatisticalAnalyzer
+from src.core.analyzer.modules.structure_integrity import png_integrity
 
 class PNGHandler(BaseFormatHandler):
+    def _integrity_report(self, raw: bytes) -> Dict[str, Any]:
+        return png_integrity(raw)
+
     def analyze(self) -> Dict[str, Any]:
         """
         Analyzes PNG specific structure and its metadata.
@@ -46,32 +50,24 @@ class PNGHandler(BaseFormatHandler):
         
         suspicious_count = 0
         for chunk in chunks_list:
-            chunk_name = chunk.get("name", "").lower()
-            is_suspicious = False
-            suspicious_reason = ""
-            
-            if "raw" in chunk_name or "unknown" in chunk_name:
-                if "compress" not in chunk_name and "compress" not in parent_name:
-                    is_suspicious = True
-                    suspicious_reason = f"Unparsed or raw data found: '{chunk_name}'"
-            
             sub_chunks = chunk.get("sub_chunks", [])
+
+            # Flag chunks whose fourCC tag isn't a standard PNG chunk type (e.g. an injected
+            # 'stEg' carrier). The old "raw/unparsed data" name heuristic was dropped - it
+            # false-flagged every image's own IDAT/data payload, whose bytes a parser legitimately
+            # can't decompose; genuine tampering is caught by the CRC check (see structure_integrity).
             tag_value = None
             for sub in sub_chunks:
                 if sub.get("name", "").lower() == "tag":
                     tag_value = sub.get("value", "").replace('"', '').lower()
                     break
-                    
+
             if tag_value and tag_value not in STANDARD_PNG_CHUNKS:
-                is_suspicious = True
-                suspicious_reason = f"Non-standard PNG chunk tag: '{tag_value}'"
-                
-            if is_suspicious:
                 chunk["is_suspicious"] = True
-                chunk["suspicious_reason"] = suspicious_reason
+                chunk["suspicious_reason"] = f"Non-standard PNG chunk tag: '{tag_value}'"
                 suspicious_count += 1
-                
+
             if isinstance(sub_chunks, list) and len(sub_chunks) > 0:
-                suspicious_count += self._tag_suspicious_chunks(sub_chunks, parent_name=chunk_name)
-                
+                suspicious_count += self._tag_suspicious_chunks(sub_chunks, parent_name=chunk.get("name", "").lower())
+
         return suspicious_count
