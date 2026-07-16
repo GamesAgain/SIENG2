@@ -122,17 +122,11 @@ def handle_locomotive(inputs: dict, outputs: dict):
     return {"session_id": loco.last_session_id}
 
 def handle_metadata(inputs: dict, outputs: dict):
-    # Metadata: dispatch PNG/MP3 ตามนามสกุล cover เอง · asymmetric ไม่รองรับ
-    enc = inputs.get("encryption")
-    if enc and enc.get("mode") == "asymmetric":
-        raise ValueError("metadata: asymmetric encryption (public key) is not supported")
-    password = (enc or {}).get("password") # PNG มองข้าม · MP3 ใช้เข้ารหัสสารบัญ
-
+    # Metadata: dispatch PNG/MP3 ตามนามสกุล cover เอง · ไม่รองรับ encryption (ดู validate_pipeline)
     MetadataEmbedder().embed(
         file_path=inputs["covers"][0],
         data=inputs["meta_dict"],
         save_path=outputs["stego_file"], # เป็น path ใต้ workspace แล้ว
-        password=password,
     )
 
 MODULE_HANDLERS = {
@@ -255,14 +249,19 @@ def validate_pipeline(config_dict: dict) -> list:
             meta_dict = inputs.get("meta_dict")
             if not meta_dict:
                 err(step_id, "metadata: requires meta_dict")
-            if encryption and encryption.get("mode") == "asymmetric":
-                err(step_id, "metadata: asymmetric encryption (public key) is not supported")
+            if encryption:
+                err(step_id, "metadata: encryption is not supported")
             # อย่าตั้งชื่อ local ว่า cover_type จะบัง (shadow) ฟังก์ชัน cover_type() ที่ใช้ด้านบน
             first_cover_type = cover_types[0] if cover_types else "unknown"
             if first_cover_type == "unknown":
                 warn(step_id, "metadata: could not determine cover type (should be .png or .mp3)")
             if first_cover_type == "png" and isinstance(meta_dict, dict) and "APIC" in meta_dict:
                 err(step_id, "metadata PNG: cannot set APIC (image) — PNG only supports text (use MP3)")
+            for cover in covers:  # metadata เขียนทับ TOC เดิมเสมอ - ซ้อนบน metadata step อื่นทำให้ payload ก่อนหน้ากู้คืนไม่ได้เลย
+                kind, value = cover_target(cover)
+                if kind == "step" and step_modules.get(value) == "metadata":
+                    err(step_id, "metadata: cover is another metadata step's output — its TOC gets fully "
+                                 "overwritten, making that step's own payload unrecoverable")
             step_types[step_id] = first_cover_type
 
         step_modules[step_id] = module
@@ -275,8 +274,12 @@ def run_embed_pipeline(config_dict: dict) -> dict:
     issues = validate_pipeline(config_dict)
     for level, step_id, message in issues:
         print(f"[{level.upper()}] {step_id}: {message}")
-    if any(level == "error" for level, _, _ in issues):
-        raise ValueError(f"Pipeline validation failed ({sum(1 for i in issues if i[0]=='error')} error(s)) — see the errors printed above")
+    errors = [(step_id, message) for level, step_id, message in issues if level == "error"]
+    if errors:
+        # ใส่รายละเอียด error ไว้ในข้อความ exception ตรงๆ (ไม่ใช่แค่บอกให้ไปดู console)
+        # เพราะ GUI (Run Pipeline dialog) โชว์แค่ str(exception) ไม่มี console ให้ดู
+        detail = "\n".join(f"[{step_id}] {message}" for step_id, message in errors)
+        raise ValueError(f"Pipeline validation failed ({len(errors)} error(s)):\n{detail}")
 
     # context = memory ระหว่างรัน: เก็บ variables + output ของ step ที่รันไปแล้ว
     context = {"variables": config_dict.get("variables", {}), "steps": {}}
@@ -582,7 +585,7 @@ def _run_one_extract_node(node: dict, kw: dict, res_path: dict, recovered: dict,
             res_path[provide] = str(dst)     # ไฟล์ stego ชั้นในที่กู้ได้ ให้ step ถัดไปแกะต่อ
             recovered[provide] = str(dst)
     elif module == "metadata":
-        meta = MetadataEmbedder().extract(sources[0], password=kw.get("password"))
+        meta = MetadataEmbedder().extract(sources[0])
         recovered[node["provides"][0]] = meta   # provides[0] = payload:sid (text metadata ของตัวเอง)
         if node.get("apic_files"):   # มีรูป APIC ที่เป็น output ของ step อื่น → เขียนเป็นไฟล์ แจกคืน
             routed = _route_apic_images(meta, node, out_dir, eid)

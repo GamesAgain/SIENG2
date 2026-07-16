@@ -3,7 +3,7 @@ from PIL import Image
 from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtWidgets import QButtonGroup, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSizePolicy, QStackedWidget, QTabWidget, QVBoxLayout
 
-from src.core.stego.lsb_pp import LSBPP
+from src.core.stego.lsb_pp import HEADER_BYTES, LSBPP, estimate_overhead_bytes, get_max_message_bytes
 from src.gui.components.file_drop import FileDropWidget
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, create_icon_state, format_file_size
 from src.gui.components.linked_step_toggle import LinkedStepToggle
@@ -16,6 +16,7 @@ ICON_DIR = Path(__file__).parent.parent.parent / "assets" / "svg"
 ICON_SIZE = 14
 COLOR_CHECKED_SYM = "#a78bfa"
 COLOR_CHECKED_ASYM = "#34D399"
+CAPACITY_WARNING_RATIO = 0.85  # ใช้ไป >= 85% ของ max capacity แล้ว ให้เตือนสีเหลือง
 
 
 class LSBEmbedInputs(QFrame):
@@ -33,6 +34,7 @@ class LSBEmbedInputs(QFrame):
         self.payload_text = ""
         self.payload_file_path = None
         self.linked_cover_index: list[int] = []  # non-empty = cover มาจาก output ของ step ก่อนหน้า (pipeline_mode)
+        self.capacity_bits = None  # ผล analyze ภาพ (Sobel+entropy) — แคชไว้เพราะหนัก ไม่คำนวณซ้ำทุกครั้งที่พิมพ์/สลับโหมด
 
         # Encryption
         self.password = ""
@@ -63,8 +65,11 @@ class LSBEmbedInputs(QFrame):
 
         main_layout.addLayout(sub_layout)
 
-        # LSB Options card
-        main_layout.addWidget(self.build_lsb_options_card())
+        # TODO: LSB Options card (channel select, alpha embed, gradient/entropy/shuffle
+        # toggles, etc.) -- shelved, see .claude/notes/lsb-options-plan.md before resuming
+        # main_layout.addWidget(self.build_lsb_options_card())
+
+        self.update_capacity_label()  # เซ็ตข้อความเริ่มต้นให้ตรง state จริง (ยังไม่มี cover)
 
     def build_lsb_options_card(self):
         lsb_options_card = QFrame()
@@ -134,6 +139,10 @@ class LSBEmbedInputs(QFrame):
         # Connect toggle switch to stack
         self.encrypt_group.idClicked.connect(self.encrypt_stack.setCurrentIndex)
         self.encrypt_toggle_switch.toggled.connect(self.encrypt_stack.setVisible)
+
+        # โหมดเข้ารหัสมีผลต่อ overhead ของ payload -> capacity ที่โชว์ต้องอัปเดตตามด้วย
+        self.encrypt_group.idClicked.connect(self.update_capacity_label)
+        self.encrypt_toggle_switch.toggled.connect(self.update_capacity_label)
 
         title_layout.addWidget(encrypt_selection)
         encryption_layout.addWidget(title_container)
@@ -318,8 +327,11 @@ class LSBEmbedInputs(QFrame):
         title_layout.addWidget(title_icon)
         title_layout.addWidget(title_label)
         title_layout.addStretch()
-
-        drop_zone = FileDropWidget("Drop PNG file here or click to browse", "PNG format only", str(ICON_DIR / "photo.svg"), allowed_extensions=["png"])
+        
+        # Declare allowed image file format
+        allowed_exts = ["png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "tiff", "tif"]
+        
+        drop_zone = FileDropWidget("Drop PNG file here or click to browse", "PNG format only", str(ICON_DIR / "photo.svg"), allowed_extensions=allowed_exts)
         drop_zone.file_selected.connect(self.on_cover_file_selected)
 
         cover_file_layout.addWidget(title_container, 0)  # top
@@ -435,9 +447,17 @@ class LSBEmbedInputs(QFrame):
     # --- Event Handler ---
     def on_cover_file_selected(self, file_path: str):
         self.cover_file_path = file_path
+        # วิเคราะห์ภาพ (Sobel + entropy) แค่ตอนเปลี่ยน cover เท่านั้น เพราะเป็นขั้นตอนที่หนักสุด
+        # ส่วน overhead ต่อโหมดเข้ารหัสคำนวณแยกใน update_capacity_label (ถูกกว่ามาก เรียกได้บ่อย)
+        try:
+            self.capacity_bits = LSBPP().get_total_capacity_bits(file_path)
+        except Exception:
+            self.capacity_bits = None
+        self.update_capacity_label()
 
     def on_public_key_selected(self, file_path: str):
         self.public_key_path = file_path
+        self.update_capacity_label()  # ขนาด RSA key มีผลต่อ overhead ของโหมด asymmetric
 
     def on_payload_file_selected(self, file_path: str):
         self.payload_file_path = file_path
@@ -469,10 +489,71 @@ class LSBEmbedInputs(QFrame):
             self.payload_tabs.setCurrentIndex(1)
 
     def on_payload_text_changed(self):
-        text = self.payload_text_area.toPlainText()
-        text_size_bytes = len(text.encode('utf-8'))
+        self.update_capacity_label()
+
+    def update_capacity_label(self):
+        """อัปเดต label + tooltip อธิบาย overhead ตามข้อความที่พิมพ์ (สีปกติไม่เปลี่ยน มีแค่
+        เตือนเหลือง/แดงตอนใกล้เต็ม/เต็ม capacity — ดู set_capacity_state)
+        + โหมดเข้ารหัสที่เลือกอยู่ตอนนี้ โชว์แค่ Size เฉยๆ จนกว่าจะรู้ max capacity จริง
+        (ต้องมี cover image แล้ว และถ้าเป็น asymmetric ต้องมี public key ด้วย เพราะ overhead
+        ขึ้นกับขนาด RSA key ที่ใช้)"""
+        text_size_bytes = len(self.payload_text_area.toPlainText().encode('utf-8'))
         text_size = format_file_size(text_size_bytes)
-        self.capacity_label.setText(f"Capacity: {text_size} / MAX KB")
+
+        no_key_yet = self.encrypt_toggle_switch.isChecked() and self.btn_asymmetric.isChecked() and not self.public_key_path
+        if self.capacity_bits is None or no_key_yet:
+            self.capacity_label.setText(f"Size: {text_size}")
+            self.capacity_label.setToolTip(
+                "Select a public key to see max capacity" if no_key_yet else "Select a cover image to see max capacity"
+            )
+            self.set_capacity_state("normal")
+            return
+
+        # โหมดไหนถูกเลือกอยู่ ใช้ตัดสิน overhead + ข้อความอธิบายใน tooltip
+        password = None
+        public_key_path = None
+        overhead_detail = "no encryption (header only)"
+        if self.encrypt_toggle_switch.isChecked():
+            if self.btn_symmetric.isChecked():
+                password = self.password_input.text()
+                overhead_detail = "password mode: salt 16B + nonce 12B + tag 16B"
+            elif self.btn_asymmetric.isChecked():
+                public_key_path = self.public_key_path
+                overhead_detail = "public key mode: RSA-encrypted session key + nonce 12B + tag 16B"
+
+        try:
+            overhead_bytes = estimate_overhead_bytes(password, public_key_path)
+            max_bytes = get_max_message_bytes(self.capacity_bits, password, public_key_path)
+        except Exception:
+            # เช่น public key ไฟล์เสีย/อ่านไม่ได้ — โชว์แค่ขนาดข้อความ ไม่ให้ label พังเงียบๆ
+            self.capacity_label.setText(f"Size: {text_size}")
+            self.capacity_label.setToolTip("Could not read the public key to estimate capacity.")
+            self.set_capacity_state("normal")
+            return
+
+        self.capacity_label.setText(f"Size: {text_size} / {format_file_size(max_bytes)}")
+
+        # เกินหรือเท่า max = แดง, ใช้ไปแล้ว >= 85% = เหลือง, นอกนั้นปกติ
+        usage_ratio = (text_size_bytes / max_bytes) if max_bytes > 0 else 1.0
+        if text_size_bytes >= max_bytes:
+            self.set_capacity_state("danger")
+        elif usage_ratio >= CAPACITY_WARNING_RATIO:
+            self.set_capacity_state("warning")
+        else:
+            self.set_capacity_state("normal")
+
+        self.capacity_label.setToolTip(
+            f"Cover raw capacity: {format_file_size(self.capacity_bits // 8)} ({self.capacity_bits} bits)\n"
+            f"Overhead: {format_file_size(overhead_bytes)} (header {HEADER_BYTES}B + {overhead_detail})\n"
+            f"Max message size: {format_file_size(max_bytes)}\n"
+            f"Current usage: {text_size} ({usage_ratio:.0%})"
+        )
+
+    def set_capacity_state(self, state: str):
+        """state: 'normal' | 'warning' | 'danger' — ผูกกับ QSS ผ่าน property (ดู default.qss)"""
+        self.capacity_label.setProperty("capacityState", state)
+        self.capacity_label.style().unpolish(self.capacity_label)
+        self.capacity_label.style().polish(self.capacity_label)
 
 
 class LSBEmbedTab(QFrame):

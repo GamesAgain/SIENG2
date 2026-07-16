@@ -18,30 +18,18 @@ class MetadataEmbedder:
         else:
             raise ValueError("Invalid file format")
 
-    def embed(self, file_path: str, data: dict, save_path: str = None, password: str = None) -> str:
+    def embed(self, file_path: str, data: dict, save_path: str = None) -> str:
         "Embed Data in metadata Module"
 
         # get handler [PNG, MP3]
         handler = self.get_handler(file_path)
 
-        # Hiding data into metadata (password เข้ารหัสสารบัญได้เฉพาะ MP3 ตอนนี้)
-        if isinstance(handler, MetadataMP3Handler):
-            stego_file_path = handler.embed_metadata(file_path, data, save_path, password=password)
-        else:
-            stego_file_path = handler.embed_metadata(file_path, data, save_path)
+        return handler.embed_metadata(file_path, data, save_path)
 
-        return stego_file_path
-
-    def extract(self, stego_file_path: str, password: str = None):
+    def extract(self, stego_file_path: str):
         "Extract Data from metadata Module"
 
         # get handler [PNG, MP3]
         handler = self.get_handler(stego_file_path)
 
-        # Extract the hidden data from the metadata
-        if isinstance(handler, MetadataMP3Handler):
-            extracted_data = handler.extract_metadata(stego_file_path, password=password)
-        else:
-            extracted_data = handler.extract_metadata(stego_file_path)
-
-        return extracted_data
+        return handler.extract_metadata(stego_file_path)

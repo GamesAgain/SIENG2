@@ -191,8 +191,12 @@ class MetadataPNGHandler:
         while pos + 8 <= len(raw):
             length = struct.unpack(">I", raw[pos:pos + 4])[0]
             chunk_type = raw[pos + 4:pos + 8]
-            chunk_data = raw[pos + 8:pos + 8 + length]
 
+            if pos + 12 + length > len(raw):
+                raise ValueError(f"PNG chunk '{chunk_type}' at offset {pos} declares length {length} bytes, "
+                                 f"exceeding remaining file size -- file may be truncated or corrupted")
+
+            chunk_data = raw[pos + 8:pos + 8 + length]
             chunks.append((chunk_type, chunk_data))
 
             pos += 12 + length  # length(4) + type(4) + data + crc(4)

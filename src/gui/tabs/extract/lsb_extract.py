@@ -54,11 +54,11 @@ class LSBExtractTab(QFrame):
         # Add sub_layout to main_layout
         main_layout.addLayout(sub_layout)
         
-        # LSB Options card
-        lsb_options_card = self.build_lsb_options_card()
-        # main_layout.addWidget(lsb_options_card)  
-        
-                
+        # TODO: LSB Options card (channel select, alpha embed, gradient/entropy/shuffle
+        # toggles, etc.) -- shelved, see .claude/notes/lsb-options-plan.md before resuming
+        # lsb_options_card = self.build_lsb_options_card()
+        # main_layout.addWidget(lsb_options_card)
+
         # Extraction Result
         self.result_viewer = PayloadResultViewer()
         main_layout.addWidget(self.result_viewer)

@@ -478,6 +478,15 @@ QLabel#capacityLabel {
     font-size: 10px;
 }
 
+/* ปกติไม่ตั้งสี (ใช้สีตั้งต้นของ QLabel) — มีแค่ 2 สถานะเตือนนี้เท่านั้น */
+QLabel#capacityLabel[capacityState="warning"] {
+    color: #F59E0F;
+}
+
+QLabel#capacityLabel[capacityState="danger"] {
+    color: #f43f5e;
+}
+
 /* Loading Bar Style */
 /* 1. ส่วนกรอบและพื้นหลัง */
 QProgressBar {

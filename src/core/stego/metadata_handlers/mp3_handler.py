@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import Any
 import mutagen.id3 as _id3_module
 
-from src.core.crypto.sym_encrypt import SymmetricEncryption
 from mutagen.id3 import (
     ID3, ID3NoHeaderError, Encoding,
     TextFrame, TimeStampTextFrame,
@@ -156,6 +155,9 @@ TIMESTAMP_FRAMES = {"TDRC", "TDRL", "TDEN", "TDOR", "TDTG"}
 # frame ที่มีได้หลาย instance ในไฟล์เดียว (ต่างกันที่ desc/lang)
 MULTI_INSTANCE_FRAMES = {"TXXX", "WXXX", "COMM", "USLT", "APIC", "GEOB", "UFID", "PRIV", "POPM", "SYLT", "SIGN", "USER"}
 
+# ตัวคั่นรายชื่อ HashKey ใน TOC (PRIV:S2M)
+TOC_DELIMITER = "\n"
+
 def frame_to_str(frame: Any) -> str:
     """แปลง ID3 frame เป็น string"""
     if hasattr(frame, "text"):
@@ -190,11 +192,10 @@ class MetadataMP3Handler:
 
     def __init__(self):
         self.enc = Encoding.UTF8
-        self.cipher = SymmetricEncryption()
-        
+
     # ================= PUBLIC API: embed / extract =================
     
-    def embed_metadata(self, file_path: str, data: dict, save_path: str = None, password: str = None, clear_existing: bool = False) -> str:
+    def embed_metadata(self, file_path: str, data: dict, save_path: str = None, clear_existing: bool = False) -> str:
         """
         เขียน metadata ลงไฟล์ MP3 แบบ "merge" กับ frame เดิม (ไม่ล้างของเดิมทิ้ง)
         เพื่อให้ cover file ยังดูเป็นไฟล์ปกติ (ตาม cover metadata ที่มีอยู่ก่อน)
@@ -205,8 +206,6 @@ class MetadataMP3Handler:
         ที่มีอยู่ก่อนแล้ว (เช่น "TXXX:Encoded by" ที่โปรแกรมเข้ารหัสเสียงใส่ไว้)
 
         Args:
-            password: ถ้าระบุ จะเข้ารหัสสารบัญ (PRIV:S2M) ด้วย AES-GCM ก่อนฝัง
-                      ทำให้คนอื่นเปิดไฟล์ด้วย tag editor ก็ยังไม่เห็นว่า key ไหนคือของลับ
             clear_existing: ถ้า True จะลบ frame เดิมทั้งหมดก่อนเขียน data ใหม่ลงไป
                              (ใช้ตอนผู้ใช้กด "Clear" ในหน้า editor เอง - ตั้งใจล้างของเดิมจริงๆ
                              ต่างจาก merge ปกติที่ตั้งใจคงของเดิมไว้)
@@ -214,42 +213,31 @@ class MetadataMP3Handler:
         if save_path is None:
             save_path = file_path
 
-        # 1. คำนวณสารบัญจาก HashKey จริงของ frame ที่กำลังจะฝัง (ละเอียดระดับ instance)
-        toc_keys = []
-        for frame_id, value in data.items():
-            for frame in self._build_frames(frame_id, value):
-                toc_keys.append(frame.HashKey)
+        # 0. คัดลอก data ก่อนแก้ไข - ห้ามแก้ dict ของผู้เรียกตรงๆ
+        data = dict(data)
+
+        # 1. สร้าง frame object จริงครั้งเดียว (เก็บไว้ใช้ทั้งคำนวณสารบัญและเขียนจริงในขั้นตอนที่ 3
+        #    กันการเรียก _build_frames() ซ้ำ 2 รอบต่อการฝัง 1 ครั้ง - APIC ที่ใช้ "path" จะได้ไม่อ่าน
+        #    ไฟล์รูปจาก disk ซ้ำ และ warning ของ frame ที่ไม่รู้จักจะไม่ปริ๊นต์ซ้ำด้วย)
+        frames_by_id = {frame_id: self._build_frames(frame_id, value) for frame_id, value in data.items()}
+        toc_keys = [frame.HashKey for frames in frames_by_id.values() for frame in frames]
 
         # 2. แปะสารบัญ PRIV:S2M เฉพาะตอนมีอะไรจะ track จริงๆ (ถ้า data ว่างเปล่า ไม่ต้องเติม marker ค้างไว้)
         if toc_keys:
-            key_bytes = ",".join(toc_keys).encode('utf-8')
-            if password:
-                key_bytes = self.cipher.encrypt(key_bytes, password)
-
-            if "PRIV" not in data:
-                data["PRIV"] = []
-            elif not isinstance(data["PRIV"], list):
-                data["PRIV"] = [data["PRIV"]] # บังคับให้เป็นลิสต์เผื่อส่งมาเป็น dict เดี่ยวๆ
-
-            data["PRIV"].append({
-                "owner": "S2M",
-                "data": key_bytes
-            })
+            key_bytes = TOC_DELIMITER.join(toc_keys).encode('utf-8')
+            frames_by_id.setdefault("PRIV", []).append(PRIV(owner="S2M", data=key_bytes))
 
         # 3. เขียน metadata ลงไฟล์ (merge กับของเดิม) - source_path คือไฟล์ต้นฉบับที่จะไม่ถูกแก้ไข
-        edited_path = self.write_metadata(data, save_path, source_path=file_path, clear_existing=clear_existing)
+        edited_path = self.write_metadata(frames_by_id, save_path, source_path=file_path, clear_existing=clear_existing)
         return edited_path
 
-    def extract_metadata(self, file_path: str, password: str = None) -> dict:
+    def extract_metadata(self, file_path: str) -> dict:
         """ อ่าน metadata ของไฟล์ MP3
 
         อ่านตรงจาก ID3 tag ดิบแล้วกรองเฉพาะ frame ที่ HashKey อยู่ในสารบัญ PRIV:S2M
         (ไม่ใช้ read_metadata() ตรงๆ เพราะมันรวม instance ของ frame ประเภทเดียวกัน
         ทั้งหมดเข้าด้วยกัน ซึ่งจะพา frame เดิมที่ไม่เกี่ยวข้อง เช่น TXXX:Encoded by
         ติดออกมาด้วยถ้า TXXX บางตัวเป็นความลับ)
-
-        Args:
-            password: ต้องตรงกับตอน embed ถ้าตอนฝังมีการเข้ารหัสสารบัญไว้
         """
         try:
             tag = ID3(file_path)
@@ -262,19 +250,7 @@ class MetadataMP3Handler:
             if not frame_key.startswith("PRIV:") or getattr(frame, "owner", None) != "S2M":
                 continue
 
-            raw_toc = frame.data
-            if password:
-                try:
-                    raw_toc = self.cipher.decrypt(raw_toc, password)
-                except ValueError:
-                    print("[-] ถอดรหัสสารบัญไม่สำเร็จ: รหัสผ่านไม่ถูกต้อง")
-                    return {}
-
-            try:
-                toc_keys = [k for k in raw_toc.decode('utf-8').split(',') if k]
-            except UnicodeDecodeError:
-                print("[-] สารบัญถูกเข้ารหัสไว้ ต้องระบุ password ถึงจะอ่านได้")
-                return {}
+            toc_keys = [k for k in frame.data.decode('utf-8').split(TOC_DELIMITER) if k]
             break
 
         # 2. ดึงเฉพาะ frame ที่ HashKey ตรงกับสารบัญ (ไม่ปนกับ instance อื่นของ frame ประเภทเดียวกัน)
@@ -601,9 +577,9 @@ class MetadataMP3Handler:
 
         return standard_text_frame, user_defined_frame, complex_frame
 
-    def write_metadata(self, data: dict, save_path: str, source_path: str = None, create_backup: bool = True, clear_existing: bool = False) -> str:
+    def write_metadata(self, frames_by_id: dict, save_path: str, source_path: str = None, create_backup: bool = True, clear_existing: bool = False) -> str:
         """
-        เขียน metadata ลงไฟล์ MP3 ที่ save_path โดยตรง
+        เขียน frame object ที่สร้างไว้แล้ว (จาก _build_frames) ลงไฟล์ MP3 ที่ save_path โดยตรง
 
         เขียนแบบ "merge" ระดับ instance เดียว: แทนที่เฉพาะ frame ที่ตรง HashKey เป๊ะๆ
         (เช่น "TXXX:SIENG_SECRET") ส่วน frame อื่นที่เหลือ - ทั้งประเภทที่ไม่เกี่ยวข้องเลย
@@ -613,7 +589,7 @@ class MetadataMP3Handler:
         (ยกเว้นเรียกด้วย clear_existing=True ซึ่งตั้งใจล้างของเดิมทิ้งจริงๆ)
 
         Args:
-            data: dict รูปแบบเดียวกับที่ read_metadata() คืนมา (เฉพาะ frame ที่ต้องการเขียน/แทนที่)
+            frames_by_id: dict {frame_id: [frame object, ...]} จาก embed_metadata() (ผ่าน _build_frames() มาแล้ว)
             save_path: path ปลายทางที่จะบันทึกไฟล์ผลลัพธ์
             source_path: ไฟล์ต้นฉบับที่จะอ่าน frame เดิมมา merge (ค่าเริ่มต้น = save_path เอง)
                          ถ้า save_path ต่างจาก source_path (เช่น "Save As" ไปชื่อไฟล์ใหม่ที่ยังไม่มีอยู่จริง)
@@ -644,10 +620,10 @@ class MetadataMP3Handler:
 
         # เขียนทับเฉพาะ instance ที่ HashKey ตรงกันเป๊ะๆ (เช่น "TXXX:SIENG_SECRET")
         # instance อื่นของ frame ประเภทเดียวกัน (เช่น TXXX:Encoded_by) ไม่ถูกลบ
-        for frame_id, value in data.items():
-            for frame in self._build_frames(frame_id, value):
+        for frames in frames_by_id.values():
+            for frame in frames:
                 if isinstance(frame, PRIV) and frame.owner == "S2M":
-                    # สารบัญ S2M มีได้แค่ 1 อันเสมอ แต่เนื้อหา (ciphertext) เปลี่ยนทุกครั้งที่เข้ารหัสใหม่
+                    # สารบัญ S2M มีได้แค่ 1 อันเสมอ แต่เนื้อหา (รายชื่อ key) เปลี่ยนทุกครั้งที่ embed ใหม่
                     # เลยลบของเก่าด้วย owner แทนการเทียบ HashKey เป๊ะๆ (จะไม่มีวันตรงกัน -> ค้างสะสม)
                     for old_key in [k for k in tag.keys() if k.startswith("PRIV:S2M:")]:
                         del tag[old_key]
@@ -657,6 +633,28 @@ class MetadataMP3Handler:
 
         tag.save(save_path, v2_version=4)
         return save_path
+
+    def _dedupe_identity(self, items: list, field: str, extra_key: str = None) -> list:
+        """คืนสำเนา items ที่ field ซึ่งเป็นส่วนหนึ่งของ HashKey ไม่ซ้ำกันภายใน batch เดียว
+        (เปลี่ยนชื่อค่าที่ซ้ำอัตโนมัติ กัน frame ก่อนหน้าโดนทับหายเงียบๆ ตอน tag.add() - เหมือนที่ APIC ทำอยู่แล้ว)
+
+        extra_key: field อื่นที่ถ้าค่าต่างกันไม่ถือว่าชนกัน (เช่น lang ของ COMM/USLT - desc ซ้ำแต่คนละภาษาไม่ใช่ปัญหา)
+        """
+        seen = set()
+        result = []
+        for item in items:
+            item = dict(item)
+            extra_value = item.get(extra_key) if extra_key else None
+            base_value = item.get(field, "")
+            value_ = base_value
+            suffix = 2
+            while (extra_value, value_) in seen:
+                value_ = f"{base_value} ({suffix})"
+                suffix += 1
+            item[field] = value_
+            seen.add((extra_value, value_))
+            result.append(item)
+        return result
 
     def _build_frames(self, frame_id: str, value) -> list:
         """
@@ -678,6 +676,7 @@ class MetadataMP3Handler:
         # ── TXXX ──
         if frame_id == "TXXX":
             items = value if isinstance(value, list) else [value]
+            items = self._dedupe_identity(items, "desc")
             return [
                 TXXX(encoding=self.enc, desc=item["desc"], text=[item["text"]])
                 for item in items
@@ -687,6 +686,7 @@ class MetadataMP3Handler:
         if frame_id.startswith("T"):
             cls = get_frame_class(frame_id)
             if cls is None:
+                print(f"[!] Warning: unknown frame '{frame_id}' -- skipped")
                 return []
             values = value if isinstance(value, list) else [value]
             return [cls(encoding=self.enc, text=values)]
@@ -694,6 +694,7 @@ class MetadataMP3Handler:
         # ── WXXX ──
         if frame_id == "WXXX":
             items = value if isinstance(value, list) else [value]
+            items = self._dedupe_identity(items, "desc")
             return [
                 WXXX(encoding=self.enc, desc=item["desc"], url=item["url"])
                 for item in items
@@ -703,12 +704,14 @@ class MetadataMP3Handler:
         if frame_id.startswith("W"):
             cls = get_frame_class(frame_id)
             if cls is None:
+                print(f"[!] Warning: unknown frame '{frame_id}' -- skipped")
                 return []
             return [cls(url=value)]
 
         # ── COMM ──
         if frame_id == "COMM":
             items = value if isinstance(value, list) else [value]
+            items = self._dedupe_identity(items, "desc", extra_key="lang")
             return [
                 COMM(encoding=self.enc, lang=item["lang"], desc=item["desc"], text=item["text"])
                 for item in items
@@ -717,6 +720,7 @@ class MetadataMP3Handler:
         # ── USLT ──
         if frame_id == "USLT":
             items = value if isinstance(value, list) else [value]
+            items = self._dedupe_identity(items, "desc", extra_key="lang")
             return [
                 USLT(encoding=self.enc, lang=item["lang"], desc=item["desc"], text=item["text"])
                 for item in items
@@ -790,6 +794,7 @@ class MetadataMP3Handler:
         # ── POPM ──
         if frame_id == "POPM":
             items = value if isinstance(value, list) else [value]
+            items = self._dedupe_identity(items, "email")
             return [
                 POPM(email=item["email"], rating=item["rating"], count=item["count"])
                 for item in items
