@@ -7,13 +7,15 @@ from src.gui.components.sidebar_button import SidebarButton
 from src.gui.components.title_bar import SIENG2TitleBar
 from src.gui.pages.embed_page import EmbedPage
 from src.gui.pages.extract_page import ExtractPage
+from src.gui.pages.analyzer_page import AnalyzerPage
+from src.gui.pages.compare_page import ComparePage
 
 CURRENT_DIR = Path(__file__).resolve().parent
 ICON_DIR = CURRENT_DIR / "assets" / "svg"
 
 EMBED_ICON       = str(ICON_DIR / "lock-plus.svg")
 EXTRACT_ICON     = str(ICON_DIR / "lock-open.svg")
-FILE_STRUCT_ICON = str(ICON_DIR / "file-search.svg")
+ANALYZER_ICON = str(ICON_DIR / "file-search.svg")
 METADATA_ICON    = str(ICON_DIR / "tag.svg")
 BIT_STAT_ICON    = str(ICON_DIR / "chart-histogram.svg")
 COMPARE_ICON     = str(ICON_DIR / "columns.svg")
@@ -60,10 +62,10 @@ class MainWindow(QMainWindow):
         
         self.page_container.addWidget(EmbedPage())
         self.page_container.addWidget(ExtractPage())
-        self.page_container.addWidget(QLabel("File Structure Page"))
+        self.page_container.addWidget(AnalyzerPage())
         self.page_container.addWidget(QLabel("Metadata Page"))
         self.page_container.addWidget(QLabel("Bit Statistics Page"))
-        self.page_container.addWidget(QLabel("Compare Page"))
+        self.page_container.addWidget(ComparePage())
         self.page_container.addWidget(QLabel("Report Page"))
         
         # -- Connect sidebar to page container --
@@ -103,7 +105,6 @@ class MainWindow(QMainWindow):
         self.sidebar_group.addButton(self.embed_btn, 0)
         self.sidebar_group.addButton(self.extract_btn, 1)
         
-        
         # -- Section Separator --
         sidebar_layout.addSpacing(16)
         sidebar_layout.addWidget(self.create_separator_line())
@@ -111,20 +112,14 @@ class MainWindow(QMainWindow):
         # -- Steganalysis Section --
         sidebar_layout.addWidget(self.create_section_label("Steganalysis"))
         
-        self.file_struct_btn = SidebarButton("File Structure", FILE_STRUCT_ICON)
-        self.metadata_btn = SidebarButton("Metadata", METADATA_ICON)
-        self.bit_stat_btn = SidebarButton("Bit Statistics", BIT_STAT_ICON)
+        self.analyzer_btn = SidebarButton("Analyzer", ANALYZER_ICON)
         self.compare_btn = SidebarButton("Compare", COMPARE_ICON)
         self.report_btn = SidebarButton("Report", REPORT_ICON)
-        sidebar_layout.addWidget(self.file_struct_btn)
-        sidebar_layout.addWidget(self.metadata_btn)
-        sidebar_layout.addWidget(self.bit_stat_btn)
+        sidebar_layout.addWidget(self.analyzer_btn)
         sidebar_layout.addWidget(self.compare_btn)
         sidebar_layout.addWidget(self.report_btn)
         
-        self.sidebar_group.addButton(self.file_struct_btn, 2)
-        self.sidebar_group.addButton(self.metadata_btn, 3)
-        self.sidebar_group.addButton(self.bit_stat_btn, 4)
+        self.sidebar_group.addButton(self.analyzer_btn, 2)
         self.sidebar_group.addButton(self.compare_btn, 5)
         self.sidebar_group.addButton(self.report_btn, 6)
         

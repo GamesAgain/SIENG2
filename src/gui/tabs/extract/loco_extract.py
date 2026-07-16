@@ -1,11 +1,12 @@
 from pathlib import Path
 from PyQt6.QtCore import QSize, Qt
-from PyQt6.QtWidgets import QButtonGroup, QFileDialog, QFrame, QHBoxLayout, QLineEdit, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QStackedWidget, QVBoxLayout, QLabel
+from PyQt6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QLineEdit, QMessageBox, QProgressBar, QPushButton, QStackedWidget, QVBoxLayout, QLabel
 
 from src.core.stego.locomotive import Locomotive
 from src.gui.components.file_drop import FileDropWidget
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, create_icon_state
 from src.gui.components.multi_file_drop import MultiFileDropWidget
+from src.gui.components.result_viewers import PayloadResultViewer
 from src.gui.components.toggle_switch import ToggleSwitch
 
 ICON_DIR = Path(__file__).parent.parent.parent / "assets" / "svg"
@@ -50,8 +51,8 @@ class LocomotiveExtractTab(QFrame):
         main_layout.addLayout(sub_layout)
         
         # Extraction Result
-        extraction_result = self.build_extraction_result()
-        main_layout.addWidget(extraction_result)
+        self.result_viewer = PayloadResultViewer()
+        main_layout.addWidget(self.result_viewer)
         
         # Execute button
         execute_box = self.build_execution_box()
@@ -150,28 +151,30 @@ class LocomotiveExtractTab(QFrame):
         
         # --- SYMMETRIC MODE BUTTON ---
         self.btn_symmetric = QPushButton("Password") 
-        self.btn_symmetric.setObjectName("passwordBtn")
+        self.btn_symmetric.setObjectName("encryptOptionBtn")
+        self.btn_symmetric.setProperty("accentColor", "purple")
         self.btn_symmetric.setCheckable(True)
         self.btn_symmetric.setCursor(Qt.CursorShape.PointingHandCursor)
         
         # ADD ICON
         symmetric_icon_path = ICON_DIR / "lock-open.svg"
         if symmetric_icon_path.exists():
-            standalone_icon = create_icon_state(str(symmetric_icon_path), ICON_SIZE, color_checked=COLOR_CHECKED_SYM)
-            self.btn_symmetric.setIcon(standalone_icon)
+            symmetric_icon = create_icon_state(str(symmetric_icon_path), ICON_SIZE, color_checked=COLOR_CHECKED_SYM)
+            self.btn_symmetric.setIcon(symmetric_icon)
             self.btn_symmetric.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
         
         # --- ASYMMETRIC MODE BUTTON ---
-        self.btn_asymmetric = QPushButton("Public Key")
-        self.btn_asymmetric.setObjectName("publicKeyBtn")
+        self.btn_asymmetric = QPushButton("Private Key")
+        self.btn_asymmetric.setObjectName("encryptOptionBtn")
+        self.btn_asymmetric.setProperty("accentColor", "green")
         self.btn_asymmetric.setCheckable(True)
         self.btn_asymmetric.setCursor(Qt.CursorShape.PointingHandCursor)
         
         # ADD ICON
         asymmetric_icon_path = ICON_DIR / "key.svg"
         if asymmetric_icon_path.exists():
-            configurable_icon = create_icon_state(str(asymmetric_icon_path), ICON_SIZE, color_checked=COLOR_CHECKED_ASYM)
-            self.btn_asymmetric.setIcon(configurable_icon)
+            asymmetric_icon = create_icon_state(str(asymmetric_icon_path), ICON_SIZE, color_checked=COLOR_CHECKED_ASYM)
+            self.btn_asymmetric.setIcon(asymmetric_icon)
             self.btn_asymmetric.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
         
         decrypt_layout.addWidget(self.btn_symmetric)
@@ -304,40 +307,6 @@ class LocomotiveExtractTab(QFrame):
         else:
             self.decrypt_stack.setCurrentIndex(2)
             
-    def build_extraction_result(self):
-        result_box = QFrame()
-        result_box.setObjectName("card")
-        add_shadow_effect(result_box)
-        
-        stego_file_layout = QVBoxLayout(result_box)
-        
-        title_container = QFrame()
-        title_container.setObjectName("titleContainer")
-        title_layout = QHBoxLayout(title_container)
-        
-        # Icon
-        title_icon = QLabel()
-        photo_icon = create_icon_pixmap(ICON_DIR / "report-search.svg", size=16, color_hex="#cfcfcf")
-        title_icon.setPixmap(photo_icon)
-        
-        # Text: Extraction Result
-        title_label = QLabel("Extraction Result")
-        title_label.setStyleSheet("font-weight: bold; color: #cfcfcf;")
-        title_label.setObjectName("cardTitle")
-        title_layout.addWidget(title_icon)
-        title_layout.addWidget(title_label)
-        title_layout.addStretch()
-        
-        self.payload_text_area = QPlainTextEdit()
-        self.payload_text_area.setReadOnly(True)
-        self.payload_text_area.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.payload_text_area.setObjectName("payloadTextArea")
-        self.payload_text_area.setPlaceholderText("Not text extraction available")
-        
-        stego_file_layout.addWidget(title_container)
-        stego_file_layout.addWidget(self.payload_text_area)
-        return result_box
-    
     def build_execution_box(self):
         execution_box = QHBoxLayout()
         execution_box.setContentsMargins(0, 0, 0, 0)
@@ -349,7 +318,7 @@ class LocomotiveExtractTab(QFrame):
         # Execute Extract Data
         execute_extract_btn = QPushButton("Extract Data")
         execute_extract_btn.setFixedHeight(50)
-        execute_extract_btn.setObjectName("ExtractBtn")
+        execute_extract_btn.setObjectName("PrimaryActionBtn")
         
         execute_extract_btn.clicked.connect(self.execute_extraction)
         execution_box.addWidget(execute_extract_btn)
@@ -451,60 +420,7 @@ class LocomotiveExtractTab(QFrame):
             QMessageBox.critical(self, "Extraction Failed", f"Failed to extract data:\n{str(e)}")
 
     def handle_extracted_data(self, default_name: str, data: bytes):
-        is_text = False
-        text_content = ""
-
-        # 1. ลองพยายามถอดรหัสเป็นข้อความ (รองรับทั้ง Text Input และไฟล์นามสกุล .txt)
-        try:
-            text_content = data.decode('utf-8')
-            is_text = True
-        except UnicodeDecodeError:
-            is_text = False # ถอดไม่ได้ แปลว่าเป็นไฟล์ Binary
-
-        if is_text:
-            # นำข้อความไปโชว์ในช่อง Result Area
-            self.payload_text_area.setPlainText(text_content)
-
-            # เช็คว่าไฟล์ที่ได้มา คือ "Text จากช่อง Input" ที่เราจำลองไว้หรือไม่
-            if "secret_message" in default_name:
-                QMessageBox.information(self, "Success", "Text extracted successfully!\nYou can read it in the Extraction Result box.")
-                
-                # ถามผู้ใช้ว่าต้องการเซฟข้อความนี้เป็นไฟล์ .txt เก็บไว้ด้วยไหม?
-                reply = QMessageBox.question(
-                    self, 
-                    "Save Text", 
-                    "Do you want to save this text as a .txt file?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                )
-                if reply == QMessageBox.StandardButton.Yes:
-                    self.save_file_dialog(default_name, data)
-            else:
-                # กรณีแนบไฟล์ประเภท .txt เข้ามาตอน Embed
-                QMessageBox.information(self, "Success", f"Text file '{default_name}' extracted!\nA preview is available in the result box.")
-                self.save_file_dialog(default_name, data)
-
-        else:
-            # 2. กรณีเป็นไฟล์ประเภทอื่นๆ (Binary file เช่น ZIP, PDF, EXE)
-            self.payload_text_area.setPlainText(
-                f"[ Binary file extracted successfully ]\n"
-                f"File Name: {default_name}\n"
-                f"Size: {len(data):,} bytes\n"
-            )
-            QMessageBox.information(self, "Success", f"Binary file '{default_name}' extracted successfully!")
-            self.save_file_dialog(default_name, data)
-
-    def save_file_dialog(self, default_name: str, data: bytes):
-        save_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save Extracted File",
-            default_name,
-            "All Files (*)"
-        )
-        
-        if save_path:
-            try:
-                with open(save_path, 'wb') as f:
-                    f.write(data)
-                QMessageBox.information(self, "Success", "File saved successfully!")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to save file:\n{str(e)}")
+        # Locomotive มีชื่อไฟล์จริงติดมาเสมอ — ตัดสิน text-vs-file จากนามสกุล (.txt = ข้อความ,
+        # นอกนั้น = ไฟล์จริง Open/Save As ด้วยนามสกุลเดิม) ไม่ใช่จาก decode UTF-8 ได้หรือไม่
+        # (PDF/ไฟล์อื่นบางตัว decode เป็นข้อความได้ แต่ต้องเซฟเป็นไฟล์เดิม ไม่ใช่ .txt)
+        self.result_viewer.show_result(data, default_name)

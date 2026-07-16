@@ -1,0 +1,66 @@
+# =============================================================================
+# Template 4 — Cross-Media Password Split (แจกกุญแจข้ามสื่อ, ไม่มีไฟล์ไหนพอเดี่ยว ๆ)
+#
+# ระดับความยาก: ปานกลาง
+# เทคนิคที่ใช้: LSB++ + Metadata-PNG + Metadata-MP3
+# ไฟล์ที่ผู้รับต้องมี: ครบทั้ง 3 ไฟล์ (ภาพลับ + ภาพกุญแจ + MP3 กุญแจ)
+#
+# จุดเด่นที่โชว์: การกระจายข้ามสื่อแบบ "ขนาน" (ไม่ซ้อนกัน) — 3 ไฟล์อิสระต่อกัน
+#   ไม่มีไฟล์ใดไฟล์เดียวเปิดเผยความลับได้ · ความลับจริงถูกเข้ารหัสด้วยรหัสผ่านที่
+#   "แตกเป็น 2 ครึ่ง" กระจายไปคนละสื่อ (ภาพ 1 ใบ + เสียง 1 ไฟล์) ผู้รับต้องถือครบ
+#   ทั้งชุดถึงจะประกอบรหัสผ่านแล้วปลดล็อกความลับได้
+#
+# ต่างจากเทมเพลต 1/2 ที่ "ซ้อนชั้น (nested)" — อันนี้เป็นการ "แจกจ่าย (distributed)"
+# ล้วน ๆ เหมาะกับกรณีส่งหลายช่องทาง ให้ผู้ดักฟังได้ไม่ครบชุด = ถอดไม่ได้
+# =============================================================================
+variables:
+  SRC_IMG_SECRET: "d:/SRY-DEV/cs-project/Program/Doing/GUI/SIENG2/img/004.png"
+  SRC_IMG_KEY:    "d:/SRY-DEV/cs-project/Program/Doing/GUI/SIENG2/img/005.png"
+  SRC_MP3_KEY:    "d:/SRY-DEV/cs-project/Program/Doing/GUI/SIENG2/audio/test.mp3"
+
+  SECRET_MESSAGE: "Rendezvous at pier 39, 23:00"
+  # รหัสผ่านเต็ม = KEY_HALF_A + KEY_HALF_B (แก้ได้ แต่ LSB_PASSWORD ต้องเท่ากับผลรวม)
+  KEY_HALF_A: "swordfish"
+  KEY_HALF_B: "-2024"
+  LSB_PASSWORD: "swordfish-2024"
+
+workflows:
+  embed:
+    # 1) ความลับจริง → LSB++ เข้ารหัสด้วยรหัสผ่านเต็ม (ภาพนี้เดี่ยว ๆ เปิดไม่ได้ถ้าไม่มีรหัส)
+    - step_id: "secret_image"
+      module: "lsbpp"
+      inputs:
+        covers:
+          - ${{ variables.SRC_IMG_SECRET }}
+        text_payload: ${{ variables.SECRET_MESSAGE }}
+        encryption:
+          mode: "symmetric"
+          password: ${{ variables.LSB_PASSWORD }}
+      outputs:
+        stego_file: "output/004_secret.png"
+
+    # 2) รหัสครึ่งแรก → Metadata-PNG ในภาพอีกใบ (custom key "keyA")
+    - step_id: "keyA_image"
+      module: "metadata"
+      inputs:
+        covers:
+          - ${{ variables.SRC_IMG_KEY }}
+        meta_dict:
+          keyA: ${{ variables.KEY_HALF_A }}
+        encryption: null
+      outputs:
+        stego_file: "output/005_keyA.png"
+
+    # 3) รหัสครึ่งหลัง → Metadata-MP3 (TXXX desc="keyB")
+    - step_id: "keyB_audio"
+      module: "metadata"
+      inputs:
+        covers:
+          - ${{ variables.SRC_MP3_KEY }}
+        meta_dict:
+          TXXX:
+            - desc: "keyB"
+              text: ${{ variables.KEY_HALF_B }}
+        encryption: null
+      outputs:
+        stego_file: "output/audio_keyB.mp3"

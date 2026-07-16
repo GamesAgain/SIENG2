@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import QFrame, QLabel, QTabWidget, QVBoxLayout
 from src.gui.components.gui_utils import create_icon_pixmap
 from src.gui.tabs.embed.loco_embed import LocomotiveEmbedTab
 from src.gui.tabs.embed.lsb_embed import LSBEmbedTab
+from src.gui.tabs.embed.metadata_embed import MetadataEmbedTab
 
 ICON_DIR = Path(__file__).parent.parent.parent.parent / "assets" / "svg"
 ICON_SIZE = 16
@@ -22,7 +23,7 @@ class EmbedStandalonePage(QFrame):
         
         self.tab_lsb = LSBEmbedTab()
         self.tab_eof = LocomotiveEmbedTab()
-        self.tab_meta = QLabel("หน้าฟอร์ม Metadata")
+        self.tab_meta = MetadataEmbedTab()
         
         tech_tabs = QTabWidget()
         tech_tabs.setObjectName("techTabs")

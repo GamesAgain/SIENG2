@@ -189,8 +189,15 @@ class FileDropWidget(QFrame):
             
         self.update_ui()
         self.file_selected.emit(file_path)
-        
-    
+
+    def clear_file(self):
+        """ล้างไฟล์ที่เลือกไว้ กลับไปเป็นกล่อง drop zone ค่าเริ่มต้น"""
+        self.has_file = False
+        self.file_path = ""
+        self.original_pixmap = None
+
+        self.update_ui()
+
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
             

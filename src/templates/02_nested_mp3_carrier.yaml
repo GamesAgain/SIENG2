@@ -1,0 +1,114 @@
+# =============================================================================
+# Template 2 — Nested Concealment & Cross-Media MP3 Carrier
+#   (ตัวอย่างที่ 2 ของผู้ใช้ — ผู้รับได้แค่ไฟล์ MP3 ไฟล์เดียว)
+#
+# ระดับความยาก: สูงมาก
+# เทคนิคที่ใช้: Locomotive (x2) + Metadata-PNG + Metadata-MP3 (APIC)
+# ไฟล์ที่ผู้รับต้องมี: audio_stego.mp3 ไฟล์เดียว + Private Key + password "Password"
+#
+# แนวคิด (ชั้นการอำพราง):
+#   1) PDF ลับ → เข้ารหัส Public Key → กระจายฝังในภาพ 2 & 3 ด้วย Locomotive
+#   2) เล่นกล "ทำภาพ 2 ให้หายไป" — เอาภาพ 2 (ที่ถือชิ้น PDF) ไปซ่อนท้ายภาพ 1
+#      อีกชั้นด้วย Locomotive (เข้ารหัส password) → ภาพ 2 ไม่ต้องส่งออกไปเลย
+#   3) รหัสสำหรับกู้ภาพ 2 ถูกแตกเป็น 2 ชิ้น: ชิ้นแรก ("Pass") ฝัง Metadata ของภาพ 1,
+#      ชิ้นสอง ("Word") ฝัง Metadata ของ MP3
+#   4) MP3 เป็นตัวเล่นกลสุดท้าย — ฝังภาพ 1 (Front Cover) และภาพ 3 (Back Cover) เป็น
+#      APIC เข้าไปในตัวมันเอง ⇒ ส่งออกแค่ MP3 ไฟล์เดียว ทุกอย่างซ่อนอยู่ข้างใน
+#
+# การถอด (ระบบไล่ needs/provides ให้เอง):
+#   MP3 → แกะได้ "Word" + คืนภาพ 1 & ภาพ 3 · ภาพ 1 → Metadata แกะ "Pass"
+#   → ต่อรหัส "Pass"+"Word" ปลดล็อก Locomotive ในภาพ 1 → คืนภาพ 2
+#   → ภาพ 2 + ภาพ 3 → Locomotive (Private Key) → คืน PDF ลับ
+#
+# ⚠️ กฎ compatibility ที่เคารพในเทมเพลตนี้:
+#   - PDF เป็น "ไฟล์" → ใช้ Locomotive (LSB++/Metadata รับ text เท่านั้น)
+#   - APIC เก็บไฟล์รูปแบบ byte-for-byte → ใช้ซ้อนภาพ stego ที่มี payload ท้ายไฟล์ได้
+#   - Metadata (iTXt) ฝังบนภาพ 1 หลัง Locomotive ได้ (metadata preserve payload ท้ายไฟล์)
+# =============================================================================
+variables:
+  # -- ไฟล์ต้นฉบับ --
+  SRC_IMG1: "d:/SRY-DEV/cs-project/Program/Doing/GUI/SIENG2/img/001.png"
+  SRC_IMG2: "d:/SRY-DEV/cs-project/Program/Doing/GUI/SIENG2/img/002.png"
+  SRC_IMG3: "d:/SRY-DEV/cs-project/Program/Doing/GUI/SIENG2/img/003.png"
+  SRC_MP3:  "d:/SRY-DEV/cs-project/Program/Doing/GUI/SIENG2/audio/001.mp3"
+  SECRET_FILE: "d:/SRY-DEV/cs-project/Program/Doing/GUI/SIENG2/yaml/data/secret.pdf"
+
+  # -- กุญแจสาธารณะผู้รับ (เข้ารหัสชั้นในสุดที่ถือ PDF) --
+  RECEIVER_PUB_KEY: "d:/SRY-DEV/cs-project/Program/Doing/GUI/SIENG2/yaml/data/pub_key.pem"
+
+  # -- รหัส/เบาะแส (แก้ได้) — KEY_PART_1+KEY_PART_2 ต้องต่อกันได้เป็น IMG2_RECOVER_PASSWORD จริง ๆ
+  # (ไม่ได้ resolve อัตโนมัติ เป็นแค่ 2 ตัวแปรอิสระ — ถ้าแก้ค่าไหนต้องแก้อีกตัวให้สอดคล้องเอง)
+  IMG2_RECOVER_PASSWORD: "Password"
+  KEY_PART_1: "Pass"      # ชิ้น 1 → Metadata ของภาพ 1
+  KEY_PART_2: "word"      # ชิ้น 2 → Metadata ของ MP3 ("Pass" + "word" = "Password")
+
+workflows:
+  embed:
+    # 1) PDF → เข้ารหัส Public Key → กระจายฝังในภาพ 2 & 3 (Locomotive, 2 covers → 2 outputs)
+    - step_id: "pdf_fragment"
+      module: "locomotive"
+      inputs:
+        covers:
+          - ${{ variables.SRC_IMG2 }}
+          - ${{ variables.SRC_IMG3 }}
+        file_payload:
+          - ${{ variables.SECRET_FILE }}
+        encryption:
+          mode: "asymmetric"
+          public_key: ${{ variables.RECEIVER_PUB_KEY }}
+      outputs:
+        stego_files:
+          - "output/002_stego.png"   # ถือชิ้น PDF (จะถูกซ่อนต่อในภาพ 1)
+          - "output/003_stego.png"   # ถือชิ้น PDF (จะถูกฝากเป็น APIC ของ MP3)
+
+    # 2) เล่นกลอำพราง — ซ่อนภาพ 2 (ชิ้น PDF) ท้ายภาพ 1 ด้วย Locomotive (เข้ารหัส password)
+    #    ⇒ ภาพ 2 "หายไป" ไม่ต้องส่งออก
+    - step_id: "hide_img2_in_img1"
+      module: "locomotive"
+      inputs:
+        covers:
+          - ${{ variables.SRC_IMG1 }}
+        file_payload:
+          - ${{ steps.pdf_fragment.outputs.stego_files[0] }}   # ภาพ 2
+        encryption:
+          mode: "symmetric"
+          password: ${{ variables.IMG2_RECOVER_PASSWORD }}
+      outputs:
+        stego_files:
+          - "output/001_stego.png"
+
+    # 3) รหัสกู้ภาพ 2 ชิ้นที่ 1 → Metadata-PNG บนภาพ 1 (custom key "Part1")
+    - step_id: "keypart1_in_img1_meta"
+      module: "metadata"
+      inputs:
+        covers:
+          - ${{ steps.hide_img2_in_img1.outputs.stego_files[0] }}   # ภาพ 1 (ซ่อนภาพ 2 ไว้แล้ว)
+        meta_dict:
+          Part1: ${{ variables.KEY_PART_1 }}
+        encryption: null
+      outputs:
+        stego_file: "output/001_stego_stego.png"
+
+    # 4) MP3 ตัวเล่นกลสุดท้าย — Metadata "Word" + APIC 2 รูป (ภาพ 1 = Front, ภาพ 3 = Back)
+    #    ⇒ ผู้รับได้ไฟล์เดียว: audio_stego.mp3
+    - step_id: "final_mp3_carrier"
+      module: "metadata"
+      inputs:
+        covers:
+          - ${{ variables.SRC_MP3 }}
+        meta_dict:
+          # MP3 รับเฉพาะ ID3 frame มาตรฐาน — custom key ต้องใส่ผ่าน TXXX (user-defined text)
+          # ที่มี desc เป็นชื่อ key (ต่างจาก Metadata-PNG ที่ใส่ custom key ตรง ๆ ได้)
+          TXXX:
+            - desc: "Part2"
+              text: ${{ variables.KEY_PART_2 }}
+          APIC:
+            - path: ${{ steps.keypart1_in_img1_meta.outputs.stego_file }}   # ภาพ 1 (+meta+ภาพ2ซ่อนใน)
+              type: 3            # 3 = Front Cover
+              desc: "front"
+            - path: ${{ steps.pdf_fragment.outputs.stego_files[1] }}        # ภาพ 3 (ชิ้น PDF)
+              type: 4            # 4 = Back Cover
+              desc: "back"
+        encryption: null
+      outputs:
+        stego_file: "output/audio_stego.mp3"

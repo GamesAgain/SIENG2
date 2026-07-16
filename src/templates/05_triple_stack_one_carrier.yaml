@@ -1,0 +1,69 @@
+# =============================================================================
+# Template 5 — Triple-Stack on One Carrier (ซ้อน 3 เทคนิคบนไฟล์เดียว)
+#
+# ระดับความยาก: ปานกลาง-สูง
+# เทคนิคที่ใช้: Metadata-PNG → LSB++ → Locomotive (บนภาพเดียวไล่ทับกัน)
+# ไฟล์ที่ผู้รับต้องมี: 006_stego.png ไฟล์เดียว + Private Key + password
+#
+# จุดเด่นที่โชว์: บน PNG ไฟล์เดียว ซ้อนได้ถึง 3 เทคนิคโดยไม่ทำลายกัน — พิสูจน์ว่า
+#   ระบบแก้ปัญหา "PNG re-encode boundary" แล้ว (LSB++ และ Metadata-PNG รักษา
+#   payload ท้ายไฟล์ของ Locomotive + ancillary chunk ของกันและกันไว้ครบ) ⇒ ลำดับ
+#   การซ้อนบนไฟล์เดียว "อิสระ" ไฟล์ส่งออกใบเดียวถือความลับ 3 ชนิดพร้อมกัน:
+#     - Metadata:  แท็กข้อความ (custom key)
+#     - LSB++:     ข้อความลับ (เข้ารหัส)
+#     - Locomotive: ไฟล์ลับ (เข้ารหัส public key)
+#
+# การถอด: ทั้ง 3 ชั้นแกะจากไฟล์ 006_stego.png ใบเดียว (ระบบไล่ needs/provides เอง)
+# =============================================================================
+variables:
+  SRC_IMG: "d:/SRY-DEV/cs-project/Program/Doing/GUI/SIENG2/img/006.png"
+  RECEIVER_PUB_KEY: "d:/SRY-DEV/cs-project/Program/Doing/GUI/SIENG2/yaml/data/pub_key.pem"
+  SECRET_FILE: "d:/SRY-DEV/cs-project/Program/Doing/GUI/SIENG2/yaml/data/file1.txt"
+
+  META_TAG: "batch-7 / clearance A"
+  LSB_SECRET: "phase one is a go"
+  LSB_PASSWORD: "bluebird"
+
+workflows:
+  embed:
+    # 1) ชั้นล่างสุด — Metadata-PNG (custom key "origin")
+    - step_id: "layer_meta"
+      module: "metadata"
+      inputs:
+        covers:
+          - ${{ variables.SRC_IMG }}
+        meta_dict:
+          origin: ${{ variables.META_TAG }}
+        encryption: null
+      outputs:
+        stego_file: "output/006_m.png"
+
+    # 2) ชั้นกลาง — LSB++ ทับบนผลของ Metadata (ข้อความลับ เข้ารหัส)
+    #    LSB++ รักษา metadata chunk เดิมไว้ (preserve-and-reappend)
+    - step_id: "layer_lsb"
+      module: "lsbpp"
+      inputs:
+        covers:
+          - ${{ steps.layer_meta.outputs.stego_file }}
+        text_payload: ${{ variables.LSB_SECRET }}
+        encryption:
+          mode: "symmetric"
+          password: ${{ variables.LSB_PASSWORD }}
+      outputs:
+        stego_file: "output/006_ml.png"
+
+    # 3) ชั้นบนสุด — Locomotive ทับอีกที (ไฟล์ลับ เข้ารหัส public key)
+    #    Locomotive append ท้ายไฟล์ ไม่ยุ่งพิกเซล/metadata ที่มีอยู่
+    - step_id: "layer_loco"
+      module: "locomotive"
+      inputs:
+        covers:
+          - ${{ steps.layer_lsb.outputs.stego_file }}
+        file_payload:
+          - ${{ variables.SECRET_FILE }}
+        encryption:
+          mode: "asymmetric"
+          public_key: ${{ variables.RECEIVER_PUB_KEY }}
+      outputs:
+        stego_files:
+          - "output/006_stego.png"

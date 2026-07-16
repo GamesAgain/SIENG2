@@ -1,10 +1,11 @@
 from pathlib import Path
 from PyQt6.QtCore import QSize, Qt
-from PyQt6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QStackedWidget, QVBoxLayout
+from PyQt6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QStackedWidget, QVBoxLayout
 
 from src.core.stego.lsb_pp import LSBPP
 from src.gui.components.file_drop import FileDropWidget
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, create_icon_state
+from src.gui.components.result_viewers import PayloadResultViewer
 from src.gui.components.toggle_switch import ToggleSwitch
 
 ICON_DIR = Path(__file__).parent.parent.parent / "assets" / "svg"
@@ -53,14 +54,14 @@ class LSBExtractTab(QFrame):
         # Add sub_layout to main_layout
         main_layout.addLayout(sub_layout)
         
-        # LSB Options card
-        lsb_options_card = self.build_lsb_options_card()
-        # main_layout.addWidget(lsb_options_card)  
-        
-                
+        # TODO: LSB Options card (channel select, alpha embed, gradient/entropy/shuffle
+        # toggles, etc.) -- shelved, see .claude/notes/lsb-options-plan.md before resuming
+        # lsb_options_card = self.build_lsb_options_card()
+        # main_layout.addWidget(lsb_options_card)
+
         # Extraction Result
-        extraction_result = self.build_extraction_result()
-        main_layout.addWidget(extraction_result)
+        self.result_viewer = PayloadResultViewer()
+        main_layout.addWidget(self.result_viewer)
         
         # Add spacer
         main_layout.addStretch()
@@ -76,7 +77,7 @@ class LSBExtractTab(QFrame):
         # Execute Extract Data
         execute_extract_btn = QPushButton("Extract Data")
         execute_extract_btn.setFixedHeight(50)
-        execute_extract_btn.setObjectName("ExtractBtn")
+        execute_extract_btn.setObjectName("PrimaryActionBtn")
         final_layout.addWidget(execute_extract_btn)
         execute_extract_btn.clicked.connect(self.execute_extraction)
         
@@ -176,7 +177,8 @@ class LSBExtractTab(QFrame):
         
         # --- SYMMETRIC MODE BUTTON ---
         self.btn_symmetric = QPushButton("Password") 
-        self.btn_symmetric.setObjectName("passwordBtn")
+        self.btn_symmetric.setObjectName("encryptOptionBtn")
+        self.btn_symmetric.setProperty("accentColor", "purple")
         self.btn_symmetric.setCheckable(True)
         self.btn_symmetric.setCursor(Qt.CursorShape.PointingHandCursor)
         
@@ -189,7 +191,8 @@ class LSBExtractTab(QFrame):
         
         # --- ASYMMETRIC MODE BUTTON ---
         self.btn_asymmetric = QPushButton("Private Key")
-        self.btn_asymmetric.setObjectName("publicKeyBtn")
+        self.btn_asymmetric.setObjectName("encryptOptionBtn")
+        self.btn_asymmetric.setProperty("accentColor", "green")
         self.btn_asymmetric.setCheckable(True)
         self.btn_asymmetric.setCursor(Qt.CursorShape.PointingHandCursor)
         
@@ -343,40 +346,6 @@ class LSBExtractTab(QFrame):
         
         return lsb_options_card
     
-    def build_extraction_result(self):
-        result_box = QFrame()
-        result_box.setObjectName("card")
-        add_shadow_effect(result_box)
-        
-        stego_file_layout = QVBoxLayout(result_box)
-        
-        title_container = QFrame()
-        title_container.setObjectName("titleContainer")
-        title_layout = QHBoxLayout(title_container)
-        
-        # Icon
-        title_icon = QLabel()
-        photo_icon = create_icon_pixmap(ICON_DIR / "report-search.svg", size=16, color_hex="#cfcfcf")
-        title_icon.setPixmap(photo_icon)
-        
-        # Text: Extraction Result
-        title_label = QLabel("Extraction Result")
-        title_label.setStyleSheet("font-weight: bold; color: #cfcfcf;")
-        title_label.setObjectName("cardTitle")
-        title_layout.addWidget(title_icon)
-        title_layout.addWidget(title_label)
-        title_layout.addStretch()
-        
-        self.payload_text_area = QPlainTextEdit()
-        self.payload_text_area.setReadOnly(True)
-        self.payload_text_area.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.payload_text_area.setObjectName("payloadTextArea")
-        self.payload_text_area.setPlaceholderText("Not text extraction available")
-        
-        stego_file_layout.addWidget(title_container)
-        stego_file_layout.addWidget(self.payload_text_area)
-        return result_box
-    
     def build_loading_status_bar(self):
         loading_status_bar = QFrame()
         loading_status_bar.setObjectName("card")
@@ -407,7 +376,7 @@ class LSBExtractTab(QFrame):
         try:
             lsbpp = LSBPP()
             message = lsbpp.extract(stego_file_path, private_key_path, password)
-            self.payload_text_area.setPlainText(message)
+            self.result_viewer.show_text(message)
             
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to Extract: {str(e)}")

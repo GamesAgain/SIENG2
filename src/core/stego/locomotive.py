@@ -3,27 +3,30 @@ import zipfile
 from PIL import Image
 from pathlib import Path
 import random
-import sys
 import os
 import math
 import struct
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from src.core.crypto.sym_encrypt import SymmetricEncryption
 from src.core.crypto.asym_encrypt import AsymmetricEncryption
-from src.core.crypto.asym_encrypt import load_public_key, load_private_key
+from src.core.crypto.asym_encrypt import load_public_key, load_private_key, get_public_bytes
 
 # Encrypt Mode constants SIENG2
-MAGIC_NONE = b"0x00" # Steganography Encryption None
-MAGIC_SYM = b"0x01" # Steganography Encryption Symmetric
-MAGIC_ASYM = b"0x02" # Steganography Encryption Asymmetric
+MAGIC_NONE = b"\x00" # Steganography Encryption None
+MAGIC_SYM = b"\x01" # Steganography Encryption Symmetric
+MAGIC_ASYM = b"\x02" # Steganography Encryption Asymmetric
+ENCRYPT_MAGIC_LENGTH = 1  # bytes -- length of MAGIC_NONE/SYM/ASYM above
 
 PNG_EOF_SIG = b'\x00\x00\x00\x00IEND\xaeB`\x82'  # PNG End-of-File marker
-MAGIC_SIG = b'LOCO'                              # Fragment signature 
-    
+MARKER_LENGTH = 4  # bytes -- length of the derived per-embed fragment marker
+
 class Locomotive:
     def __init__(self):
-        pass
+        self.last_session_id = None   # set by create_session_block() during embed()
+    
     
     # ==================== Main Public Methods ====================
     
@@ -41,16 +44,16 @@ class Locomotive:
             file_data, out_file_paths = self.read_file(file_paths)
             payload_package = self.pack_payload(out_file_paths, file_data)
         
-        
         # 2. Encrypt data
         encrypted_payload = self.encrypt_data(payload_package, public_key_path, password)
         
         # 3. Calculate number of parts and chunk size
         payload_length = len(encrypted_payload)
         num_parts, chunk_size = self.get_chunk_size(payload_length, cover_image_paths)
-        
+
         # 4. Create session ID and blocks
-        payload_blocks = self.create_session_block(num_parts, chunk_size, encrypted_payload, payload_length)
+        marker = self.get_marker(password, public_key_path)
+        payload_blocks = self.create_session_block(num_parts, chunk_size, encrypted_payload, payload_length, marker)
             
         # 5. Embed payload into cover images
         output_files = []
@@ -61,60 +64,77 @@ class Locomotive:
             
         return output_files
     
-    def extract(self, stego_image_paths: tuple[str], private_key_path: str = None, password: str = None) -> tuple[str, bytes]:
+    def extract(self, stego_image_paths: tuple[str], private_key_path: str = None, password: str = None, session_id: int = None) -> tuple[str, bytes]:
         """
         Extract payload file from stego images using Locomotive algorithm
+
+        session_id: which session to reconstruct if the images carry more than one
+        (e.g. Locomotive stacked on itself). Omit to use the latest session found.
         """
         
         all_sessions = {}
         session_order = []
-        
+
+        # Marker must be derived the same way embed() derived it (same password/key)
+        marker = self.get_marker(password, private_key_path)
+
         # Extract from each stego image
         for path in stego_image_paths:
-            
+
             # 1. Read Image Data
             img_data = self.read_file(path)
-            
+
             # 2. Extract encrypted payload from end of file
             eof_idx = img_data.find(PNG_EOF_SIG)
+            if eof_idx == -1:
+                raise ValueError(
+                    f"'{path}' does not look like a PNG with Locomotive data appended "
+                    f"(no PNG end-of-file marker found). Please verify the file."
+                )
             encrypted_payload = img_data[eof_idx+len(PNG_EOF_SIG):]
-            
+
             # 3. Extract payload blocks
             cursor = 0
-            header_size = len(MAGIC_SIG) + 16  # 16 bytes =  session_id [4 bytes] +  part_index [4 bytes] +  total_parts [4 bytes] +  chunk_size [4 bytes]
+            header_size = len(marker) + 16  # 16 bytes =  session_id [4 bytes] +  part_index [4 bytes] +  total_parts [4 bytes] +  chunk_size [4 bytes]
             while True:
-                
-                # 4. Find magic signature 'LOCO'
-                sig_idx = encrypted_payload.find(MAGIC_SIG, cursor)
-                if sig_idx == -1: break # No more magic signatures found
-                
+
+                # 4. Find the fragment marker
+                sig_idx = encrypted_payload.find(marker, cursor)
+                if sig_idx == -1: break # No more fragment markers found
+
                 cursor = sig_idx
                 if cursor + header_size > len(encrypted_payload): break # Not enough data for header
-                
+
                 # 5. Extract session ID, part index, total parts, and chunk size
-                session_id, part_index, total_parts, chunk_size = struct.unpack('>IIII', encrypted_payload[cursor+len(MAGIC_SIG):cursor+header_size])
+                chunk_session_id, part_index, total_parts, chunk_size = struct.unpack('>IIII', encrypted_payload[cursor+len(marker):cursor+header_size])
                 cursor += header_size
-                
+
                 if cursor + chunk_size > len(encrypted_payload): break # Not enough data for chunk
-                
+
                 # 6. Extract chunk data
                 chunk_data = encrypted_payload[cursor:cursor+chunk_size]
-                
+
                 # 7. Store chunk data
-                if session_id not in all_sessions:
-                    all_sessions[session_id] = { 'total_parts': total_parts, 'data': {} }
-                    session_order.append(session_id) 
-                all_sessions[session_id]['data'][part_index] = chunk_data
+                if chunk_session_id not in all_sessions:
+                    all_sessions[chunk_session_id] = { 'total_parts': total_parts, 'data': {} }
+                    session_order.append(chunk_session_id)
+                all_sessions[chunk_session_id]['data'][part_index] = chunk_data
                 
                 cursor += chunk_size
                 
         if not all_sessions:
             raise ValueError("No valid payload found. Are you sure these are stego images ?")
-        
-        # 8. Get the latest session
-        latest_session_id = session_order[-1]
-        expected_total_parts = all_sessions[latest_session_id]['total_parts']
-        extracted_data = all_sessions[latest_session_id]['data']
+
+        # 8. Pick the target session
+        if session_id is not None:
+            if session_id not in all_sessions:
+                raise ValueError(f"Session {session_id} not found in the given stego image(s) "
+                                  f"(found: {list(all_sessions)}).")
+            target_session_id = session_id
+        else:
+            target_session_id = session_order[-1]
+        expected_total_parts = all_sessions[target_session_id]['total_parts']
+        extracted_data = all_sessions[target_session_id]['data']
         
         # Data Validation
         if len(extracted_data) != expected_total_parts:
@@ -145,7 +165,10 @@ class Locomotive:
         Unpack the payload to get filename and data
         """
         filename_length = int.from_bytes(payload[:2], 'big')
-        filename_ext = payload[2 : 2 + filename_length].decode('utf-8')
+        try:
+            filename_ext = payload[2 : 2 + filename_length].decode('utf-8')
+        except UnicodeDecodeError:
+            raise ValueError("Failed to decode payload filename. Please verify your image and password/key.")
         file_data = payload[2 + filename_length :]
  
         file_name, ext = os.path.splitext(filename_ext)
@@ -162,20 +185,53 @@ class Locomotive:
         
         return num_parts, chunk_size
     
-    def create_session_block(self, num_parts: int, chunk_size: int, payload: bytes, payload_length: int) -> list[bytes]:
+    def get_marker(self, password: str = None, key_path: str = None) -> bytes:
+        """
+        Derive the per-embed fragment marker from the password/key
+        """
+        if password is not None and key_path is None:
+            seed = password.encode()
+        elif key_path is not None:
+            key_password = password if password else None
+            with open(key_path, "rb") as f:
+                key_data = f.read()
+
+            if b"PRIVATE KEY" in key_data:
+                private_key = load_private_key(key_path, key_password)
+                public_key = private_key.public_key()
+            elif b"PUBLIC KEY" in key_data:
+                public_key = load_public_key(key_path)
+            else:
+                raise ValueError("Invalid key file format")
+
+            seed = get_public_bytes(public_key)
+        else:
+            # No encryption
+            seed = b"SIENG2_LOCOMOTIVE_DEFAULT"
+
+        hkdf = HKDF(
+            algorithm=hashes.SHA256(),
+            length=MARKER_LENGTH,
+            salt=None,
+            info=b"SIENG2_LOCOMOTIVE_MARKER",
+        )
+        return hkdf.derive(seed)
+
+    def create_session_block(self, num_parts: int, chunk_size: int, payload: bytes, payload_length: int, marker: bytes) -> list[bytes]:
         """
         Create session blocks for embedding
         """
         session_id = random.getrandbits(32) # Session ID 4 bytes
+        self.last_session_id = session_id   # exposed so callers can record which session this embed() call used
         blocks = []
         for part_idx in range(num_parts):
             start_idx = part_idx * chunk_size
             end_idx = min(start_idx + chunk_size, payload_length)
             part_data = payload[start_idx:end_idx]
             part_size = len(part_data)
-            
+
             header = struct.pack('>IIII', session_id, part_idx, num_parts, part_size) # 16 bytes
-            blocks.append(MAGIC_SIG + header + part_data) # 20 bytes + data(part_size)
+            blocks.append(marker + header + part_data) # 20 bytes + data(part_size)
         return blocks
         
     def append_onefile(self, cover_path: str, blocks: list[bytes]) -> list[tuple[str, bytes]]:
@@ -233,7 +289,7 @@ class Locomotive:
         """
         Decrypt the data using either symmetric or asymmetric decryption
         """
-        magic = data[:4]    
+        magic = data[:ENCRYPT_MAGIC_LENGTH]
         header_length = len(magic)
         
         extracted_data = data[header_length:]
@@ -289,30 +345,45 @@ class Locomotive:
                         arcname=path_obj.name
                     )
             return zip_buffer.getvalue(), "secret_files.zip"  # คืนค่า (ข้อมูล zip แบบ bytes, ชื่อไฟล์ zip)
-            
-        
-    def write_file(self, file_path: str, file_data: bytes) -> bytes:
-        with open(file_path, 'wb') as f:
-            return f.write(file_data)
 
-# --- ตัวอย่างการเรียกใช้งาน ---       
+# --- ตัวอย่างการเรียกใช้งาน (ครบ 3 โหมดเข้ารหัส, สร้างภาพ/กุญแจเองในตัว ไม่ต้องมีไฟล์ภายนอก) ---
 if __name__ == "__main__":
-    img = Image.new('RGB', (10, 10), (255, 0, 0))
-    img.save('test0.png')
-    img = Image.new('RGB', (10, 10), (255, 0, 0))
-    img.save('test1.png')
-    img = Image.new('RGB', (10, 10), (0, 255, 0))
-    img.save('test2.png')
-    img = Image.new('RGB', (10, 10), (0, 0, 255))
-    img.save('test3.png')
-    
-    # --- Locomotive one cover image
-    locomotive = Locomotive()
-    locomotive.embed(["test0.png"], ["test.txt"], public_key_path="public_key.pem")
-    locomotive.extract(["test0_loco.png"], private_key_path="private_key.pem", password="Password123")
-    
-    # --- Locomotive multiple cover images
-    locomotive = Locomotive()
-    locomotive.embed(["test1.png", "test2.png", "test3.png"], ["test.txt"], public_key_path="public_key.pem")
-    locomotive.extract(["test1_loco.png", "test2_loco.png", "test3_loco.png"], private_key_path="private_key.pem", password="Password123")
-    
+    from cryptography.hazmat.primitives import serialization
+    from src.core.crypto.asym_encrypt import generate_rsa_keypair
+
+    for i, color in enumerate([(255, 0, 0), (0, 255, 0), (0, 0, 255)]):
+        Image.new('RGB', (10, 10), color).save(f"test{i}.png")
+
+    # --- Case 1: ไม่เข้ารหัส, cover เดียว ---
+    loco = Locomotive()
+    name, data = loco.embed(["test0.png"], raw_text="Hello Locomotive (no encryption)")[0]
+    Path(name).write_bytes(data)
+    _, extracted = loco.extract([name])
+    print(f"Case 1 - No encryption : {extracted.decode('utf-8')!r}")
+
+    # --- Case 2: Symmetric (password), cover เดียว ---
+    name, data = loco.embed(["test0.png"], raw_text="Hello Locomotive (symmetric)", password="SuperSecret123")[0]
+    Path(name).write_bytes(data)
+    _, extracted = loco.extract([name], password="SuperSecret123")
+    print(f"Case 2 - Symmetric     : {extracted.decode('utf-8')!r}")
+
+    # --- Case 3: Asymmetric (RSA key สร้างสดๆ), cover หลายใบ (แตกเป็นชิ้นคนละไฟล์) ---
+    private_key, public_key = generate_rsa_keypair()
+    Path("private_key.pem").write_bytes(private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ))
+    Path("public_key.pem").write_bytes(public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    ))
+
+    files = loco.embed(["test0.png", "test1.png", "test2.png"],
+                        raw_text="Hello Locomotive (asymmetric, multi-cover)", public_key_path="public_key.pem")
+    stego_paths = []
+    for name, data in files:
+        Path(name).write_bytes(data)
+        stego_paths.append(name)
+    _, extracted = loco.extract(stego_paths, private_key_path="private_key.pem")
+    print(f"Case 3 - Asymmetric    : {extracted.decode('utf-8')!r}")
