@@ -13,8 +13,8 @@ class MetadataTab(QFrame):
         self.main_layout.setSpacing(10)
         self.main_layout.setContentsMargins(10, 10, 10, 10)
 
-        left_card, self.metadata_table = self.create_card("METADATA", ["Property", "Value"])
-        right_card, self.anomalies_table = self.create_card("ANOMALIES DETECTED", ["Location", "Detail"])
+        left_card, self.metadata_table = self.create_card("Metadata", ["Property", "Value"])
+        right_card, self.anomalies_table = self.create_card("Anomalies Detected", ["Location", "Detail"])
 
         self.metadata_table.setObjectName("darkTable")
         self.metadata_table.verticalHeader().setVisible(False)
