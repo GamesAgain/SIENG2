@@ -16,10 +16,7 @@ ICON_DIR = CURRENT_DIR / "assets" / "svg"
 EMBED_ICON       = str(ICON_DIR / "lock-plus.svg")
 EXTRACT_ICON     = str(ICON_DIR / "lock-open.svg")
 ANALYZER_ICON = str(ICON_DIR / "file-search.svg")
-METADATA_ICON    = str(ICON_DIR / "tag.svg")
-BIT_STAT_ICON    = str(ICON_DIR / "chart-histogram.svg")
 COMPARE_ICON     = str(ICON_DIR / "columns.svg")
-REPORT_ICON      = str(ICON_DIR / "report.svg")
 
 
 class MainWindow(QMainWindow):
@@ -63,10 +60,7 @@ class MainWindow(QMainWindow):
         self.page_container.addWidget(EmbedPage())
         self.page_container.addWidget(ExtractPage())
         self.page_container.addWidget(AnalyzerPage())
-        self.page_container.addWidget(QLabel("Metadata Page"))
-        self.page_container.addWidget(QLabel("Bit Statistics Page"))
         self.page_container.addWidget(ComparePage())
-        self.page_container.addWidget(QLabel("Report Page"))
         
         # -- Connect sidebar to page container --
         self.sidebar_group.idClicked.connect(self.page_changed)
@@ -114,14 +108,11 @@ class MainWindow(QMainWindow):
         
         self.analyzer_btn = SidebarButton("Analyzer", ANALYZER_ICON)
         self.compare_btn = SidebarButton("Compare", COMPARE_ICON)
-        self.report_btn = SidebarButton("Report", REPORT_ICON)
         sidebar_layout.addWidget(self.analyzer_btn)
         sidebar_layout.addWidget(self.compare_btn)
-        sidebar_layout.addWidget(self.report_btn)
-        
+
         self.sidebar_group.addButton(self.analyzer_btn, 2)
-        self.sidebar_group.addButton(self.compare_btn, 5)
-        self.sidebar_group.addButton(self.report_btn, 6)
+        self.sidebar_group.addButton(self.compare_btn, 3)
         
         sidebar_layout.addStretch()
         

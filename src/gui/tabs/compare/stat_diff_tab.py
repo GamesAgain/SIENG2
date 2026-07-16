@@ -1,4 +1,5 @@
 from .compare_diff_base import CompareDiffTab
+from src.core.analyzer.modules.stat.chi_square import ChiSquareAttack
 
 class StatDiffTab(CompareDiffTab):
     def __init__(self):
@@ -12,7 +13,7 @@ class StatDiffTab(CompareDiffTab):
         
         methods = ["chi_square", "rs_analysis", "bit_balance", "spa", "correlation"]
         labels = {
-            "chi_square": "Chi-Square Attack (p-value)",
+            "chi_square": "Chi-Square Attack (χ² reduction)",
             "rs_analysis": "RS Analysis (Asymmetry)",
             "bit_balance": "Bit Balance Test (Zero Ratio)",
             "spa": "Sample Pairs Analysis (Est. Rate)",
@@ -32,18 +33,18 @@ class StatDiffTab(CompareDiffTab):
             color = None
             
             if method == "chi_square":
-                orig_val = orig_data.get('p_value', 0)
-                stego_val = stego_data.get('p_value', 0)
-                
+                # p_value saturates to ~0 for virtually any real image regardless of embedding
+                # (see chi_square.py) - the fractional chi2 reduction is the signal that
+                # actually works here, and only Compare mode has the cover needed to compute it
                 if orig_data:
-                    orig_str = f"χ² = {orig_data.get('chi2', 0):.2f}, p = {orig_val:.4f}"
+                    orig_str = f"χ² = {orig_data.get('chi2', 0):.2f}"
                 if stego_data:
-                    stego_str = f"χ² = {stego_data.get('chi2', 0):.2f}, p = {stego_val:.4f}"
-                    
+                    stego_str = f"χ² = {stego_data.get('chi2', 0):.2f}"
+
                 if orig_data and stego_data:
-                    delta = stego_val - orig_val
-                    delta_str = f"{delta:+.4f}"
-                    if abs(delta) > 0.0001: color = "#EAB308"
+                    reduction = ChiSquareAttack().relative_reduction(orig_data.get('chi2', 0), stego_data.get('chi2', 0))
+                    delta_str = f"{reduction['score']:+.1%} reduction"
+                    if reduction['detected']: color = "#EAB308"
                     
             elif method == "rs_analysis":
                 orig_val = orig_data.get('asymmetry', 0)

@@ -57,8 +57,10 @@ class BitStatTab(QFrame):
             chi_data = stat_results["chi_square"]
             chi2 = chi_data.get("chi2", 0)
             p_val = chi_data.get("p_value", 0)
-            detected = chi_data.get("detected", False)
-            rows.append(("Chi-Square Attack", f"χ² = {chi2:.2f}, p = {p_val:.4f}", "p < 0.05", detected))
+            # detected is None here on purpose: without a cover file to compare against, chi-square
+            # can't produce a reliable blind verdict (see chi_square.py) - use Compare mode instead
+            detected = chi_data.get("detected")
+            rows.append(("Chi-Square Attack", f"χ² = {chi2:.2f}, p = {p_val:.4f}", "needs cover file (see Compare)", detected))
             
         if "rs_analysis" in stat_results:
             rs_data = stat_results["rs_analysis"]
@@ -91,13 +93,18 @@ class BitStatTab(QFrame):
             estimate_item = QTableWidgetItem(estimate)
             threshold_item = QTableWidgetItem(threshold)
             
-            verdict_text = "Suspicious" if detected else "Normal"
-            verdict_item = QTableWidgetItem(verdict_text)
-            
-            if detected:
-                verdict_item.setForeground(QBrush(QColor("#EF4444"))) # Red
+            if detected is None:
+                verdict_text = "N/A"
+                verdict_color = "#94A3B8"  # Gray
+            elif detected:
+                verdict_text = "Suspicious"
+                verdict_color = "#EF4444"  # Red
             else:
-                verdict_item.setForeground(QBrush(QColor("#10B981"))) # Green
+                verdict_text = "Normal"
+                verdict_color = "#10B981"  # Green
+
+            verdict_item = QTableWidgetItem(verdict_text)
+            verdict_item.setForeground(QBrush(QColor(verdict_color)))
                 
             self.metadata_table.setItem(row_idx, 0, method_item)
             self.metadata_table.setItem(row_idx, 1, estimate_item)

@@ -22,33 +22,33 @@ class BaseFormatHandler(ABC):
     def extract_raw_structure(self) -> Dict[str, Any]:
         hachoir_data = extract_file_structure(self.file_path)
         binwalk_data = run_binwalk(self.file_path)
-        
-        parsed_size = hachoir_data.get("parsed_size_bytes", 0)
-        has_overlay = False
-        overlay_size = 0
-        
-        structure_list = hachoir_data.get("structure", [])
-        if structure_list:
-            last_chunk = structure_list[-1]
-            if "raw[" in last_chunk.get("name", "").lower():
-                has_overlay = True
-                overlay_size = last_chunk.get("size_bytes", 0)
-                parsed_size -= overlay_size
-        
-        if parsed_size > 0 and self.file_size > parsed_size:
-            has_overlay = True
-            overlay_size = self.file_size - parsed_size
-            
+
+        # Raw-byte integrity: overlay (from the format's own declared end, not the
+        # parser's consumed size) + format-specific tampering signals (PNG CRC / RIFF JUNK)
+        with open(self.file_path, "rb") as f:
+            raw = f.read()
+        integrity = self._integrity_report(raw)
+
+        content_end = integrity.get("content_end")
+        has_overlay = content_end is not None and self.file_size > content_end
+        overlay_size = (self.file_size - content_end) if has_overlay else 0
+
         return {
             "hachoir_raw": hachoir_data,
             "binwalk_raw": binwalk_data,
             "actual_size_bytes": self.file_size,
+            "integrity_anomalies": integrity.get("anomalies", []),
             "overlay_analysis": {
                 "has_overlay": has_overlay,
                 "overlay_size_bytes": overlay_size,
                 "message": f"Found {overlay_size} bytes of appended data (Overlay)." if has_overlay else "No overlay data found."
             }
         }
+
+    def _integrity_report(self, raw: bytes) -> Dict[str, Any]:
+        """Format-specific raw-byte checks. Overridden per format; default = nothing
+        (content_end None means overlay detection is skipped for that format)."""
+        return {"content_end": None, "anomalies": []}
 
     @abstractmethod
     def analyze(self) -> Dict[str, Any]:

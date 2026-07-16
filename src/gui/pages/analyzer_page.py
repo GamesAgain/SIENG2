@@ -10,6 +10,7 @@ from src.gui.components.gui_utils import create_icon_pixmap, format_file_size, t
 from src.gui.tabs.analyzer.bit_stat import BitStatTab
 from src.gui.tabs.analyzer.file_structure import FileStructureTab
 from src.gui.tabs.analyzer.metadata_tab import MetadataTab
+from src.gui.tabs.analyzer.report_tab import ReportTab
 from src.gui.tabs.metadata_shared import FileInfoBar
 
 ICON_DIR = Path(__file__).resolve().parent.parent / "assets" / "svg"
@@ -64,11 +65,13 @@ class AnalyzerPage(QFrame):
         self.tab_metadata = MetadataTab()
         self.tab_file_structure = FileStructureTab()
         self.tab_bit_stat = BitStatTab()
+        self.tab_report = ReportTab()
 
         self.tab = QTabWidget()
         self.tab.addTab(self.tab_file_structure, self.create_state_icon(ICON_DIR / "file-search.svg", ICON_SIZE), "File Structure")
         self.tab.addTab(self.tab_metadata, self.create_state_icon(ICON_DIR / "tags.svg", ICON_SIZE), "Metadata")
         self.tab.addTab(self.tab_bit_stat, self.create_state_icon(ICON_DIR / "chart-histogram.svg", ICON_SIZE), "Bit Statistics")
+        self.tab.addTab(self.tab_report, self.create_state_icon(ICON_DIR / "report.svg", ICON_SIZE), "Report")
 
         main_layout.addWidget(self.tab)  
 
@@ -119,6 +122,8 @@ class AnalyzerPage(QFrame):
             self.tab_file_structure.load_data({})
         if hasattr(self.tab_bit_stat, 'load_data'):
             self.tab_bit_stat.load_data({})
+        if hasattr(self.tab_report, 'load_data'):
+            self.tab_report.load_data({})
 
     def on_run_analysis_clicked(self):
         if self.file_path:
@@ -141,6 +146,9 @@ class AnalyzerPage(QFrame):
                 
             if hasattr(self.tab_bit_stat, 'load_data'):
                 self.tab_bit_stat.load_data(results)
+
+            if hasattr(self.tab_report, 'load_data'):
+                self.tab_report.load_data(results)
 
     # ----- Icon Helper -----
     def create_state_icon(self, icon_path: str, icon_size: int) -> QIcon:

@@ -13,14 +13,15 @@ Practical limitation at partial fill ratios (10-50%):
   to the detection threshold (~150 for df=128), so p-value saturates to 0.0
   for ALL tested images regardless of algorithm.
 
-Detection approach used here (relative score):
-  Instead of the absolute p-value (unusable at partial fill),
-  we use the FRACTIONAL REDUCTION of chi2:
+Detection approach:
+  analyze_blind() (single file, no cover) can only report the raw chi2/p_value -
+  detected is None there since the absolute p-value is unusable (verified
+  empirically: 50/50 real cover photos already have p_value < 0.05 with nothing
+  embedded). relative_reduction() is the actual detector, used when a cover is
+  available (Compare mode) - the FRACTIONAL REDUCTION of chi2:
       score = (chi2_cover - chi2_stego) / chi2_cover   ∈ [-∞, 1]
   A larger positive score means more pair equalization → more embedding detected.
   Threshold: 0.20 (≥20% chi2 reduction considered suspicious).
-
-Both the raw chi2 stats and p-values are still returned for completeness.
 """
 import numpy as np
 from scipy.stats import chi2 as chi2_dist
@@ -37,13 +38,32 @@ class ChiSquareAttack(BaseAttack):
         self.threshold = threshold
 
     def analyze_blind(self, data_array: np.ndarray) -> dict:
+        """
+        Blind (single-file) mode has no cover to compute the relative reduction
+        against, and the absolute p_value is not usable as a verdict either -
+        verified empirically across 50 real cover photos, all 50 already have
+        p_value < 0.05 with nothing embedded (chi2 stays in the tens/hundreds
+        of thousands, so p saturates to ~0 exactly as the module docstring
+        describes). detected is None here on purpose: there is no honest blind
+        threshold to apply. See relative_reduction() for the differential
+        check that Compare mode uses instead, where a cover is available.
+        """
         chi2_stat, p_value = self._test(data_array)
-        detected = p_value < 0.05
         return {
             "chi2": chi2_stat,
             "p_value": p_value,
-            "detected": detected
+            "detected": None
         }
+
+    def relative_reduction(self, chi2_cover: float, chi2_stego: float) -> dict:
+        """
+        Differential check for Compare mode (cover + stego both available):
+        fractional drop in chi2 after embedding. See module docstring.
+        """
+        if chi2_cover <= 0:
+            return {"score": 0.0, "detected": False}
+        score = (chi2_cover - chi2_stego) / chi2_cover
+        return {"score": score, "detected": score >= self.threshold}
 
 
 
