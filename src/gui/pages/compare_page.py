@@ -1,6 +1,6 @@
 from pathlib import Path
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QIcon, QColor
 from PyQt6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QMessageBox, QStackedWidget,
     QTabWidget, QVBoxLayout, QWidget, QPushButton
@@ -41,6 +41,12 @@ class ComparePage(QFrame):
         self.btn_compare.setEnabled(False) # Enabled only when both files are selected
         self.btn_compare.clicked.connect(self.on_compare_clicked)
         main_layout.addWidget(self.btn_compare)
+
+        # -- Overall verdict banner (synthesizes all three diffs into one conclusion) --
+        self.verdict_banner = QLabel("")
+        self.verdict_banner.setWordWrap(True)
+        self.verdict_banner.hide()
+        main_layout.addWidget(self.verdict_banner)
 
         # -- Results Tabs --
         self.tab_struct = StructDiffTab()
@@ -120,7 +126,8 @@ class ComparePage(QFrame):
         self.drop_stego.clear_file()
         self.input_stack.setCurrentIndex(0)
         self.btn_compare.setEnabled(False)
-        
+        self.verdict_banner.hide()
+
         # Clear Tabs
         self.tab_struct.load_data({})
         self.tab_meta.load_data({})
@@ -144,8 +151,70 @@ class ComparePage(QFrame):
             self.tab_struct.load_data(diff.get("structure_diff", {}))
             self.tab_stat.load_data(diff.get("statistical_diff", {}))
 
+            self._set_verdict(self._compute_verdict(diff))
+
         except Exception as e:
             QMessageBox.critical(self, "Comparison Failed", str(e))
+
+    # ----- Overall verdict synthesis -----
+    def _compute_verdict(self, diff: dict) -> list:
+        """Turn the raw diffs into a short list of concrete detections (which technique,
+        appended data, metadata changes) so the user gets a conclusion, not just numbers."""
+        signals = []
+
+        # --- Statistical / spatial-domain LSB ---
+        stat = diff.get("statistical_diff", {})
+        cover, stego = stat.get("original", {}), stat.get("stego", {})
+        for key in ("rs_analysis", "spa", "ws"):
+            o, s = cover.get(key), stego.get(key)
+            if o and s and (s.get("estimated_embedding_rate", 0) - o.get("estimated_embedding_rate", 0)) > 0.05:
+                signals.append(f"LSB replacement (~{s['estimated_embedding_rate'] * 100:.0f}% of capacity)")
+                break
+        hc_o, hc_s = cover.get("hcf_com"), stego.get("hcf_com")
+        if hc_o and hc_s and hc_o.get("hcf_com") and (hc_o["hcf_com"] - hc_s["hcf_com"]) / hc_o["hcf_com"] > 0.03:
+            signals.append("LSB matching / additive-noise embedding (HCF-COM dropped)")
+        pd_o, pd_s = cover.get("pdh"), stego.get("pdh")
+        if pd_o and pd_s and pd_o.get("pdh_step", 0) > 0 and \
+                (pd_s.get("pdh_step", 0) - pd_o["pdh_step"]) / pd_o["pdh_step"] > 0.10:
+            signals.append("PVD embedding (difference-histogram step artifact)")
+
+        # --- Structure: appended data / integrity anomalies gained by the stego file ---
+        struct = diff.get("structure_diff", {})
+        st_stego, st_cover = struct.get("stego", {}), struct.get("original", {})
+        ov = st_stego.get("overlay_analysis", {})
+        if ov.get("has_overlay") and not st_cover.get("overlay_analysis", {}).get("has_overlay"):
+            signals.append(f"data appended after the file's real end ({ov.get('overlay_size_bytes', 0)} bytes)")
+        for anomaly in st_stego.get("integrity_anomalies", []):
+            signals.append(anomaly.get("detail", "structural integrity anomaly"))
+
+        # --- Metadata: only genuine embedded fields, not file-system attributes (File:* /
+        #     System:* / Composite:* - size, dates, permissions always change on a re-save
+        #     and aren't where data is hidden) ---
+        def is_content_key(k: str) -> bool:
+            k = k.lower()
+            return not (k.startswith(("file:", "system:", "composite:")) or k in ("sourcefile", "directory"))
+        meta = diff.get("metadata_diff", {})
+        n_added = sum(1 for k in meta.get("added", {}) if is_content_key(k))
+        n_changed = sum(1 for k in meta.get("changed", {}) if is_content_key(k))
+        if n_added or n_changed:
+            signals.append(f"metadata fields changed ({n_added} added, {n_changed} modified)")
+
+        return signals
+
+    def _set_verdict(self, signals: list):
+        self.verdict_banner.show()
+        if signals:
+            items = "".join(f"<li>{s}</li>" for s in signals)
+            self.verdict_banner.setText(f"<b>Hidden data likely — the suspicious file differs from the original:</b>"
+                                        f"<ul style='margin:4px 0 0 0;'>{items}</ul>")
+            color = "#f43f5e"
+        else:
+            self.verdict_banner.setText("<b>No differences suggesting steganography</b> — the two files match "
+                                        "across structure, metadata, and statistical tests.")
+            color = "#10B981"
+        r, g, b = QColor(color).red(), QColor(color).green(), QColor(color).blue()
+        self.verdict_banner.setStyleSheet(
+            f"padding: 10px 12px; border-radius: 6px; background: rgba({r},{g},{b},0.12); color: {color};")
 
     # ----- Icon Helper -----
     def create_state_icon(self, icon_path: str, icon_size: int) -> QIcon:

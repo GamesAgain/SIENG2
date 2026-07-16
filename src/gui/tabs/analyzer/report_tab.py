@@ -6,9 +6,7 @@ from PyQt6.QtGui import QColor, QBrush
 STAT_LABELS = {
     "chi_square": "Chi-Square Attack",
     "rs_analysis": "RS Analysis",
-    "bit_balance": "Bit Balance Test",
     "spa": "Sample Pairs Analysis (SPA)",
-    "correlation": "Correlation Analysis",
 }
 
 

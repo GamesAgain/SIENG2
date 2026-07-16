@@ -1,32 +1,63 @@
 """
 Entrypoint that runs inside the sieng2-analyzer Docker image (see docker/Dockerfile).
-Takes a file path, runs the normal analyze(), and prints the result as JSON on
-stdout - this is what docker_bridge.py (the host-side caller) parses back.
+Dispatches a subcommand and prints its result as JSON on stdout - this is what
+docker_bridge.py (the host-side caller) parses back.
 
-analyze() and its dependencies (exiftool_wrapper, dispatcher, format handlers)
-print debug info to stdout - that has to be kept off real stdout or it would
-corrupt the JSON, so it's captured and discarded while analyze() runs.
+Subcommands:
+  analyze <file>                       full file analysis (metadata/structure/statistical)
+  zsteg-scan <file> [opts]             enumerate LSB hiding combinations (PNG/BMP)
+  zsteg-extract <file> <combination>   pull raw bytes out of one combination
+
+analyze() and its dependencies print debug info to stdout - that has to be kept
+off real stdout or it would corrupt the JSON, so it's captured while they run.
 """
 import sys
 import json
+import argparse
 import io
 import contextlib
 
-from src.core.analyzer.handle import analyze
+
+def _emit(result: dict):
+    print(json.dumps(result, default=str))
 
 
 def main():
-    if len(sys.argv) != 2:
-        print(json.dumps({"error": "Usage: python -m src.core.analyzer.cli <file_path>"}))
-        sys.exit(1)
+    parser = argparse.ArgumentParser(prog="sieng2-analyzer")
+    sub = parser.add_subparsers(dest="command", required=True)
 
-    file_path = sys.argv[1]
+    p_analyze = sub.add_parser("analyze")
+    p_analyze.add_argument("file")
+
+    p_scan = sub.add_parser("zsteg-scan")
+    p_scan.add_argument("file")
+    p_scan.add_argument("--all", action="store_true")
+    p_scan.add_argument("--bits")
+    p_scan.add_argument("--channels")
+    p_scan.add_argument("--order")
+    p_scan.add_argument("--bit-order", choices=["lsb", "msb"])
+    p_scan.add_argument("--limit", type=int)
+
+    p_extract = sub.add_parser("zsteg-extract")
+    p_extract.add_argument("file")
+    p_extract.add_argument("combination")
+
+    args = parser.parse_args()
 
     debug_output = io.StringIO()
     with contextlib.redirect_stdout(debug_output):
-        result = analyze(file_path)
+        if args.command == "analyze":
+            from src.core.analyzer.handle import analyze
+            result = analyze(args.file)
+        elif args.command == "zsteg-scan":
+            from src.core.analyzer.external_tools.zsteg_wrapper import scan
+            result = scan(args.file, all_methods=args.all, bits=args.bits, channels=args.channels,
+                          order=args.order, bit_order=args.bit_order, limit=args.limit)
+        elif args.command == "zsteg-extract":
+            from src.core.analyzer.external_tools.zsteg_wrapper import extract
+            result = extract(args.file, args.combination)
 
-    print(json.dumps(result, default=str))
+    _emit(result)
 
 
 if __name__ == "__main__":
