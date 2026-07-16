@@ -2,7 +2,7 @@ from pathlib import Path
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QStackedWidget, 
+    QFrame, QHBoxLayout, QLabel, QMessageBox, QStackedWidget,
     QTabWidget, QVBoxLayout, QWidget, QPushButton
 )
 from src.gui.components.file_drop import FileDropWidget
@@ -127,21 +127,25 @@ class ComparePage(QFrame):
         self.tab_stat.load_data({})
 
     def on_compare_clicked(self):
-        from src.core.analyzer.handle import analyze
+        from src.core.analyzer.docker_bridge import analyze
         from src.core.analyzer.compare_logic import compare_results
         
         try:
             res_orig = analyze(self.file_orig_path)
             res_stego = analyze(self.file_stego_path)
-            
+
+            if res_orig.get("error") or res_stego.get("error"):
+                QMessageBox.critical(self, "Comparison Failed", res_orig.get("error") or res_stego.get("error"))
+                return
+
             diff = compare_results(res_orig, res_stego, self.file_orig_path, self.file_stego_path)
-            
+
             self.tab_meta.load_data(diff.get("metadata_diff", {}))
             self.tab_struct.load_data(diff.get("structure_diff", {}))
             self.tab_stat.load_data(diff.get("statistical_diff", {}))
-            
+
         except Exception as e:
-            print(f"Comparison Error: {e}")
+            QMessageBox.critical(self, "Comparison Failed", str(e))
 
     # ----- Icon Helper -----
     def create_state_icon(self, icon_path: str, icon_size: int) -> QIcon:

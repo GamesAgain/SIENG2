@@ -2,7 +2,7 @@ from pathlib import Path
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QStackedWidget, 
+    QFrame, QHBoxLayout, QLabel, QMessageBox, QStackedWidget,
     QTabBar, QTabWidget, QVBoxLayout, QWidget
 )
 from src.gui.components.file_drop import FileDropWidget
@@ -122,11 +122,15 @@ class AnalyzerPage(QFrame):
 
     def on_run_analysis_clicked(self):
         if self.file_path:
-            from src.core.analyzer.handle import analyze
+            from src.core.analyzer.docker_bridge import analyze
             try:
                 results = analyze(self.file_path)
             except Exception as e:
-                print(f"Error during analysis: {e}")
+                QMessageBox.critical(self, "Analysis Failed", str(e))
+                return
+
+            if results.get("error"):
+                QMessageBox.critical(self, "Analysis Failed", results["error"])
                 return
 
             if hasattr(self.tab_metadata, 'load_data'):
