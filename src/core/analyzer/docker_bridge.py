@@ -16,9 +16,11 @@ IMAGE_NAME = "sieng2-analyzer"
 _TIMEOUT = 120
 
 
-def _run(container_args: list, file_path: str) -> dict:
+def _run(container_args: list, file_path: str, extra_mounts: list = None, timeout: int = None) -> dict:
     """Mount the file's directory read-only and run the analyzer CLI with the given args.
-    `container_args` uses the placeholder {file} which is replaced by the in-container path."""
+    `container_args` uses the placeholder {file} which is replaced by the in-container path.
+    `extra_mounts` is [(host_dir, container_dir), ...] mounted writable - needed by commands
+    that produce output (carving), since /data itself is read-only."""
     path = Path(file_path).resolve()
     if not path.is_file():
         return {"error": f"File not found: {file_path}"}
@@ -26,10 +28,14 @@ def _run(container_args: list, file_path: str) -> dict:
     container_path = f"/data/{path.name}"
     args = [a.replace("{file}", container_path) for a in container_args]
 
+    mounts = ["-v", f"{path.parent}:/data:ro"]
+    for host_dir, container_dir in (extra_mounts or []):
+        mounts += ["-v", f"{host_dir}:{container_dir}"]
+
     try:
         process = subprocess.run(
-            ["docker", "run", "--rm", "-v", f"{path.parent}:/data:ro", IMAGE_NAME, *args],
-            capture_output=True, text=True, timeout=_TIMEOUT,
+            ["docker", "run", "--rm", *mounts, IMAGE_NAME, *args],
+            capture_output=True, text=True, timeout=timeout or _TIMEOUT,
         )
     except FileNotFoundError:
         return {"error": "Docker not found. Please install Docker Desktop and make sure it's running."}
@@ -72,3 +78,15 @@ def zsteg_scan(file_path: str, all_methods: bool = False, bits: str = None, chan
 
 def zsteg_extract(file_path: str, combination: str) -> dict:
     return _run(["zsteg-extract", "{file}", combination], file_path)
+
+
+def strings_scan(file_path: str, min_len: int = 6, encoding: str = "ascii") -> dict:
+    return _run(["strings-scan", "{file}", "--min", str(min_len), "--encoding", encoding], file_path)
+
+
+def carve(file_path: str, out_dir: str) -> dict:
+    """Extract embedded files into `out_dir` on the host (mounted writable at /out)."""
+    out = Path(out_dir).resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    return _run(["carve", "{file}", "--out", "/out"], file_path,
+                extra_mounts=[(str(out), "/out")], timeout=330)

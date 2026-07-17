@@ -122,6 +122,7 @@ class AnalyzerPage(QFrame):
             self.tab_metadata.load_data({})
         if hasattr(self.tab_file_structure, 'load_data'):
             self.tab_file_structure.load_data({})
+            self.tab_file_structure.set_target_file(None)
         if hasattr(self.tab_bit_stat, 'load_data'):
             self.tab_bit_stat.load_data({})
             self.tab_bit_stat.set_target_file(None)
@@ -156,6 +157,7 @@ class AnalyzerPage(QFrame):
 
         if hasattr(self.tab_file_structure, 'load_data'):
             self.tab_file_structure.load_data(results)
+            self.tab_file_structure.set_target_file(self.file_path)
 
         if hasattr(self.tab_bit_stat, 'load_data'):
             self.tab_bit_stat.load_data(results)

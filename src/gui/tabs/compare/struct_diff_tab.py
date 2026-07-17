@@ -2,7 +2,7 @@ import base64
 from PyQt6.QtWidgets import (
     QFrame, QVBoxLayout, QLabel, QTreeWidget, QTreeWidgetItem,
     QSplitter, QListWidget, QListWidgetItem, QHBoxLayout,
-    QScrollArea, QWidget
+    QScrollArea, QWidget, QAbstractItemView
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QBrush
@@ -121,8 +121,10 @@ class StructDiffTab(QFrame):
         self.summary_list = QListWidget()
         self.summary_list.setObjectName("summaryList")
         self.summary_list.setWordWrap(True)
+        # NoSelection: clicking still fires itemClicked (to navigate) but never selects the row,
+        # so a finding's red/green foreground is never overwritten by the selection highlight.
+        self.summary_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.summary_list.itemClicked.connect(self._on_summary_clicked)
-        self.summary_list.itemActivated.connect(self._on_summary_clicked)
         right_layout.addWidget(self.summary_list)
 
         content_layout.addWidget(right_container, stretch=3)
@@ -172,15 +174,25 @@ class StructDiffTab(QFrame):
         self._build_summary(orig_res, stego_res)
 
     def _add_overlay_node(self, overlay_info: dict) -> QTreeWidgetItem:
+        """Label the appended bytes as a single red, previewable node. hachoir usually already
+        emits a trailing raw[] node for the same bytes - reuse it instead of adding a duplicate."""
         size = overlay_info.get("overlay_size_bytes", 0)
         offset = overlay_info.get("overlay_offset")
         b64 = overlay_info.get("preview_b64", "")
         snippet = _ascii_snippet(base64.b64decode(b64)) if b64 else ""
 
-        item = QTreeWidgetItem(self.tree_widget)
+        item = None
+        root = self.tree_widget.invisibleRootItem()
+        if root.childCount():
+            last = root.child(root.childCount() - 1)
+            if last.text(0).startswith("raw") and last.text(1) == str(size):
+                item = last  # hachoir's own trailing raw[] node for the appended bytes
+        if item is None:
+            item = QTreeWidgetItem(self.tree_widget)
+            item.setText(2, snippet)
+
         item.setText(0, "[Appended data]")
         item.setText(1, str(size))
-        item.setText(2, snippet)
         item.setText(3, f"Bytes after the file's real end (offset 0x{offset:X})" if offset is not None
                      else "Bytes after the file's real end")
         item.setText(4, "Overlay — double-click to preview")
@@ -197,6 +209,9 @@ class StructDiffTab(QFrame):
             desc = chunk.get("description", "")
             reason = chunk.get("suspicious_reason", "")
 
+            # skip hachoir's parser-artifact placeholder rows (optional fields that are absent)
+            if value == "<MissingField>" and not chunk.get("sub_chunks"):
+                continue
             if len(value) > 100:
                 value = value[:100] + "..."
 
