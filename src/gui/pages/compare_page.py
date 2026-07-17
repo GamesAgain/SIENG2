@@ -12,6 +12,7 @@ from src.gui.tabs.compare.meta_diff_tab import MetaDiffTab
 from src.gui.tabs.compare.struct_diff_tab import StructDiffTab
 from src.gui.tabs.compare.stat_diff_tab import StatDiffTab
 from src.gui.pages.analyzer_page import get_analyzer_file_display_info
+from src.gui.components.worker import FuncWorker
 
 ICON_DIR = Path(__file__).resolve().parent.parent / "assets" / "svg"
 ICON_SIZE = 16
@@ -22,6 +23,7 @@ class ComparePage(QFrame):
         super().__init__()
         self.file_orig_path = None
         self.file_stego_path = None
+        self._compare_worker = None
         self.init_ui()
 
     def init_ui(self):
@@ -134,27 +136,42 @@ class ComparePage(QFrame):
         self.tab_stat.load_data({})
 
     def on_compare_clicked(self):
+        # Two Docker analyze() calls back-to-back - run them off the UI thread so the window
+        # doesn't freeze, with the button showing a busy state.
+        if not (self.file_orig_path and self.file_stego_path):
+            return
+        if self._compare_worker and self._compare_worker.isRunning():
+            return
         from src.core.analyzer.docker_bridge import analyze
+        orig, stego = self.file_orig_path, self.file_stego_path
+        self._set_comparing(True)
+        self._compare_worker = FuncWorker(lambda: {"orig": analyze(orig), "stego": analyze(stego)})
+        self._compare_worker.done.connect(self._on_compare_done)
+        self._compare_worker.start()
+
+    def _set_comparing(self, busy: bool):
+        self.btn_compare.setEnabled(not busy)
+        self.btn_compare.setText("Comparing…" if busy else "Run Comparison")
+
+    def _on_compare_done(self, res: dict):
+        self._set_comparing(False)
+        if not isinstance(res, dict) or res.get("error"):
+            QMessageBox.critical(self, "Comparison Failed",
+                                 res.get("error", "Unknown error") if isinstance(res, dict) else "Unknown error")
+            return
+        res_orig, res_stego = res.get("orig", {}), res.get("stego", {})
+        if res_orig.get("error") or res_stego.get("error"):
+            QMessageBox.critical(self, "Comparison Failed", res_orig.get("error") or res_stego.get("error"))
+            return
+
         from src.core.analyzer.compare_logic import compare_results
-        
-        try:
-            res_orig = analyze(self.file_orig_path)
-            res_stego = analyze(self.file_stego_path)
+        diff = compare_results(res_orig, res_stego, self.file_orig_path, self.file_stego_path)
 
-            if res_orig.get("error") or res_stego.get("error"):
-                QMessageBox.critical(self, "Comparison Failed", res_orig.get("error") or res_stego.get("error"))
-                return
+        self.tab_meta.load_data(diff.get("metadata_diff", {}))
+        self.tab_struct.load_data(diff.get("structure_diff", {}))
+        self.tab_stat.load_data(diff.get("statistical_diff", {}))
 
-            diff = compare_results(res_orig, res_stego, self.file_orig_path, self.file_stego_path)
-
-            self.tab_meta.load_data(diff.get("metadata_diff", {}))
-            self.tab_struct.load_data(diff.get("structure_diff", {}))
-            self.tab_stat.load_data(diff.get("statistical_diff", {}))
-
-            self._set_verdict(self._compute_verdict(diff))
-
-        except Exception as e:
-            QMessageBox.critical(self, "Comparison Failed", str(e))
+        self._set_verdict(self._compute_verdict(diff))
 
     # ----- Overall verdict synthesis -----
     def _compute_verdict(self, diff: dict) -> list:

@@ -80,7 +80,7 @@ class BitStatTab(QFrame):
         # Per-detector table with visual embedding-rate bars
         self.table = QTableWidget(0, 4)
         self.table.setObjectName("darkTable")
-        self.table.setHorizontalHeaderLabels(["METHOD", "ESTIMATED EMBEDDING RATE", "THRESHOLD", "VERDICT"])
+        self.table.setHorizontalHeaderLabels(["Method", "Estimated Embedding Rate", "Threshold", "Verdict"])
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         header = self.table.horizontalHeader()
@@ -109,7 +109,7 @@ class BitStatTab(QFrame):
 
         self.raw_table = QTableWidget(0, 2)
         self.raw_table.setObjectName("darkTable")
-        self.raw_table.setHorizontalHeaderLabels(["METHOD", "RAW MEASUREMENT"])
+        self.raw_table.setHorizontalHeaderLabels(["Method", "Raw Measurement"])
         self.raw_table.verticalHeader().setVisible(False)
         self.raw_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.raw_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
@@ -123,6 +123,16 @@ class BitStatTab(QFrame):
         self.raw_table.setVisible(checked)
         pix = self._chevron.transformed(QTransform().rotate(180)) if checked else self._chevron
         self.raw_toggle.setIcon(QIcon(pix))
+
+    @staticmethod
+    def _fit_table(table: QTableWidget):
+        """Shrink a QTableWidget to exactly its header + rows so the card hugs the data
+        instead of reserving a tall empty band below the last row."""
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        h = table.horizontalHeader().sizeHint().height() + table.frameWidth() * 2 + 2
+        for r in range(table.rowCount()):
+            h += table.rowHeight(r)
+        table.setFixedHeight(h)
 
     def set_target_file(self, file_path: str):
         """Point the zsteg card at the current file and show it only for PNG/BMP."""
@@ -157,6 +167,7 @@ class BitStatTab(QFrame):
             if detected:
                 detected_rates.append(rate)
             self._add_rate_row(label, rate, threshold, detected)
+        self._fit_table(self.table)
 
         # Chi-Square / HCF-COM / PDH are differential-only (no reliable blind verdict) - they
         # are not shown here; their cover-vs-stego verdict lives in Compare mode (see the note below).
@@ -190,6 +201,7 @@ class BitStatTab(QFrame):
             self.raw_table.setRowHeight(i, 30)
             self.raw_table.setItem(i, 0, QTableWidgetItem(label))
             self.raw_table.setItem(i, 1, QTableWidgetItem(value))
+        self._fit_table(self.raw_table)
 
     def _set_banner(self, text: str, color: str):
         self.verdict_banner.setText(text)

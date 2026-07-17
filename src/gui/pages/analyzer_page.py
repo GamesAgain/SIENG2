@@ -12,6 +12,7 @@ from src.gui.tabs.analyzer.file_structure import FileStructureTab
 from src.gui.tabs.analyzer.metadata_tab import MetadataTab
 from src.gui.tabs.analyzer.report_tab import ReportTab
 from src.gui.tabs.metadata_shared import FileInfoBar
+from src.gui.components.worker import FuncWorker
 
 ICON_DIR = Path(__file__).resolve().parent.parent / "assets" / "svg"
 ICON_SIZE = 16
@@ -51,6 +52,7 @@ class AnalyzerPage(QFrame):
     def __init__(self):
         super().__init__()
         self.file_path = None
+        self._analysis_worker = None
         self.init_ui()
 
     def init_ui(self):
@@ -127,30 +129,40 @@ class AnalyzerPage(QFrame):
             self.tab_report.load_data({})
 
     def on_run_analysis_clicked(self):
-        if self.file_path:
-            from src.core.analyzer.docker_bridge import analyze
-            try:
-                results = analyze(self.file_path)
-            except Exception as e:
-                QMessageBox.critical(self, "Analysis Failed", str(e))
-                return
+        # analyze() shells out to Docker (seconds) - run it on a worker so the window stays
+        # responsive, and show a busy state instead of a silent freeze.
+        if not self.file_path or (self._analysis_worker and self._analysis_worker.isRunning()):
+            return
+        from src.core.analyzer.docker_bridge import analyze
+        self._set_analyzing(True)
+        self._analysis_worker = FuncWorker(analyze, self.file_path)
+        self._analysis_worker.done.connect(self._on_analysis_done)
+        self._analysis_worker.start()
 
-            if results.get("error"):
-                QMessageBox.critical(self, "Analysis Failed", results["error"])
-                return
+    def _set_analyzing(self, busy: bool):
+        self.run_analysis_btn.setEnabled(not busy)
+        self.run_analysis_btn.setText("Analyzing…" if busy else "Run Analysis")
 
-            if hasattr(self.tab_metadata, 'load_data'):
-                self.tab_metadata.load_data(results)
-                
-            if hasattr(self.tab_file_structure, 'load_data'):
-                self.tab_file_structure.load_data(results)
-                
-            if hasattr(self.tab_bit_stat, 'load_data'):
-                self.tab_bit_stat.load_data(results)
-                self.tab_bit_stat.set_target_file(self.file_path)
+    def _on_analysis_done(self, results: dict):
+        self._set_analyzing(False)
+        if not isinstance(results, dict) or results.get("error"):
+            QMessageBox.critical(self, "Analysis Failed",
+                                 (results or {}).get("error", "Unknown error") if isinstance(results, dict)
+                                 else "Unknown error")
+            return
 
-            if hasattr(self.tab_report, 'load_data'):
-                self.tab_report.load_data(results)
+        if hasattr(self.tab_metadata, 'load_data'):
+            self.tab_metadata.load_data(results)
+
+        if hasattr(self.tab_file_structure, 'load_data'):
+            self.tab_file_structure.load_data(results)
+
+        if hasattr(self.tab_bit_stat, 'load_data'):
+            self.tab_bit_stat.load_data(results)
+            self.tab_bit_stat.set_target_file(self.file_path)
+
+        if hasattr(self.tab_report, 'load_data'):
+            self.tab_report.load_data(results)
 
     # ----- Icon Helper -----
     def create_state_icon(self, icon_path: str, icon_size: int) -> QIcon:

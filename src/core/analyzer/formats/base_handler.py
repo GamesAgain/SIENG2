@@ -1,4 +1,5 @@
 import os
+import base64
 from abc import ABC, abstractmethod
 from typing import Dict, Any
 from src.core.analyzer.external_tools.exiftool_wrapper import extract_metadata
@@ -32,6 +33,10 @@ class BaseFormatHandler(ABC):
         content_end = integrity.get("content_end")
         has_overlay = content_end is not None and self.file_size > content_end
         overlay_size = (self.file_size - content_end) if has_overlay else 0
+        # first bytes of the appended data, so the GUI can show the user *what* was hidden
+        # (a colored node + hex/text preview) instead of only reporting that something exists.
+        overlay_preview_b64 = (base64.b64encode(raw[content_end:content_end + 512]).decode("ascii")
+                               if has_overlay else "")
 
         return {
             "hachoir_raw": hachoir_data,
@@ -40,7 +45,9 @@ class BaseFormatHandler(ABC):
             "integrity_anomalies": integrity.get("anomalies", []),
             "overlay_analysis": {
                 "has_overlay": has_overlay,
+                "overlay_offset": content_end if has_overlay else None,
                 "overlay_size_bytes": overlay_size,
+                "preview_b64": overlay_preview_b64,
                 "message": f"Found {overlay_size} bytes of appended data (Overlay)." if has_overlay else "No overlay data found."
             }
         }

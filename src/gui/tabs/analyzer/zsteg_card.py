@@ -100,7 +100,7 @@ class ZstegCard(QFrame):
         self.table = QTableWidget(0, 3)
         self.table.setObjectName("darkTable")
         self.table.setMinimumHeight(220)
-        self.table.setHorizontalHeaderLabels(["COMBINATION", "TYPE", "PREVIEW"])
+        self.table.setHorizontalHeaderLabels(["Combination", "Type", "Preview"])
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)

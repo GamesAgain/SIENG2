@@ -1,7 +1,8 @@
 from PyQt6.QtWidgets import QAbstractItemView
-from PyQt6.QtWidgets import (QWidget, 
-                             QHBoxLayout, QVBoxLayout, QFrame, 
+from PyQt6.QtWidgets import (QWidget,
+                             QHBoxLayout, QVBoxLayout, QFrame,
                              QLabel, QTableWidget, QTableWidgetItem)
+from PyQt6.QtGui import QColor, QBrush
 
 class MetadataTab(QFrame):
     def __init__(self):
@@ -65,12 +66,21 @@ class MetadataTab(QFrame):
         anomalies.extend(metadata.get("software_anomalies", []))
         anomalies.extend(metadata.get("text_anomalies", []))
         
-        self.anomalies_table.setRowCount(len(anomalies))
-        for row, anomaly in enumerate(anomalies):
-            tag = anomaly.get("tag", "Unknown")
-            message = anomaly.get("message", "")
-            self.anomalies_table.setItem(row, 0, QTableWidgetItem(str(tag)))
-            self.anomalies_table.setItem(row, 1, QTableWidgetItem(str(message)))
+        self.anomalies_table.clearSpans()
+        if not anomalies:
+            # mirror the File Structure tab's clean-state message instead of a blank table
+            self.anomalies_table.setRowCount(1)
+            placeholder = QTableWidgetItem("No anomalies detected.")
+            placeholder.setForeground(QBrush(QColor("#34D399")))
+            self.anomalies_table.setItem(0, 0, placeholder)
+            self.anomalies_table.setSpan(0, 0, 1, 2)
+        else:
+            self.anomalies_table.setRowCount(len(anomalies))
+            for row, anomaly in enumerate(anomalies):
+                tag = anomaly.get("tag", "Unknown")
+                message = anomaly.get("message", "")
+                self.anomalies_table.setItem(row, 0, QTableWidgetItem(str(tag)))
+                self.anomalies_table.setItem(row, 1, QTableWidgetItem(str(message)))
             
         # Auto resize the first column (Property/Location) to fit content
         self.metadata_table.resizeColumnToContents(0)
