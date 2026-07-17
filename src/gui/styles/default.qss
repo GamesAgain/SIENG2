@@ -976,8 +976,9 @@ QTreeWidget#structureTree {
     outline: none;
 }
 QTreeWidget#structureTree::item:selected {
-    background-color: rgba(56, 189, 248, 0.2);
-    color: #38BDF8;
+    /* background tint only - no `color`, so a row's semantic foreground (red overlay /
+       suspicious chunk) survives selection instead of being overwritten by the highlight. */
+    background-color: rgba(56, 189, 248, 0.22);
 }
 QTreeWidget#structureTree QHeaderView::section {
     background-color: #252525;
