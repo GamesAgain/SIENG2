@@ -156,9 +156,10 @@ class StatDiffTab(QFrame):
         bar.setFormat(f"{rate * 100:.1f}%")
         bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
         chunk = RED if suspicious else BLUE
+        # square corners (no radius) so the bar sits flush with the table cell
         bar.setStyleSheet(
-            "QProgressBar { background: rgba(148,163,184,0.15); border: none; border-radius: 4px; color: #E2E8F0; }"
-            f"QProgressBar::chunk {{ background: {chunk}; border-radius: 4px; }}")
+            "QProgressBar { background: rgba(148,163,184,0.15); border: none; border-radius: 0; color: #E2E8F0; }"
+            f"QProgressBar::chunk {{ background: {chunk}; border-radius: 0; }}")
         return bar
 
     def _fit_table(self):

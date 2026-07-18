@@ -6,6 +6,8 @@ from src.core.analyzer.modules.statistical_analyzer import StatisticalAnalyzer
 from src.core.analyzer.modules.structure_integrity import riff_integrity
 
 class WAVHandler(BaseFormatHandler):
+    _entropy_reliable = True  # PCM audio is low-entropy, so an embedded encrypted blob stands out
+
     def _integrity_report(self, raw: bytes) -> Dict[str, Any]:
         return riff_integrity(raw)
 
@@ -26,7 +28,9 @@ class WAVHandler(BaseFormatHandler):
             suspicious_count = self._tag_suspicious_chunks(hachoir_raw["structure"])
             structure_results["suspicious_chunk_count"] = suspicious_count
             structure_results["has_suspicious_chunks"] = suspicious_count > 0
-            
+
+        self.add_mediainfo(structure_results)
+
         stat_results = {}
         try:
             _, data = wavfile.read(self.file_path)

@@ -1,8 +1,13 @@
-import json
+import re
 from typing import Dict, Any
 from src.core.analyzer.external_tools.exiftool_wrapper import extract_metadata
 from datetime import datetime
 from src.core.analyzer.utils.text_extractor import extract_base64, extract_binary, extract_hex
+
+# Unambiguous "someone hid this here" markers - near-zero false positives (nobody legitimately
+# stores a CTF token or a private-key header in image/audio metadata). URLs/emails are deliberately
+# excluded: they appear in genuine copyright/comment fields and would spam false positives.
+_SECRET_MARKERS = re.compile(r"flag\{|ctf\{|-----BEGIN|PRIVATE KEY|BEGIN [A-Z ]*KEY", re.IGNORECASE)
 
 class MetadataAnalyzer:
     def __init__(self, raw_exif_data: Dict[str, Any]):
@@ -128,7 +133,20 @@ class MetadataAnalyzer:
                     "tag": f"TextFields ({key})",
                     "message": f"Unusually long text ({len(value)} characters)."
                     })
-                    
+
+            # control/non-printable bytes in a text field -> raw binary smuggled into metadata
+            if any((ord(c) < 32 and c not in "\t\r\n") or ord(c) == 127 for c in value):
+                anomalies.append({
+                    "tag": f"TextFields ({key})",
+                    "message": "Contains non-printable control characters (possible binary hidden in a text field)."
+                    })
+
+            if _SECRET_MARKERS.search(value):
+                anomalies.append({
+                    "tag": f"TextFields ({key})",
+                    "message": f"Found secret-marker pattern in '{preview_val}'."
+                    })
+
         return anomalies
     
     @staticmethod

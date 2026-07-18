@@ -1,4 +1,5 @@
 import numpy as np
+from concurrent.futures import ThreadPoolExecutor
 from src.core.analyzer.modules.stat.chi_square import ChiSquareAttack
 from src.core.analyzer.modules.stat.rs_analysis import RSAnalysis
 from src.core.analyzer.modules.stat.sample_pairs import SamplePairsAttack
@@ -34,16 +35,26 @@ class StatisticalAnalyzer:
         if self.stego_array is None or self.stego_array.size == 0:
             return {"error": "No data provided for statistical analysis."}
 
-        try:
-            results["chi_square"] = ChiSquareAttack().analyze_blind(self.stego_array)
+        detectors = {"chi_square": ChiSquareAttack()}
+        # the rest need 2D+ data (images / video frames), not a 1D signal
+        if self.stego_array.ndim >= 2:
+            detectors.update({
+                "rs_analysis": RSAnalysis(), "spa": SamplePairsAttack(),
+                "ws": WeightedStegoAnalysis(), "hcf_com": HCFCOMAnalysis(), "pdh": PDHAnalysis(),
+            })
 
-            # the rest need 2D+ data (images / video frames), not a 1D signal
-            if self.stego_array.ndim >= 2:
-                results["rs_analysis"] = RSAnalysis().analyze_blind(self.stego_array)
-                results["spa"] = SamplePairsAttack().analyze_blind(self.stego_array)
-                results["ws"] = WeightedStegoAnalysis().analyze_blind(self.stego_array)
-                results["hcf_com"] = HCFCOMAnalysis().analyze_blind(self.stego_array)
-                results["pdh"] = PDHAnalysis().analyze_blind(self.stego_array)
+        # The detectors are independent and read-only over the same array; they're heavy NumPy/
+        # SciPy calls that release the GIL, so a thread pool overlaps them (RS+WS alone are most of
+        # the time). Each is isolated so one failing doesn't lose the others' results.
+        try:
+            with ThreadPoolExecutor(max_workers=len(detectors)) as pool:
+                futures = {name: pool.submit(det.analyze_blind, self.stego_array)
+                           for name, det in detectors.items()}
+                for name, future in futures.items():
+                    try:
+                        results[name] = future.result()
+                    except Exception as e:
+                        results[name] = {"error": str(e)}
         except Exception as e:
             results["error"] = str(e)
 

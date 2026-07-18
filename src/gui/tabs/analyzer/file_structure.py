@@ -86,6 +86,9 @@ class FileStructureTab(QFrame):
         self.tree_widget = QTreeWidget()
         self.tree_widget.setObjectName("structureTree")
         self.tree_widget.setHeaderLabels(["Name", "Size", "Value", "Description", "Warnings"])
+        # QTreeWidget headers default to left-aligned text, unlike QTableWidget's centered
+        # default - center here so the header row matches every other table in the app.
+        self.tree_widget.header().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         self.tree_widget.setColumnWidth(0, 150)
         self.tree_widget.setColumnWidth(1, 80)
         self.tree_widget.setColumnWidth(2, 150)

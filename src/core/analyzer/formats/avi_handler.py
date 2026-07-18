@@ -26,7 +26,9 @@ class AVIHandler(BaseFormatHandler):
             suspicious_count = self._tag_suspicious_chunks(hachoir_raw["structure"])
             structure_results["suspicious_chunk_count"] = suspicious_count
             structure_results["has_suspicious_chunks"] = suspicious_count > 0
-            
+
+        self.add_mediainfo(structure_results)
+
         stat_results = {}
         try:
             cap = cv2.VideoCapture(self.file_path)
