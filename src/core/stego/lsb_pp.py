@@ -14,7 +14,7 @@ from src.core.crypto.asym_encrypt import AsymmetricEncryption, load_public_key, 
 
 DEFAULT_LSBPP_CONFIG = {
     'default_seed': 'Default',
-    'pixel_shuffle': False,
+    'pixel_shuffle': True,
     'gradient_analysis':
         {
             'enabled': True,
@@ -94,7 +94,7 @@ class LSBPP:
         
        # --- Other settings ---
         self.capacity_threshold = self.config.get('capacity_threshold', DEFAULT_LSBPP_CONFIG['capacity_threshold'])  # set capacity threshold
-        self.default_seed = self.config.get('default_seed', DEFAULT_LSBPP_CONFIG['default_seed']) # set defalut seed
+        self.default_seed = self.config.get('default_seed', DEFAULT_LSBPP_CONFIG['default_seed']) # set default seed
         self.pixel_shuffle = self.config.get('pixel_shuffle', DEFAULT_LSBPP_CONFIG['pixel_shuffle']) # set pixel order
         
     # ==================== Main Public Methods ====================
@@ -366,11 +366,21 @@ class LSBPP:
         entropy_map: np.ndarray | None,
     ) -> np.ndarray:
         """
-        Calculate surface map for cover image
+        Calculate surface map for cover image.
         """
-        # set weights
-        weight_gradient = self.gradient_weight
-        weight_entropy = self.entropy_weight
+        # Dynamic Weight
+        if gradient_map is not None and entropy_map is not None:
+            weight_gradient = self.gradient_weight
+            weight_entropy = self.entropy_weight
+        elif gradient_map is not None:
+            weight_gradient = 1.0
+            weight_entropy = 0.0
+        elif entropy_map is not None:
+            weight_gradient = 0.0
+            weight_entropy = 1.0
+        else:
+            weight_gradient = 0.0
+            weight_entropy = 0.0
 
         # set surface map to zero
         surface = np.zeros_like(entropy_map if entropy_map is not None else gradient_map)
