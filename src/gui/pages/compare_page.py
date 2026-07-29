@@ -12,7 +12,7 @@ from src.gui.tabs.compare.meta_diff_tab import MetaDiffTab
 from src.gui.tabs.compare.struct_diff_tab import StructDiffTab
 from src.gui.tabs.compare.stat_diff_tab import StatDiffTab
 from src.gui.pages.analyzer_page import get_analyzer_file_display_info
-from src.gui.components.worker import FuncWorker
+from src.gui.components.worker import FunctionWorker
 
 ICON_DIR = Path(__file__).resolve().parent.parent / "assets" / "svg"
 ICON_SIZE = 16
@@ -145,7 +145,7 @@ class ComparePage(QFrame):
         from src.core.analyzer.docker_bridge import analyze
         orig, stego = self.file_orig_path, self.file_stego_path
         self._set_comparing(True)
-        self._compare_worker = FuncWorker(lambda: {"orig": analyze(orig), "stego": analyze(stego)})
+        self._compare_worker = FunctionWorker(lambda: {"orig": analyze(orig), "stego": analyze(stego)})
         self._compare_worker.done.connect(self._on_compare_done)
         self._compare_worker.start()
 

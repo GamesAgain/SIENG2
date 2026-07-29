@@ -10,13 +10,14 @@ from src.gui.components.linked_step_toggle import LinkedStepToggle
 from src.gui.components.step_output_picker import StepOutputPicker
 from src.gui.components.toggle_switch import ToggleSwitch
 from src.gui.components.visibility_stack import VisibilityStack
+from src.gui.components.worker import FunctionWorker
 
 ICON_DIR = Path(__file__).parent.parent.parent / "assets" / "svg"
 
 ICON_SIZE = 14
 COLOR_CHECKED_SYM = "#a78bfa"
 COLOR_CHECKED_ASYM = "#34D399"
-CAPACITY_WARNING_RATIO = 0.85  # ใช้ไป >= 85% ของ max capacity แล้ว ให้เตือนสีเหลือง
+CAPACITY_WARNING_RATIO = 0.90  # ใช้ไป > 90% ของ max capacity แล้ว ให้เตือนสีเหลือง
 
 
 class LSBEmbedInputs(QFrame):
@@ -35,7 +36,8 @@ class LSBEmbedInputs(QFrame):
         self.payload_file_path = None
         self.linked_cover_index: list[int] = []  # non-empty = cover มาจาก output ของ step ก่อนหน้า (pipeline_mode)
         self.capacity_bits = None  # ผล analyze ภาพ (Sobel+entropy) — แคชไว้เพราะหนัก ไม่คำนวณซ้ำทุกครั้งที่พิมพ์/สลับโหมด
-
+        self.isCalculating = False
+        
         # Encryption
         self.password = ""
         self.public_key_path = None
@@ -447,14 +449,42 @@ class LSBEmbedInputs(QFrame):
     # --- Event Handler ---
     def on_cover_file_selected(self, file_path: str):
         self.cover_file_path = file_path
-        # วิเคราะห์ภาพ (Sobel + entropy) แค่ตอนเปลี่ยน cover เท่านั้น เพราะเป็นขั้นตอนที่หนักสุด
-        # ส่วน overhead ต่อโหมดเข้ารหัสคำนวณแยกใน update_capacity_label (ถูกกว่ามาก เรียกได้บ่อย)
-        try:
-            self.capacity_bits = LSBPP().get_total_capacity_bits(file_path)
-        except Exception:
-            self.capacity_bits = None
-        self.update_capacity_label()
 
+        self.isCalculating = True
+        self.update_capacity_label()
+        
+        self.cap_worker = FunctionWorker(
+            LSBPP().get_total_capacity_bits,
+            file_path
+        )
+        self.cap_worker.done.connect(self.on_cal_capacity_done)
+        self.cap_worker.start()
+        
+    def on_cal_capacity_done(self, result):
+        # 1. อัปเดตสถานะว่าคำนวณเสร็จแล้ว
+        self.isCalculating = False
+        
+        # 2. เช็คว่าเกิด Error หรือรับค่ามาผิดประเภทหรือไม่ (Backend ส่งกลับมาเป็น Tuple 2 ตัว)
+        if not isinstance(result, tuple) or len(result) != 2:
+            # กรณีที่ Worker โยน Error กลับมาเป็น Dict หรือ String
+            self.capacity_bits = None
+            self.update_capacity_label()
+            print("Failed to calculate capacity.")
+            return
+        
+        # 3. แตกค่าที่ได้จาก Tuple
+        calculated_bits, return_file_path = result
+        
+        # 4. ตรวจสอบ Task ID (ป้องกัน Race Condition ตอนผู้ใช้สลับรูปไวๆ)
+        if return_file_path != self.cover_file_path:
+            # ถ้า Path ที่คำนวณเสร็จ ไม่ตรงกับ Path ของรูปที่เปิดอยู่ปัจจุบัน ให้ทิ้งผลลัพธ์ไปเลย
+            print(f"Discarded stale result for: {return_file_path}")
+            return
+        
+        # 5. ถ้าข้อมูลถูกต้อง ค่อยอัปเดตตัวแปรและหน้าจอ
+        self.capacity_bits = calculated_bits
+        self.update_capacity_label()
+        
     def on_public_key_selected(self, file_path: str):
         self.public_key_path = file_path
         self.update_capacity_label()  # ขนาด RSA key มีผลต่อ overhead ของโหมด asymmetric
@@ -497,6 +527,10 @@ class LSBEmbedInputs(QFrame):
         + โหมดเข้ารหัสที่เลือกอยู่ตอนนี้ โชว์แค่ Size เฉยๆ จนกว่าจะรู้ max capacity จริง
         (ต้องมี cover image แล้ว และถ้าเป็น asymmetric ต้องมี public key ด้วย เพราะ overhead
         ขึ้นกับขนาด RSA key ที่ใช้)"""
+        if self.isCalculating:
+            self.capacity_label.setText("Calculating...")
+            return
+        
         text_size_bytes = len(self.payload_text_area.toPlainText().encode('utf-8'))
         text_size = format_file_size(text_size_bytes)
 
@@ -533,11 +567,11 @@ class LSBEmbedInputs(QFrame):
 
         self.capacity_label.setText(f"Size: {text_size} / {format_file_size(max_bytes)}")
 
-        # เกินหรือเท่า max = แดง, ใช้ไปแล้ว >= 85% = เหลือง, นอกนั้นปกติ
+        # เกิน max = แดง, ใช้ไปแล้ว > 90% = เหลือง, นอกนั้นปกติ
         usage_ratio = (text_size_bytes / max_bytes) if max_bytes > 0 else 1.0
-        if text_size_bytes >= max_bytes:
+        if text_size_bytes > max_bytes:
             self.set_capacity_state("danger")
-        elif usage_ratio >= CAPACITY_WARNING_RATIO:
+        elif usage_ratio > CAPACITY_WARNING_RATIO:
             self.set_capacity_state("warning")
         else:
             self.set_capacity_state("normal")
@@ -583,11 +617,11 @@ class LSBEmbedTab(QFrame):
         final_layout.addWidget(loading_status_bar)
 
         # Execute Embed Data
-        execute_embed_btn = QPushButton("Embed Data")
-        execute_embed_btn.setFixedHeight(50)
-        execute_embed_btn.setObjectName("PrimaryActionBtn")
-        execute_embed_btn.clicked.connect(self.execute_embedding)
-        final_layout.addWidget(execute_embed_btn)
+        self.execute_embed_btn = QPushButton("Embed Data")
+        self.execute_embed_btn.setFixedHeight(50)
+        self.execute_embed_btn.setObjectName("PrimaryActionBtn")
+        self.execute_embed_btn.clicked.connect(self.execute_embedding)
+        final_layout.addWidget(self.execute_embed_btn)
 
         main_layout.addLayout(final_layout)
 
@@ -596,17 +630,17 @@ class LSBEmbedTab(QFrame):
         loading_status_bar.setObjectName("card")
         loading_status_bar_layout = QVBoxLayout(loading_status_bar)
 
-        status_label = QLabel("Status: Ready")
-        status_label.setObjectName("statusLabel")
-        loading_status_bar_layout.addWidget(status_label)
+        self.status_label = QLabel("Status: Ready")
+        self.status_label.setObjectName("statusLabel")
+        loading_status_bar_layout.addWidget(self.status_label)
 
-        loading_bar = QProgressBar()
-        loading_bar.setObjectName("loadingIndicator")
-        loading_bar.setTextVisible(False)
-        loading_bar.setFixedHeight(10)
-        loading_bar.setRange(0, 100)
-        loading_bar.setValue(0)
-        loading_status_bar_layout.addWidget(loading_bar)
+        self.loading_bar = QProgressBar()
+        self.loading_bar.setObjectName("loadingIndicator")
+        self.loading_bar.setTextVisible(False)
+        self.loading_bar.setFixedHeight(10)
+        self.loading_bar.setRange(0, 100)
+        self.loading_bar.setValue(0)
+        loading_status_bar_layout.addWidget(self.loading_bar)
 
         return loading_status_bar
 
@@ -617,17 +651,20 @@ class LSBEmbedTab(QFrame):
             return
 
         cover_file_path, payload_text, password, public_key_path = data
-
-        try:
-            lsbpp = LSBPP()
-            stego_image_bytes, stego_name = lsbpp.embed(cover_file_path, payload_text, public_key_path, password)
-
-            is_saved = self.save_stego_image(stego_image_bytes, stego_name)
-            if not is_saved:
-                return
-
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to embed: {str(e)}")
+        
+        lsbpp = LSBPP()
+        self.embed_worker = FunctionWorker(
+            lsbpp.embed,
+            cover_file_path,
+            payload_text,
+            public_key_path,
+            password,
+            report_progress=True,
+            )
+        self.embed_worker.progress.connect(self.on_update_progess)
+        self.embed_worker.done.connect(self.on_embed_done)
+        self.execute_embed_btn.setEnabled(False)
+        self.embed_worker.start()
 
     def save_stego_image(self, stego_image_bytes: bytes, default_name: str) -> bool:
         try:
@@ -653,3 +690,19 @@ class LSBEmbedTab(QFrame):
             QMessageBox.critical(self, "Save Error", f"can't save file:\n{e}")
             print(f"Save Error: {e}")
             return False
+    
+    # --- Event Handler ---    
+    def on_update_progess(self, percent: int, message: str):
+        self.status_label.setText(f'Status: {message}')
+        self.loading_bar.setValue(percent)
+        
+    def on_embed_done(self, result):
+        if isinstance(result, dict) and "error" in result:
+            QMessageBox.critical(self, "Error", f"Failed to embed: {result['error']}")
+            self.on_update_progess(0, "Ready")
+            self.execute_embed_btn.setEnabled(True)
+            return
+        stego_image_bytes, stego_name = result
+        self.save_stego_image(stego_image_bytes, stego_name)
+        self.on_update_progess(0, "Ready")
+        self.execute_embed_btn.setEnabled(True)

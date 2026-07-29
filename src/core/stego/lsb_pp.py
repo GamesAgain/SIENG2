@@ -3,6 +3,7 @@ from pathlib import Path
 from PIL import Image
 import cv2
 import numpy as np
+from typing import Callable, Optional
 from skimage.filters.rank import entropy
 from skimage.morphology import footprint_rectangle
 from cryptography.hazmat.primitives import hashes
@@ -13,8 +14,7 @@ from src.core.crypto.asym_encrypt import AsymmetricEncryption, load_public_key, 
 
 DEFAULT_LSBPP_CONFIG = {
     'default_seed': 'Default',
-    'pixel_shuffle': True,
-    'embedding_mode': 'matching',  # 'replace' | 'matching'
+    'pixel_shuffle': False,
     'gradient_analysis':
         {
             'enabled': True,
@@ -46,7 +46,13 @@ PNG_IEND = b"\x00\x00\x00\x00IEND\xaeB\x60\x82"
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 COLOR_TYPE_DEPENDENT_CHUNKS = (b"PLTE", b"tRNS", b"bKGD", b"sBIT", b"hIST")
 
+# สำหรับใช้ Update Progress Bar, Stats Message
+ProgressCallback = Optional[Callable[[int, str], None]]
+def update_progress(callBack: ProgressCallback, percent: int, message: str):
+    if callBack is not None:
+        callBack(percent, message)
 
+# ลูปเข้าไปอ่าน type chunks, chunk data ภายในภาพ PNG                
 def iterate_png_chunks(raw_data_bytes: bytes):
     """ไล่อ่านไฟล์ PNG เป็น (chunk_type, full_chunk_bytes)
     (length 4B + type 4B + data + crc 4B) จนถึง IEND"""
@@ -59,7 +65,7 @@ def iterate_png_chunks(raw_data_bytes: bytes):
         position = end
         if chunk_type == b"IEND":
             break
-
+        
 class LSBPP:
     def __init__(self, config: dict = None):
         """
@@ -90,50 +96,62 @@ class LSBPP:
         self.capacity_threshold = self.config.get('capacity_threshold', DEFAULT_LSBPP_CONFIG['capacity_threshold'])  # set capacity threshold
         self.default_seed = self.config.get('default_seed', DEFAULT_LSBPP_CONFIG['default_seed']) # set defalut seed
         self.pixel_shuffle = self.config.get('pixel_shuffle', DEFAULT_LSBPP_CONFIG['pixel_shuffle']) # set pixel order
-        self.embedding_mode = self.config.get('embedding_mode', DEFAULT_LSBPP_CONFIG['embedding_mode']) # set embedding algorithm
-
-
+        
     # ==================== Main Public Methods ====================
 
-    def embed(self, cover_image_path: str, message: str, public_key_path: str = None, password: str = None) -> tuple[bytes, str]:
+    def embed(
+        self,
+        cover_image_path: str,
+        message: str,
+        public_key_path: str = None,
+        password: str = None,
+        progress_callback: ProgressCallback = None
+        ) -> tuple[bytes, str]:
         """
         Embed payload message into cover image using LSB++ algorithm
         """
         
         # 1. Prepare cover image
+        update_progress(progress_callback, 5, "Preparing cover image...")
         cover_image = self.prepare_image(cover_image_path)
         base_file_name = Path(cover_image_path).stem
-
+        
         # 2. Analyze cover image [gradient_map, entropy_map] -> texture_surface
+        update_progress(progress_callback, 10, "Analyzing texture surface...")
         texture_surface = self.analyze_cover_image(cover_image)
-
+        
         # 3. Capacity calculation
+        update_progress(progress_callback, 40, "Calculating capacity map...")
         capacity_map = self.calculate_capacity(texture_surface)
         
         # 4. Get seed
+        update_progress(progress_callback, 45, "Deriving seed...")
         seed = self.get_seed(password, public_key_path)
             
         # 5. Get pixel order
+        update_progress(progress_callback, 50, "Pixel ordering...")
         pixel_order = self.get_pixel_order(capacity_map, seed) 
         
         # 6. Encode message and pack payload (Header + Payload)
+        update_progress(progress_callback, 55, "Encrypting & packing payload...")
         raw_payload = message.encode('utf-8')
-        packed_payload = self.pack_data(raw_payload, public_key_path, password)
+        packed_payload = self.pack_data(raw_payload, password, public_key_path)
         
         # 7. Validate capacity before embed
-        self.validate_capacity(packed_payload, capacity_map)
+        update_progress(progress_callback, 58, "Validating capacity...")
+        self.validate_capacity(packed_payload, capacity_map, password, public_key_path)
 
         # 8. Embed message
-        if self.embedding_mode == 'matching':
-            stego_image = self.lsb_matching(cover_image, packed_payload, pixel_order, capacity_map)
-        else:
-            stego_image = self.lsb_replace(cover_image, packed_payload, pixel_order, capacity_map)
+        update_progress(progress_callback, 60, "Embedding message bits...")
+        stego_image = self.lsb_replacement_OPAP(cover_image, packed_payload, pixel_order, capacity_map)
         
         # 9. Merge Stego Image bytes
+        update_progress(progress_callback, 92, "Merging with original PNG structure...")
         stego_image_bytes = self.merge_stego_bytes(cover_image_path, stego_image)
         
         # 10. Export File name (always .png)
         stego_file_name = f"{base_file_name}_stego.png"
+        update_progress(progress_callback, 100, "Embedding complete.")
 
         return stego_image_bytes, stego_file_name
     
@@ -188,29 +206,42 @@ class LSBPP:
         return new_png_bytes
 
 
-    def extract(self, stego_image_path: str, private_key_path: str = None, password: str = None) -> str:
+    def extract(
+        self,
+        stego_image_path: str,
+        private_key_path: str = None,
+        password: str = None,
+        progress_callback: ProgressCallback = None
+        ) -> str:
         """
         Extract payload message from stego image using LSB++ algorithm
         """
-            
+
         # 1. Prepare stego image
+        update_progress(progress_callback, 5, "Preparing stego image...")
         stego_image = self.prepare_image(stego_image_path)
 
         # 2. Analyze stego image [gradient_map, entropy_map] -> texture_surface
+        update_progress(progress_callback, 10, "Analyzing texture surface...")
         texture_surface = self.analyze_cover_image(stego_image)
 
         # 3. Capacity calculation
+        update_progress(progress_callback, 40, "Calculating capacity map...")
         capacity_map = self.calculate_capacity(texture_surface)
-        
+
         # 4. Get seed
+        update_progress(progress_callback, 50, "Deriving seed...")
         seed = self.get_seed(password, private_key_path)
-        
+
         # 5. Get pixel order
-        pixel_order = self.get_pixel_order(capacity_map, seed) 
-        
+        update_progress(progress_callback, 55, "Pixel ordering...")
+        pixel_order = self.get_pixel_order(capacity_map, seed)
+
         # 6. Extract message
+        update_progress(progress_callback, 60, "Extracting & decrypting message...")
         extracted_message = self.message_extraction(stego_image, pixel_order, capacity_map, private_key_path, password)
-        
+        update_progress(progress_callback, 100, "Extraction complete.")
+
         return extracted_message
     
 
@@ -294,21 +325,20 @@ class LSBPP:
         """
         Convert cover image to grayscale [BT.601].
         """
-        # 1. Clean LSB from all pixels
-        img_array = np.array(cover_image).copy()
-        img_array &= 254
+        # Clean LSB from all pixels
+        rgb_image = cover_image.convert('RGB')
+        img_array = np.array(rgb_image).copy()
+        img_array &= 224
         
-        # 2. Convert to grayscale
-        grey_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-        
-        return grey_array
+        # Convert to grayscale
+        return cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
 
     def calculate_gradient(self, gray_array: np.ndarray) -> np.ndarray:
         """
         Calculate gradient map for cover image by Sobel operator
         """
         
-        # Calculate Gradient
+        # Calculate X & Y Gradient
         grad_x = cv2.Sobel(gray_array, cv2.CV_64F, 1, 0, ksize=self.sobel_kernel_size)
         grad_y = cv2.Sobel(gray_array, cv2.CV_64F, 0, 1, ksize=self.sobel_kernel_size)  
         
@@ -331,33 +361,32 @@ class LSBPP:
         return entropy_map
     
     def calculate_surface(
-        self, 
-        gradient_map: np.ndarray | None, 
+        self,
+        gradient_map: np.ndarray | None,
         entropy_map: np.ndarray | None,
     ) -> np.ndarray:
         """
         Calculate surface map for cover image
         """
-        #  set weights
+        # set weights
         weight_gradient = self.gradient_weight
         weight_entropy = self.entropy_weight
-        
+
         # set surface map to zero
         surface = np.zeros_like(entropy_map if entropy_map is not None else gradient_map)
-        
-        # calculate gradient part
-        if gradient_map is not None and weight_gradient > 0:
-            grad_norm = self.normalize(gradient_map)
-            surface += weight_gradient * grad_norm
 
-        # calculate entropy part
+        if gradient_map is not None and weight_gradient > 0:
+            grad_max = 2 * 255 * np.sqrt(2)
+            grad_norm = np.clip(gradient_map / grad_max, 0.0, 1.0)
+            surface += weight_gradient * grad_norm
+            
         if entropy_map is not None and weight_entropy > 0:
-            ent_norm = self.normalize(entropy_map)
+            window = self.entropy_window_size
+            ent_max = np.log2(window * window)
+            ent_norm = np.clip(entropy_map / ent_max, 0.0, 1.0)
             surface += weight_entropy * ent_norm
-        
-        # normalize surface map to range [0, 1]
-        surface_normalized = self.normalize(surface)
-        return surface_normalized
+            
+        return np.clip(surface, 0.0, 1.0)
     
     def calculate_capacity(self, texture_surface: np.ndarray) -> np.ndarray:
         """
@@ -394,7 +423,7 @@ class LSBPP:
         """
         Extract message from stego image
         """
-        total_capacity_bits = int(np.sum(capacity_map))
+        total_capacity_bits = int(np.sum(capacity_map)) * 3
         header_bits = HEADER_BYTES * 8
 
         if header_bits > total_capacity_bits:
@@ -425,9 +454,10 @@ class LSBPP:
 
         return message_extracted
     
-    def lsb_replace(self, cover_image: Image.Image, data: bytes, pixel_order: np.ndarray, capacity_map: np.ndarray) -> Image.Image:
+    def lsb_replacement_OPAP(self, cover_image: Image.Image, data: bytes, pixel_order: np.ndarray, capacity_map: np.ndarray):
         """
-        Replace LSB of pixels with message bits
+        Executes Adaptive LSB embedding across RGB channels using LSB Replacement + OPAP (Optimal Pixel Adjustment Process). 
+        Dynamically adjusts the embedded bits (k) based on image texture surface
         """
         # 1. Prepare cover array 1D
         img_array = np.array(cover_image)
@@ -455,13 +485,47 @@ class LSBPP:
             if bit_idx >= total_bits:
                 break
             
-            capacity = capacity_map[px]
+            # Get embedded bits (k)
+            k = int(capacity_map[px])
             
-            for channel in range(capacity):
+            # Iterate through R, G, B channels
+            for channel in range(3):
                 if bit_idx < total_bits:
+                    
                     idx = px * 3 + channel
-                    rgb_flat[idx] = (rgb_flat[idx] & 254) | message_bits[bit_idx]
-                    bit_idx += 1
+                    px_origin = rgb_flat[idx]
+                    
+                    actual_k = min(k, total_bits - bit_idx) # trap in case there are less than k
+                    
+                    # Extract bits to integer (bits_value)
+                    chunk = message_bits[bit_idx : bit_idx + actual_k]
+                    bits_value = 0
+                    for bit in chunk:
+                        bits_value = (bits_value << 1) | bit
+                    
+                    # --- LSB Replacement ---
+                    clear_mask = 255 - ((1 << actual_k) - 1) # create mask with bitwise shift (2^k - 1)
+                    px_replace = int((px_origin & clear_mask) | bits_value)
+                    
+                    # --- OPAP (Optimal Pixel Adjustment Process) ---
+                    delta = px_replace - int(px_origin)
+                    threshold = int(1 << (actual_k - 1)) # 2^(k-1)
+                    shift_value = int(1 << actual_k)     # 2^k
+                    
+                    optimal_px = px_replace
+                    if delta > threshold and (px_replace - shift_value) >= 0:
+                        optimal_px = px_replace - shift_value
+                    elif delta < -threshold and (px_replace + shift_value) <= 255:
+                        optimal_px = px_replace + shift_value
+                        
+                    # --- MSB Guard Check ---
+                    # 224 คือ Mask ล็อค 3 บิตบนสุด (1110 0000)
+                    if (optimal_px & 224) != (px_origin & 224):
+                        rgb_flat[idx] = px_replace 
+                    else:
+                        rgb_flat[idx] = optimal_px
+                        
+                    bit_idx += actual_k
                 else:
                     break
                 
@@ -478,139 +542,10 @@ class LSBPP:
         
         return stego_image
 
-    def lsb_matching(self, cover_image: Image.Image, data: bytes, pixel_order: np.ndarray, capacity_map: np.ndarray, max_passes: int = 8) -> Image.Image:
-        """
-        Embed using LSB Matching (+-1)
-        """
-        # 1. Prepare cover array, same as lsb_replace
-        img_array = np.array(cover_image)
-        channels = img_array.shape[2]
-        image_height, image_width = img_array.shape[0], img_array.shape[1]
-
-        # 2. Separate RGB and Alpha channels
-        if channels == 4:
-            rgb_chanel = img_array[:, :, :3]
-            alpha_channel = img_array[:, :, 3]
-        else:
-            rgb_chanel = img_array
-            alpha_channel = None
-
-        # 3. Keep an untouched copy of the original pixel values.
-        original_flat = rgb_chanel.ravel().copy()
-        working_flat = rgb_chanel.ravel().copy()
-
-        # 4. Convert message bytes to bits
-        byte_array = np.frombuffer(data, dtype=np.uint8)
-        message_bits = np.unpackbits(byte_array)
-        total_bits = len(message_bits)
-
-        # 5. Walk embed following the pixel_order and , and record every
-        # (pixel, flat_index, target_bit) position the message actually uses
-        embed_positions = []
-        bit_idx = 0
-        for px in pixel_order:
-            if bit_idx >= total_bits:
-                break
-            capacity = capacity_map[px]
-            for channel in range(capacity):
-                if bit_idx >= total_bits:
-                    break
-                idx = px * 3 + channel
-                embed_positions.append((px, idx, int(message_bits[bit_idx])))
-                bit_idx += 1
-
-        # 6. calculate_gradient()/calculate_local_entropy() look at a window of pixels
-        # around each pixel, so a changed pixel can affect its neighbors' capacity too.
-        neighbor_radius = 0 # neighbor_radius is how far that influence can reach.
-        if self.gradient_enabled:
-            neighbor_radius = max(neighbor_radius, self.sobel_kernel_size // 2)
-        if self.entropy_enabled:
-            neighbor_radius = max(neighbor_radius, self.entropy_window_size // 2)
-
-        # 7. Embeds one bit position, either with a random +-1 direction, or with the
-        # deterministic "safe" direction that lsb_replace would also use.
-        random_number_generator = np.random.default_rng()
-
-        def embed_one_position(flat_index: int, target_bit: int, force_safe_direction: bool) -> None:
-            original_value = int(original_flat[flat_index])
-            if (original_value & 1) == target_bit:
-                working_flat[flat_index] = original_value
-                return
-            if force_safe_direction or original_value == 0 or original_value == 255:
-                # even value -> going up (+1) keeps convert_to_grayscale's masked value unchanged; 
-                # odd value -> going down (-1) does. Same direction lsb_replace uses.
-                if original_value % 2 == 0:
-                    direction = 1
-                else:
-                    direction = -1
-            else:
-                direction = int(random_number_generator.choice([-1, 1]))
-            working_flat[flat_index] = original_value + direction
-
-        # 8. Embed every position with a genuinely random direction first
-        for px, idx, target_bit in embed_positions:
-            embed_one_position(idx, target_bit, force_safe_direction=False)
-
-        # 9. Verify: rebuild the image and re-run the exact same analysis extract()
-        # will run later. If any pixel's capacity now disagrees with capacity_map,
-        # embed() and extract() would read a different number of bits at that pixel
-        corrected_indexes = set()  # flat indexes already forced to the safe direction
-
-        for current_pass in range(max_passes):
-            stego_rgb = working_flat.reshape(rgb_chanel.shape)
-            
-            if alpha_channel is not None:
-                stego_array = np.dstack((stego_rgb, alpha_channel)) # Merge alpha channel back to image
-            else:
-                stego_array = stego_rgb
-
-            stego_image = Image.fromarray(stego_array)
-
-            recomputed_capacity_map = self.calculate_capacity(self.analyze_cover_image(stego_image))
-            mismatched_pixels = set(np.where(recomputed_capacity_map != capacity_map)[0].tolist())
-
-            if not mismatched_pixels:
-                return stego_image
-
-            # widen the mismatch to include neighboring pixels too, since the analysis
-            # window means a neighbor's random step can be the real cause
-            if neighbor_radius > 0:
-                mismatched_array = np.fromiter(mismatched_pixels, dtype=np.int64)
-                mismatched_rows = mismatched_array // image_width
-                mismatched_cols = mismatched_array % image_width
-                for row_offset in range(-neighbor_radius, neighbor_radius + 1):
-                    for col_offset in range(-neighbor_radius, neighbor_radius + 1):
-                        neighbor_rows = np.clip(mismatched_rows + row_offset, 0, image_height - 1)
-                        neighbor_cols = np.clip(mismatched_cols + col_offset, 0, image_width - 1)
-                        mismatched_pixels.update((neighbor_rows * image_width + neighbor_cols).tolist())
-
-            positions_to_fix = [
-                (px, idx, target_bit) for px, idx, target_bit in embed_positions
-                if px in mismatched_pixels and idx not in corrected_indexes
-            ]
-
-            # if the mismatch isn't explained by anything nearby, it must be from
-            # calculate_surface()'s min-max normalization, which looks at the WHOLE
-            # image, not just a window -- fall back to correcting every position left
-            if not positions_to_fix:
-                positions_to_fix = [
-                    (px, idx, target_bit) for px, idx, target_bit in embed_positions
-                    if idx not in corrected_indexes
-                ]
-
-            for px, idx, target_bit in positions_to_fix:
-                corrected_indexes.add(idx)
-                embed_one_position(idx, target_bit, force_safe_direction=True)
-
-        raise RuntimeError(
-            f"LSB Matching did not converge after {max_passes} passes. This should not "
-            f"normally happen -- forcing every remaining position to the safe direction "
-            f"always converges. Switch embedding_mode to 'replace' if this keeps happening."
-        )
-
     def lsb_extract(self, stego_image: Image.Image, pixel_order: np.ndarray, capacity_map: np.ndarray, max_bits: int = None) -> bytes:
         """
         Extract message from stego image.
+        Dynamically adjusts the extraction bits (k) based on image texture surface
         max_bits: Bits to read (None = read all supported by pixel_order).
         """
         # 1. Convert image to numpy array
@@ -622,42 +557,81 @@ class LSBPP:
             rgb_flat = img_array[:, :, :3].ravel()
         else:
             rgb_flat = img_array.ravel()
-
-        extracted_bits = []
-
+        
+        if max_bits is None:
+            sum_k = int(np.sum(capacity_map))
+            max_bits = sum_k * 3  # worst case: 3 channels, each uses k bits
+            
+        extracted_bits = np.zeros(max_bits, dtype=np.uint8)
+        bit_count = 0
+            
         # 3. Extract bits from pixels (stop at max_bits)
         for px in pixel_order:
-            if max_bits is not None and len(extracted_bits) >= max_bits:
+            if max_bits is not None and bit_count >= max_bits:
                 break
-
-            capacity = capacity_map[px]
-
-            for channel in range(capacity):
-                if max_bits is not None and len(extracted_bits) >= max_bits:
+            
+            # Get extraction bits (k)
+            k = int(capacity_map[px])
+        
+            # Iterate through R, G, B channels
+            for channel in range(3):
+                if bit_count >= max_bits:
                     break
-                bit = rgb_flat[px * 3 + channel] & 1
-                extracted_bits.append(bit)
+                
+                idx = px * 3 + channel
+                value = rgb_flat[idx]
+                
+                actual_k = min(k, max_bits - bit_count) # trap in case there are less than k
+                
+                # Extract embedding bits
+                extraction_mask = (1 << actual_k) - 1
+                extracted_value = value & extraction_mask
+                
+                # Convert the extracted integer back into an array of bits (0, 1)
+                # Extract from MSB down to LSB to preserve the original embedded sequence (chunk). 
+                for i in range(actual_k - 1, -1, -1):
+                    extracted_bits[bit_count] = (extracted_value >> i) & 1
+                    bit_count += 1
 
         # 4. Convert bits to bytes
-        bits_array = np.array(extracted_bits, dtype=np.uint8)
-        extracted_bytes = np.packbits(bits_array)
+        extracted_bytes = np.packbits(extracted_bits)
 
         return bytes(extracted_bytes)
     
     # ==================== Utility Methods ====================
 
-    def validate_capacity(self, data_package: bytes, capacity_map: np.ndarray) -> None:
+    def validate_capacity(self, data_package: bytes, capacity_map: np.ndarray, password: str = None, public_key_path: str = None) -> None:
         """
         Raise ValueError if data_package exceeds the image's embeddable capacity.
         """
-        total_capacity_bits = int(np.sum(capacity_map))
+        total_capacity_bits = int(np.sum(capacity_map)) * 3
         required_bits = len(data_package) * 8 # bits length
+        
         if required_bits > total_capacity_bits:
+            required_bytes = len(data_package)
+            supported_bytes = total_capacity_bits // 8
+            excess_bytes = required_bytes - supported_bytes
+            
+            # ตรวจสอบ Magic Bytes เพื่อระบุสาเหตุของ Overhead ให้ชัดเจน
+            magic = data_package[:3]
+            overhead_bytes = estimate_overhead_bytes(password, public_key_path)
+            if magic == MAGIC_SYM:
+                overhead_info = "password encryption overhead"
+            elif magic == MAGIC_ASYM:
+                overhead_info = "public key encryption overhead"
+            else:
+                overhead_info = "header overhead"
+
+            # โยน Error เป็น Multi-line String เพื่อให้ Dialog นำไปแสดงผลได้สวยงามและอ่านง่าย
             raise ValueError(
-                f"Message too large to embed: "
-                f"requires {required_bits} bits ({len(data_package)} bytes), "
-                f"but image only supports {total_capacity_bits} bits "
-                f"({total_capacity_bits // 8} bytes)."
+                f"Image capacity is {supported_bytes} bytes, but data requires {required_bytes} bytes.\n"
+                f"(Your data is over limit by {excess_bytes} bytes)\n\n"
+                f"Why is this happening?\n"
+                f"The required size includes:\n- your secret message ({required_bytes - overhead_bytes} bytes)\n- {overhead_info} ({overhead_bytes} bytes).\n\n"
+                f"Action Required (Choose one):\n"
+                f"1. Reduce your message size by at least {excess_bytes} bytes.\n"
+                f"2. Disable encryption to free up overhead space.\n"
+                f"3. Select a cover image with a larger capacity."
             )
 
     def get_seed(self, password: str = None, key_path: str = None) -> int:
@@ -701,19 +675,7 @@ class LSBPP:
         
         return int.from_bytes(seed_bytes, "big")
 
-    def normalize(self, array: np.ndarray) -> np.ndarray:
-        """
-        Normalize array to range [0, 1]
-        """
-        
-        # Min-Max Normalization
-        min_val = np.min(array)
-        max_val = np.max(array)
-        if max_val == min_val:
-            return np.zeros_like(array)
-        return (array - min_val) / (max_val - min_val)
-    
-    def pack_data(self, data: bytes, public_key_path: str = None, password: str = None) -> bytes:
+    def pack_data(self, data: bytes, password: str = None, public_key_path: str = None) -> bytes:
         """
         Build complete payload: [MAGIC (3 bytes) + LENGTH (4 bytes) + ENCRYPTED_DATA]
         Returns: (header_bytes, encrypted_data_bytes)
@@ -777,11 +739,12 @@ class LSBPP:
         else:
             raise ValueError("Extraction failed: Invalid SIENG2 signature. Please verify your image and password.")
             
-    def get_total_capacity_bits(self, cover_image_path: str) -> int:
+    def get_total_capacity_bits(self, cover_image_path: str) -> tuple[int, str]:
         cover_image = self.prepare_image(cover_image_path)
         texture_surface = self.analyze_cover_image(cover_image)
         capacity_map = self.calculate_capacity(texture_surface)
-        return int(np.sum(capacity_map))
+        total_capacity = int(np.sum(capacity_map)) * 3
+        return (total_capacity, cover_image_path) # return active file path for validate Task ID
 
 # --- External function ---    
 def estimate_overhead_bytes(password: str = None, public_key_path: str = None) -> int:
@@ -806,64 +769,3 @@ def get_max_message_bytes(total_capacity_bits: int, password: str = None, public
     total_capacity_bytes = total_capacity_bits // 8
     overhead = estimate_overhead_bytes(password, public_key_path)
     return max(0, total_capacity_bytes - overhead)
-
- # --- ตัวอย่างการเรียกใช้งาน ---   
-if __name__ == "__main__":
-    
-    lsb_pp = LSBPP()
-    
-    idx_img = 1 # รูปที่ 1
-    
-    # -- Embed Symmetric --
-    lsb_pp.embed(
-        cover_image_path=f"img/{idx_img}.png", 
-        message="Hello Password",
-        password="SuperSecretPassword123"
-    )
-    
-    # -- Extract Symmetric --
-    stego_path = Path(__file__).parent / f"{idx_img}_stego.png"
-    message = lsb_pp.extract(
-        stego_image_path=stego_path, 
-        password="SuperSecretPassword123"
-    )
-    
-    print(f"Case 1 - Symmetric Message length: {len(message)}")
-    print(f"Case 1 - Symmetric Message : {message}")
-    
-    idx_img = 2 # รูปที่ 2
-    
-    # -- Embed Asymmetric --
-    lsb_pp.embed(
-        cover_image_path=f"img/{idx_img}.png", 
-        message="Hello Public Key",
-        public_key_path="public_key_e.pem"
-    )
-    
-    # -- Extract Asymmetric --
-    stego_path = Path(__file__).parent / f"{idx_img}_stego.png"
-    message = lsb_pp.extract(
-        stego_image_path=stego_path, 
-        private_key_path="private_key_e.pem",
-        password="Password123"
-    )
-    
-    print(f"Case 2 - Asymmetric Message length: {len(message)}")
-    print(f"Case 2 - Asymmetric Message : {message}")
-    
-    idx_img = 3 # รูปที่ 3
-    
-    # -- Embed No Encryption --
-    lsb_pp.embed(
-        cover_image_path=f"img/{idx_img}.png", 
-        message="Hello",
-    )
-    
-    # -- Extract No Encryption --
-    stego_path = Path(__file__).parent / f"{idx_img}_stego.png"
-    message = lsb_pp.extract(
-        stego_image_path=stego_path
-    )
-    
-    print(f"Case 3 - Message length: {len(message)}")
-    print(f"Case 3 - Message : {message}")
