@@ -17,6 +17,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     binutils \
     p7zip-full \
     unzip \
+    pngcheck \
+    mediainfo \
     && rm -rf /var/lib/apt/lists/*
 
 # zsteg: de-facto tool for detecting/extracting LSB steganography in PNG/BMP

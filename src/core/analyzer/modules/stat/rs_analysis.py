@@ -59,7 +59,9 @@ class RSAnalysis(BaseAttack):
     def _estimate_channel(self, channel: np.ndarray) -> float:
         mask = np.array(_MASK)
         neg_mask = -mask
-        image = channel.astype(np.int64)
+        # int16 is exact here (values 0-255, group smoothness maxes ~1020) and a quarter of int64's
+        # memory traffic - these ops are memory-bound, so the narrower dtype is a real speedup.
+        image = channel.astype(np.int16)
         lsb_flipped = image ^ 1   # the "fully flipped" reference end of the RS diagram
 
         d0 = self._regular_minus_singular(image, mask)

@@ -11,7 +11,7 @@ from PyQt6.QtGui import QColor, QBrush
 from src.core.analyzer.docker_bridge import strings_scan, carve
 from src.gui.tabs.analyzer.zsteg_card import ExtractPreviewDialog
 from src.gui.components.strings_scan import is_interesting
-from src.gui.components.worker import FuncWorker
+from src.gui.components.worker import FunctionWorker
 
 RED = "#f43f5e"
 GREEN = "#34D399"
@@ -86,6 +86,9 @@ class FileStructureTab(QFrame):
         self.tree_widget = QTreeWidget()
         self.tree_widget.setObjectName("structureTree")
         self.tree_widget.setHeaderLabels(["Name", "Size", "Value", "Description", "Warnings"])
+        # QTreeWidget headers default to left-aligned text, unlike QTableWidget's centered
+        # default - center here so the header row matches every other table in the app.
+        self.tree_widget.header().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         self.tree_widget.setColumnWidth(0, 150)
         self.tree_widget.setColumnWidth(1, 80)
         self.tree_widget.setColumnWidth(2, 150)
@@ -264,7 +267,7 @@ class FileStructureTab(QFrame):
         if not out_dir:
             return
         self._set_carve_busy(True)
-        self._carve_worker = FuncWorker(carve, self._file_path, out_dir)
+        self._carve_worker = FunctionWorker(carve, self._file_path, out_dir)
         self._carve_worker.done.connect(lambda res, d=out_dir: self._on_carve_done(res, d))
         self._carve_worker.start()
 
@@ -298,7 +301,7 @@ class FileStructureTab(QFrame):
             return
         self._str_encoding = STR_ENCODINGS[self.str_enc.currentIndex()][1]
         self._set_strings_busy(True)
-        self._str_worker = FuncWorker(strings_scan, self._file_path,
+        self._str_worker = FunctionWorker(strings_scan, self._file_path,
                                       min_len=self.str_minlen.value(), encoding=self._str_encoding)
         self._str_worker.done.connect(self._on_strings_done)
         self._str_worker.start()

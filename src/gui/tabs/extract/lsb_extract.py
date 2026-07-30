@@ -7,6 +7,7 @@ from src.gui.components.file_drop import FileDropWidget
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, create_icon_state
 from src.gui.components.result_viewers import PayloadResultViewer
 from src.gui.components.toggle_switch import ToggleSwitch
+from src.gui.components.worker import FunctionWorker
 
 ICON_DIR = Path(__file__).parent.parent.parent / "assets" / "svg"
 
@@ -75,11 +76,11 @@ class LSBExtractTab(QFrame):
         final_layout.addWidget(loading_status_bar)
         
         # Execute Extract Data
-        execute_extract_btn = QPushButton("Extract Data")
-        execute_extract_btn.setFixedHeight(50)
-        execute_extract_btn.setObjectName("PrimaryActionBtn")
-        final_layout.addWidget(execute_extract_btn)
-        execute_extract_btn.clicked.connect(self.execute_extraction)
+        self.execute_extract_btn = QPushButton("Extract Data")
+        self.execute_extract_btn.setFixedHeight(50)
+        self.execute_extract_btn.setObjectName("PrimaryActionBtn")
+        final_layout.addWidget(self.execute_extract_btn)
+        self.execute_extract_btn.clicked.connect(self.execute_extraction)
         
         main_layout.addLayout(final_layout)
         
@@ -351,17 +352,17 @@ class LSBExtractTab(QFrame):
         loading_status_bar.setObjectName("card")
         loading_status_bar_layout = QVBoxLayout(loading_status_bar)
         
-        status_label = QLabel("Status: Ready")
-        status_label.setObjectName("statusLabel")
-        loading_status_bar_layout.addWidget(status_label)
+        self.status_label = QLabel("Status: Ready")
+        self.status_label.setObjectName("statusLabel")
+        loading_status_bar_layout.addWidget(self.status_label)
         
-        loading_bar = QProgressBar()
-        loading_bar.setObjectName("loadingIndicator")
-        loading_bar.setTextVisible(False)
-        loading_bar.setFixedHeight(10)
-        loading_bar.setRange(0, 100)
-        loading_bar.setValue(0)
-        loading_status_bar_layout.addWidget(loading_bar)
+        self.loading_bar = QProgressBar()
+        self.loading_bar.setObjectName("loadingIndicator")
+        self.loading_bar.setTextVisible(False)
+        self.loading_bar.setFixedHeight(10)
+        self.loading_bar.setRange(0, 100)
+        self.loading_bar.setValue(0)
+        loading_status_bar_layout.addWidget(self.loading_bar)
         
         return loading_status_bar
     
@@ -373,13 +374,18 @@ class LSBExtractTab(QFrame):
             return
         
         stego_file_path, private_key_path, password = input_data
-        try:
-            lsbpp = LSBPP()
-            message = lsbpp.extract(stego_file_path, private_key_path, password)
-            self.result_viewer.show_text(message)
-            
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to Extract: {str(e)}")
+        lsbpp = LSBPP()
+        self.extract_worker = FunctionWorker(
+            lsbpp.extract,
+            stego_file_path, 
+            private_key_path, 
+            password,
+            report_progress=True,
+        )
+        self.extract_worker.progress.connect(self.on_update_progess)
+        self.extract_worker.done.connect(self.on_extract_done)
+        self.execute_extract_btn.setEnabled(False)
+        self.extract_worker.start()
     
     def get_input_data(self) -> tuple[str, str, str] | bool:
         # 1. เช็คความถูกต้องทั้งหมดก่อน
@@ -454,3 +460,15 @@ class LSBExtractTab(QFrame):
                 self.encrypt_stack.setCurrentIndex(current_checked_id)
         else:
             self.encrypt_stack.setCurrentIndex(2)
+            
+    def on_update_progess(self, percent: int, message: str):
+        self.status_label.setText(f'Status: {message}')
+        self.loading_bar.setValue(percent)
+    
+    def on_extract_done(self, result):
+        self.execute_extract_btn.setEnabled(True) 
+        if isinstance(result, dict) and "error" in result:
+            QMessageBox.critical(self, "Error", f"Failed to Extract: {result['error']}")
+            self.on_update_progess(0, "Ready")
+            return
+        self.result_viewer.show_text(result)

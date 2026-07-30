@@ -4,6 +4,7 @@ import numpy as np
 from src.core.analyzer.formats.base_handler import BaseFormatHandler
 from src.core.analyzer.modules.statistical_analyzer import StatisticalAnalyzer
 from src.core.analyzer.modules.structure_integrity import png_integrity
+from src.core.analyzer.external_tools.pngcheck_wrapper import check as pngcheck
 
 class PNGHandler(BaseFormatHandler):
     def _integrity_report(self, raw: bytes) -> Dict[str, Any]:
@@ -23,6 +24,14 @@ class PNGHandler(BaseFormatHandler):
             suspicious_count = self._tag_suspicious_chunks(hachoir_raw["structure"])
             structure_results["suspicious_chunk_count"] = suspicious_count
             structure_results["has_suspicious_chunks"] = suspicious_count > 0
+
+        # pngcheck cross-check: fold any structural problems it finds (that our own CRC/overlay/
+        # chunk checks don't already report) into the same integrity_anomalies list the GUI shows.
+        pc = pngcheck(self.file_path)
+        structure_results["pngcheck_ok"] = pc.get("ok")
+        for msg in pc.get("messages", []):
+            structure_results.setdefault("integrity_anomalies", []).append(
+                {"type": "pngcheck", "detail": f"pngcheck: {msg}"})
             
         stat_results = {}
         try:

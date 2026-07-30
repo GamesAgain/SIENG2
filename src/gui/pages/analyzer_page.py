@@ -12,7 +12,7 @@ from src.gui.tabs.analyzer.file_structure import FileStructureTab
 from src.gui.tabs.analyzer.metadata_tab import MetadataTab
 from src.gui.tabs.analyzer.report_tab import ReportTab
 from src.gui.tabs.metadata_shared import FileInfoBar
-from src.gui.components.worker import FuncWorker
+from src.gui.components.worker import FunctionWorker
 
 ICON_DIR = Path(__file__).resolve().parent.parent / "assets" / "svg"
 ICON_SIZE = 16
@@ -136,7 +136,7 @@ class AnalyzerPage(QFrame):
             return
         from src.core.analyzer.docker_bridge import analyze
         self._set_analyzing(True)
-        self._analysis_worker = FuncWorker(analyze, self.file_path)
+        self._analysis_worker = FunctionWorker(analyze, self.file_path)
         self._analysis_worker.done.connect(self._on_analysis_done)
         self._analysis_worker.start()
 

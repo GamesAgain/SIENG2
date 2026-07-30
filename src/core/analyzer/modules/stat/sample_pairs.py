@@ -61,7 +61,7 @@ class SamplePairsAttack(BaseAttack):
 
     def _estimate_channel(self, channel: np.ndarray) -> float:
         """SPA embedding-rate estimate for one 2D channel, pooling horizontal + vertical pairs."""
-        I = channel.astype(np.int64)
+        I = channel.astype(np.int16)  # values 0-255; int16 is exact and lighter than int64
         msb = I & 0xFE
         x = y = k = n = 0
         pair_dirs = [
