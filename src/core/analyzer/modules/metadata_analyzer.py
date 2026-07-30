@@ -105,22 +105,20 @@ class MetadataAnalyzer:
 
             preview_val = value[:50] + "..." if len(value) > 50 else value
 
-            if extract_base64(value):
-                anomalies.append({
-                    "tag": f"TextFields ({key})",
-                    "message": f"Found '{preview_val}' Matches Base64 pattern."
-                    })
-            
-            if extract_hex(value):
-                anomalies.append({
-                    "tag": f"TextFields ({key})",
-                    "message": f"Found '{preview_val}' Matches Hexadecimal pattern."
-                    })
-                
             if extract_binary(value):
                 anomalies.append({
                     "tag": f"TextFields ({key})",
-                    "message": f"Found '{preview_val}' Matches Binary stream pattern."
+                    "message": f"Matches Binary stream pattern."
+                    })
+            elif extract_hex(value):
+                anomalies.append({
+                    "tag": f"TextFields ({key})",
+                    "message": f"Matches Hexadecimal pattern."
+                    })
+            elif extract_base64(value):
+                anomalies.append({
+                    "tag": f"TextFields ({key})",
+                    "message": f"Matches Base64 pattern."
                     })
                 
             if len(value) > 200:
