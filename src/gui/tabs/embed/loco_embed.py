@@ -9,6 +9,7 @@ from src.gui.components.linked_step_toggle import LinkedStepToggle
 from src.gui.components.step_output_picker import StepOutputPicker
 from src.gui.components.toggle_switch import ToggleSwitch
 from src.gui.components.visibility_stack import VisibilityStack
+from src.gui.components.worker import FunctionWorker
 
 ICON_DIR = Path(__file__).parent.parent.parent / "assets" / "svg"
 ICON_SIZE = 14
@@ -501,12 +502,12 @@ class LocomotiveEmbedTab(QFrame):
         execution_box.addWidget(loading_status_bar)
 
         # Execute Embed Data
-        execute_embed_btn = QPushButton("Embed Data")
-        execute_embed_btn.setFixedHeight(50)
-        execute_embed_btn.setObjectName("PrimaryActionBtn")
+        self.execute_embed_btn = QPushButton("Embed Data")
+        self.execute_embed_btn.setFixedHeight(50)
+        self.execute_embed_btn.setObjectName("PrimaryActionBtn")
 
-        execute_embed_btn.clicked.connect(self.execute_embedding)
-        execution_box.addWidget(execute_embed_btn)
+        self.execute_embed_btn.clicked.connect(self.execute_embedding)
+        execution_box.addWidget(self.execute_embed_btn)
 
         return execution_box
 
@@ -516,16 +517,18 @@ class LocomotiveEmbedTab(QFrame):
         loading_status_bar_layout = QVBoxLayout(loading_status_bar)
 
         status_label = QLabel("Status: Ready")
-        status_label.setObjectName("statusLabel")
-        loading_status_bar_layout.addWidget(status_label)
+        self.status_label = status_label
+        self.status_label.setObjectName("statusLabel")
+        loading_status_bar_layout.addWidget(self.status_label)
 
         loading_bar = QProgressBar()
-        loading_bar.setObjectName("loadingIndicator")
-        loading_bar.setTextVisible(False)
-        loading_bar.setFixedHeight(10)
-        loading_bar.setRange(0, 100)
-        loading_bar.setValue(0)
-        loading_status_bar_layout.addWidget(loading_bar)
+        self.loading_bar = loading_bar
+        self.loading_bar.setObjectName("loadingIndicator")
+        self.loading_bar.setTextVisible(False)
+        self.loading_bar.setFixedHeight(10)
+        self.loading_bar.setRange(0, 100)
+        self.loading_bar.setValue(0)
+        loading_status_bar_layout.addWidget(self.loading_bar)
 
         return loading_status_bar
 
@@ -537,23 +540,35 @@ class LocomotiveEmbedTab(QFrame):
 
         locomotive_file_paths, payload_file_paths, raw_text, public_key_path, password = inputs
 
-        try:
-            locomotive = Locomotive()
+        locomotive = Locomotive()
+        self.embed_worker = FunctionWorker(
+            locomotive.embed,
+            locomotive_file_paths,
+            payload_file_paths,
+            raw_text,
+            public_key_path,
+            password,
+            report_progress=True
+        )
+        self.embed_worker.progress.connect(self.on_update_progress)
+        self.embed_worker.done.connect(self.on_embed_done)
+        self.execute_embed_btn.setEnabled(False)
+        self.embed_worker.start()
 
-            stego_files = locomotive.embed(
-                cover_image_paths=locomotive_file_paths,
-                file_paths=payload_file_paths,
-                raw_text=raw_text,
-                public_key_path=public_key_path,
-                password=password
-            )
+    def on_update_progress(self, percent: int, message: str):
+        self.status_label.setText(f'Status: {message}')
+        self.loading_bar.setValue(percent)
 
-            is_saved = self.save_stego_images(stego_files)
-            if not is_saved:
-                return
+    def on_embed_done(self, result):
+        if isinstance(result, dict) and "error" in result:
+            QMessageBox.critical(self, "Error", f"Failed to embed: {result['error']}")
+            self.on_update_progress(0, "Ready")
+            self.execute_embed_btn.setEnabled(True)
+            return
 
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to embed: {str(e)}")
+        is_saved = self.save_stego_images(result)
+        self.on_update_progress(0, "Ready")
+        self.execute_embed_btn.setEnabled(True)
 
     def save_stego_images(self, output_files: list[tuple[str, bytes]]):
 

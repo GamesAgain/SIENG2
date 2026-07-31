@@ -6,7 +6,7 @@ import random
 import os
 import math
 import struct
-
+from typing import Callable, Optional
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
@@ -23,6 +23,12 @@ ENCRYPT_MAGIC_LENGTH = 1  # bytes -- length of MAGIC_NONE/SYM/ASYM above
 PNG_EOF_SIG = b'\x00\x00\x00\x00IEND\xaeB`\x82'  # PNG End-of-File marker
 MARKER_LENGTH = 4  # bytes -- length of the derived per-embed fragment marker
 
+# สำหรับใช้ Update Progress Bar, Stats Message
+ProgressCallback = Optional[Callable[[int, str], None]]
+def update_progress(callBack: ProgressCallback, percent: int, message: str):
+    if callBack is not None:
+        callBack(percent, message)
+        
 class Locomotive:
     def __init__(self):
         self.last_session_id = None   # set by create_session_block() during embed()
@@ -30,41 +36,56 @@ class Locomotive:
     
     # ==================== Main Public Methods ====================
     
-    def embed(self, cover_image_paths: list[str], file_paths: list[str] = None, raw_text: str = None, public_key_path: str = None, password: str = None) -> list[tuple[str, bytes]]:
+    def embed(
+        self, 
+        cover_image_paths: list[str], 
+        file_paths: list[str] = None, 
+        raw_text: str = None, 
+        public_key_path: str = None, 
+        password: str = None,
+        progress_callback: ProgressCallback = None
+        ) -> list[tuple[str, bytes]]:
         """
         Embed payload file into cover image using Locomotive algorithm
         """       
         # 1. Read File data    
+        update_progress(progress_callback, 5, "Reading payload data...")
         if raw_text is not None:
             file_data = raw_text.encode('utf-8')
             payload_package = self.pack_payload("secret_message.txt", file_data)
-        else:
+        else: 
             if not file_paths:
                 raise ValueError("No payload provided (neither file nor text).")
             file_data, out_file_paths = self.read_file(file_paths)
             payload_package = self.pack_payload(out_file_paths, file_data)
         
         # 2. Encrypt data
+        update_progress(progress_callback, 30, "Encrypting payload...")
         encrypted_payload = self.encrypt_data(payload_package, public_key_path, password)
         
         # 3. Calculate number of parts and chunk size
+        update_progress(progress_callback, 50, "Calculating chunk sizes...")
         payload_length = len(encrypted_payload)
         num_parts, chunk_size = self.get_chunk_size(payload_length, cover_image_paths)
 
         # 4. Create session ID and blocks
+        update_progress(progress_callback, 70, "Creating session blocks...")
         marker = self.get_marker(password, public_key_path)
         payload_blocks = self.create_session_block(num_parts, chunk_size, encrypted_payload, payload_length, marker)
             
         # 5. Embed payload into cover images
+        update_progress(progress_callback, 90, "Embedding payload into cover images...")
         output_files = []
         if len(cover_image_paths) > 1:
             output_files = self.append_multifile(cover_image_paths, payload_blocks)
         else:
             output_files = self.append_onefile(cover_image_paths[0], payload_blocks)
             
+        update_progress(progress_callback, 100, "Embedding completed.")
+        
         return output_files
     
-    def extract(self, stego_image_paths: tuple[str], private_key_path: str = None, password: str = None, session_id: int = None) -> tuple[str, bytes]:
+    def extract(self, stego_image_paths: tuple[str], private_key_path: str = None, password: str = None, session_id: int = None, progress_callback: 'ProgressCallback' = None) -> tuple[str, bytes]:
         """
         Extract payload file from stego images using Locomotive algorithm
 
@@ -76,9 +97,11 @@ class Locomotive:
         session_order = []
 
         # Marker must be derived the same way embed() derived it (same password/key)
+        update_progress(progress_callback, 5, "Initializing extraction process...")
         marker = self.get_marker(password, private_key_path)
 
         # Extract from each stego image
+        update_progress(progress_callback, 10, "Extracting payload blocks from images...")
         for path in stego_image_paths:
 
             # 1. Read Image Data
@@ -126,6 +149,7 @@ class Locomotive:
             raise ValueError("No valid payload found. Are you sure these are stego images ?")
 
         # 8. Pick the target session
+        update_progress(progress_callback, 60, "Reconstructing target session...")
         if session_id is not None:
             if session_id not in all_sessions:
                 raise ValueError(f"Session {session_id} not found in the given stego image(s) "
@@ -141,13 +165,17 @@ class Locomotive:
             raise ValueError(f"Missing parts for the payload! Found {len(extracted_data)} of {expected_total_parts}.")
         
         # 9. Reconstruct the encrypted payload
+        update_progress(progress_callback, 75, "Reconstructing encrypted payload...")
         final_encrypted_payload = b"".join(extracted_data[i] for i in range(expected_total_parts))    
         
         # 10. Decrypt payload package
+        update_progress(progress_callback, 85, "Decrypting payload data...")
         payload_package = self.decrypt_data(final_encrypted_payload, private_key_path, password)
         
+        update_progress(progress_callback, 95, "Unpacking original files...")
         output_path, extracted_file_data = self.unpack_payload(payload_package)
         
+        update_progress(progress_callback, 100, "Extraction completed.")
         return output_path, extracted_file_data
         
     def pack_payload(self, file_path: str, data: bytes) -> bytes:
