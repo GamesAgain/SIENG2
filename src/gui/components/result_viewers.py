@@ -2,16 +2,86 @@ import os
 import tempfile
 from pathlib import Path
 
-from PyQt6.QtCore import QUrl, Qt
-from PyQt6.QtGui import QDesktopServices, QIcon
+from PyQt6.QtCore import QUrl, Qt, QFileInfo
+from PyQt6.QtGui import QDesktopServices, QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit,
-    QPushButton, QStackedWidget, QVBoxLayout,
+    QPushButton, QStackedWidget, QVBoxLayout, QScrollArea, QWidget, QFileIconProvider
 )
 
-from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, format_file_size
+from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, format_file_size, truncate_text_middle
 
 ICON_DIR = Path(__file__).resolve().parent.parent / "assets" / "svg"
+
+
+class ResultFileItemWidget(QFrame):
+    """File item display for extraction results (Read-only, no remove button)"""
+    def __init__(self, filename: str, data: bytes):
+        super().__init__()
+        self.filename = filename
+        self.data = data
+        self._temp_path: Path | None = None
+        self.setObjectName("fileItemRow")
+        self.setFixedHeight(56)
+        
+        self.setToolTip("Double-click to open")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(12)
+
+        # 1. Preview / Icon
+        self.icon_label = QLabel()
+        self.icon_label.setFixedSize(40, 40)
+        self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        file_ext = Path(filename).suffix.lower()
+        image_exts = ['.png', '.jpg', '.jpeg', '.bmp', '.gif']
+
+        if file_ext in image_exts:
+            pixmap = QPixmap()
+            if pixmap.loadFromData(data):
+                scaled_pixmap = pixmap.scaled(40, 40, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
+                self.icon_label.setPixmap(scaled_pixmap)
+            else:
+                provider = QFileIconProvider()
+                icon = provider.icon(QFileInfo(filename))
+                self.icon_label.setPixmap(icon.pixmap(32, 32))
+        else:
+            provider = QFileIconProvider()
+            icon = provider.icon(QFileInfo(filename))
+            self.icon_label.setPixmap(icon.pixmap(32, 32))
+
+        layout.addWidget(self.icon_label)
+
+        # 2. Text Info (Name & Size)
+        text_layout = QVBoxLayout()
+        text_layout.setSpacing(2)
+        text_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+
+        display_name = truncate_text_middle(filename, max_length=40)
+        name_label = QLabel(display_name)
+        name_label.setObjectName("fileItemName")
+        name_label.setToolTip(filename)
+
+        size_label = QLabel(format_file_size(len(data)))
+        size_label.setObjectName("fileItemSize")
+
+        text_layout.addWidget(name_label)
+        text_layout.addWidget(size_label)
+        layout.addLayout(text_layout)
+        layout.addStretch()
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self._temp_path is None:
+                suffix = Path(self.filename).suffix or ".bin"
+                fd, tmp = tempfile.mkstemp(suffix=suffix, prefix="sieng2_extract_")
+                with os.fdopen(fd, "wb") as f:
+                    f.write(self.data)
+                self._temp_path = Path(tmp)
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._temp_path)))
 
 
 class PayloadResultViewer(QFrame):
@@ -28,9 +98,9 @@ class PayloadResultViewer(QFrame):
         super().__init__()
         self.setObjectName("card")
         add_shadow_effect(self)
-        self._file_data: bytes | None = None
-        self._file_name: str = ""
-        self._temp_path: Path | None = None
+        self._files_dict: dict[str, bytes] = {}
+        self._raw_zip_data: bytes | None = None
+        self._temp_paths: list[Path] = []
 
         layout = QVBoxLayout(self)
 
@@ -49,7 +119,7 @@ class PayloadResultViewer(QFrame):
 
         self.stack = QStackedWidget()
         self.stack.addWidget(self._build_text_page())
-        self.stack.addWidget(self._build_file_page())
+        self.stack.addWidget(self._build_files_page())
         layout.addWidget(self.stack)
 
     # ---------------------------------------------------------------- text page
@@ -87,53 +157,42 @@ class PayloadResultViewer(QFrame):
 
         return page
 
-    # ---------------------------------------------------------------- file page
-    def _build_file_page(self):
+    # ---------------------------------------------------------------- files page
+    def _build_files_page(self):
         page = QFrame()
         pl = QVBoxLayout(page)
         pl.setContentsMargins(0, 0, 0, 0)
         pl.setSpacing(8)
 
-        card = QFrame()
-        card.setObjectName("fileInfoCard")
-        cl = QHBoxLayout(card)
-        cl.setContentsMargins(12, 12, 12, 12)
-        cl.setSpacing(10)
+        # 1. Scroll Area สำหรับแสดงรายชื่อไฟล์
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setObjectName("fileListScroll")
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setStyleSheet("QScrollArea { border: none; background-color: transparent; }")
 
-        icon = QLabel()
-        icon.setPixmap(create_icon_pixmap(ICON_DIR / "file.svg", size=22, color_hex="#A78BFA"))
-        cl.addWidget(icon)
+        self.list_container = QWidget()
+        self.list_container.setObjectName("fileListContainer")
+        self.list_layout = QVBoxLayout(self.list_container)
+        self.list_layout.setContentsMargins(0, 0, 0, 0)
+        self.list_layout.setSpacing(6)
+        self.list_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        info = QVBoxLayout()
-        info.setSpacing(2)
-        self.file_name_label = QLabel("")
-        self.file_name_label.setObjectName("fileInfoName")
-        self.file_name_label.setWordWrap(True)
-        self.file_size_label = QLabel("")
-        self.file_size_label.setObjectName("fileInfoDetail")
-        info.addWidget(self.file_name_label)
-        info.addWidget(self.file_size_label)
-        cl.addLayout(info, 1)
-        pl.addWidget(card)
+        self.scroll_area.setWidget(self.list_container)
+        pl.addWidget(self.scroll_area, 1)
 
+        # 2. Actions (Save / Open)
         actions = QHBoxLayout()
         actions.addStretch()
-        self.open_btn = QPushButton(" Open")
-        self.open_btn.setObjectName("SecondaryBtn")
-        self.open_btn.setProperty("textColor", "white")
-        self.open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.open_btn.setIcon(QIcon(create_icon_pixmap(ICON_DIR / "file-search.svg", size=14, color_hex="#FFFFFF")))
-        self.open_btn.clicked.connect(self._on_open)
-        self.save_btn = QPushButton(" Save As...")
+        
+        self.save_btn = QPushButton(" Save All...")
         self.save_btn.setObjectName("SecondaryBtn")
         self.save_btn.setProperty("textColor", "white")
         self.save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.save_btn.setIcon(QIcon(create_icon_pixmap(ICON_DIR / "file-export.svg", size=14, color_hex="#FFFFFF")))
-        self.save_btn.clicked.connect(self._on_save_as)
-        actions.addWidget(self.open_btn)
+        self.save_btn.clicked.connect(self._on_save_all)
+        
         actions.addWidget(self.save_btn)
         pl.addLayout(actions)
-        pl.addStretch()
 
         return page
 
@@ -144,31 +203,62 @@ class PayloadResultViewer(QFrame):
         self.export_btn.setEnabled(True)
         self.stack.setCurrentIndex(0)
 
-    def show_file(self, data: bytes, suggested_name: str):
-        self._file_data = data
-        self._file_name = suggested_name or "extracted.bin"
-        self._temp_path = None
-        self.file_name_label.setText(self._file_name)
-        self.file_size_label.setText(format_file_size(len(data)))
+    def show_files(self, files_dict: dict[str, bytes], raw_zip_data: bytes = None):
+        self._files_dict = files_dict
+        self._raw_zip_data = raw_zip_data
+        self._temp_paths.clear()
+        
+        # Update button text
+        if len(files_dict) == 1 and not raw_zip_data:
+            self.save_btn.setText(" Save As...")
+        else:
+            self.save_btn.setText(" Save All...")
+        
+        # Clear existing widgets
+        while self.list_layout.count():
+            item = self.list_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+
+        # Add new items
+        for filename, data in files_dict.items():
+            item_widget = ResultFileItemWidget(filename, data)
+            self.list_layout.addWidget(item_widget)
+            
         self.stack.setCurrentIndex(1)
 
     def show_result(self, data: bytes, filename: str):
         """สำหรับ payload ของ Locomotive ที่ 'มีชื่อไฟล์จริงติดมา' — ตัดสิน text-vs-file จาก
-        นามสกุลไฟล์ ไม่ใช่จาก decode UTF-8 ได้หรือไม่ (ไฟล์จริงอย่าง .pdf/.png/.docx ต้องเซฟด้วย
-        นามสกุลเดิมเสมอ ถึง bytes จะ decode เป็นข้อความได้ก็ตาม เช่น PDF ข้อความล้วน) — เฉพาะไฟล์
-        .txt (ข้อความที่ผู้ส่งฝังตรง ๆ) ถึงจะโชว์เป็น text preview (Copy/Export .txt)"""
-        if filename.lower().endswith(".txt"):
+        ชื่อไฟล์ที่ถูกกำหนดไว้สำหรับ Raw Text โดยเฉพาะ ("secret_message.txt") ถ้าเป็นชื่ออื่น
+        ให้ถือว่าเป็นไฟล์แนบ (รวมถึงไฟล์ .txt ที่อัปโหลดมาด้วย) เพื่อให้ผู้ใช้สามารถเซฟต้นฉบับได้"""
+        if filename == "secret_message.txt":
             self.show_text(data.decode("utf-8", errors="replace"))
+        elif filename == "secret_files.zip":
+            # กรณีที่ Locomotive ห่อ zip มาให้ (ผู้ใช้แนบหลายไฟล์)
+            import zipfile
+            import io
+            files_dict = {}
+            try:
+                with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                    for info in zf.infolist():
+                        if not info.is_dir():
+                            files_dict[info.filename] = zf.read(info.filename)
+                self.show_files(files_dict, raw_zip_data=data)
+            except zipfile.BadZipFile:
+                # ถ้าพัง ให้ fallback เป็นไฟล์ zip ธรรมดา
+                self.show_files({filename: data})
         else:
-            self.show_file(data, filename)
+            # กรณีเป็นไฟล์เดี่ยว หรือผู้ใช้อัปโหลดไฟล์ zip มาเอง
+            self.show_files({filename: data})
 
     def clear(self):
         self.text_area.setPlainText("")
         self.copy_btn.setEnabled(False)
         self.export_btn.setEnabled(False)
-        self._file_data = None
-        self._file_name = ""
-        self._temp_path = None
+        self._files_dict.clear()
+        self._raw_zip_data = None
+        self._temp_paths.clear()
         self.stack.setCurrentIndex(0)
 
     # ---------------------------------------------------------------- handlers
@@ -184,24 +274,29 @@ class PayloadResultViewer(QFrame):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to export text:\n{e}")
 
-    def _on_open(self):
-        if not self._file_data:
+    def _on_save_all(self):
+        if not self._files_dict:
             return
-        if self._temp_path is None:
-            suffix = Path(self._file_name).suffix or ".bin"
-            fd, tmp = tempfile.mkstemp(suffix=suffix, prefix="sieng2_extract_")
-            with os.fdopen(fd, "wb") as f:
-                f.write(self._file_data)
-            self._temp_path = Path(tmp)
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._temp_path)))
+            
+        # ถ้ามีแค่ไฟล์เดียว และไม่ใช่ zip ที่ระบบแพ็คให้
+        if len(self._files_dict) == 1 and not self._raw_zip_data:
+            filename, data = list(self._files_dict.items())[0]
+            path, _ = QFileDialog.getSaveFileName(self, "Save Extracted File", filename, "All Files (*)")
+            if not path:
+                return
+            try:
+                Path(path).write_bytes(data)
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to save file:\n{e}")
+            return
 
-    def _on_save_as(self):
-        if not self._file_data:
-            return
-        path, _ = QFileDialog.getSaveFileName(self, "Save Extracted File", self._file_name, "All Files (*)")
-        if not path:
-            return
-        try:
-            Path(path).write_bytes(self._file_data)
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to save file:\n{e}")
+        # ถ้ามีหลายไฟล์ (zip) ให้โหลดออกมาเป็น secret_files.zip ตรงๆ
+        if self._raw_zip_data:
+            path, _ = QFileDialog.getSaveFileName(self, "Save Extracted Zip", "secret_files.zip", "Zip Files (*.zip);;All Files (*)")
+            if not path:
+                return
+            try:
+                Path(path).write_bytes(self._raw_zip_data)
+                QMessageBox.information(self, "Success", "Saved secret_files.zip successfully!")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to save zip:\n{e}")

@@ -85,7 +85,14 @@ class Locomotive:
         
         return output_files
     
-    def extract(self, stego_image_paths: tuple[str], private_key_path: str = None, password: str = None, session_id: int = None, progress_callback: 'ProgressCallback' = None) -> tuple[str, bytes]:
+    def extract(
+        self, 
+        stego_image_paths: tuple[str], 
+        private_key_path: str = None, 
+        password: str = None, 
+        session_id: int = None, 
+        progress_callback: ProgressCallback = None
+        ) -> tuple[str, bytes]:
         """
         Extract payload file from stego images using Locomotive algorithm
 
@@ -156,7 +163,12 @@ class Locomotive:
                                   f"(found: {list(all_sessions)}).")
             target_session_id = session_id
         else:
-            target_session_id = session_order[-1]
+            if len(all_sessions) > 1:
+                raise ValueError(
+                    "Multiple embed sessions detected in the provided images. "
+                    "Please extract them separately."
+                )
+            target_session_id = session_order[0]
         expected_total_parts = all_sessions[target_session_id]['total_parts']
         extracted_data = all_sessions[target_session_id]['data']
         
@@ -199,10 +211,7 @@ class Locomotive:
             raise ValueError("Failed to decode payload filename. Please verify your image and password/key.")
         file_data = payload[2 + filename_length :]
  
-        file_name, ext = os.path.splitext(filename_ext)
-        output_path = f"{file_name}_extracted{ext}"
-        
-        return output_path, file_data
+        return filename_ext, file_data
     
     def get_chunk_size(self, payload_length: int, cover_image_path: tuple[str]) -> tuple[int, int]:
         """
@@ -373,45 +382,3 @@ class Locomotive:
                         arcname=path_obj.name
                     )
             return zip_buffer.getvalue(), "secret_files.zip"  # คืนค่า (ข้อมูล zip แบบ bytes, ชื่อไฟล์ zip)
-
-# --- ตัวอย่างการเรียกใช้งาน (ครบ 3 โหมดเข้ารหัส, สร้างภาพ/กุญแจเองในตัว ไม่ต้องมีไฟล์ภายนอก) ---
-if __name__ == "__main__":
-    from cryptography.hazmat.primitives import serialization
-    from src.core.crypto.asym_encrypt import generate_rsa_keypair
-
-    for i, color in enumerate([(255, 0, 0), (0, 255, 0), (0, 0, 255)]):
-        Image.new('RGB', (10, 10), color).save(f"test{i}.png")
-
-    # --- Case 1: ไม่เข้ารหัส, cover เดียว ---
-    loco = Locomotive()
-    name, data = loco.embed(["test0.png"], raw_text="Hello Locomotive (no encryption)")[0]
-    Path(name).write_bytes(data)
-    _, extracted = loco.extract([name])
-    print(f"Case 1 - No encryption : {extracted.decode('utf-8')!r}")
-
-    # --- Case 2: Symmetric (password), cover เดียว ---
-    name, data = loco.embed(["test0.png"], raw_text="Hello Locomotive (symmetric)", password="SuperSecret123")[0]
-    Path(name).write_bytes(data)
-    _, extracted = loco.extract([name], password="SuperSecret123")
-    print(f"Case 2 - Symmetric     : {extracted.decode('utf-8')!r}")
-
-    # --- Case 3: Asymmetric (RSA key สร้างสดๆ), cover หลายใบ (แตกเป็นชิ้นคนละไฟล์) ---
-    private_key, public_key = generate_rsa_keypair()
-    Path("private_key.pem").write_bytes(private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption(),
-    ))
-    Path("public_key.pem").write_bytes(public_key.public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo,
-    ))
-
-    files = loco.embed(["test0.png", "test1.png", "test2.png"],
-                        raw_text="Hello Locomotive (asymmetric, multi-cover)", public_key_path="public_key.pem")
-    stego_paths = []
-    for name, data in files:
-        Path(name).write_bytes(data)
-        stego_paths.append(name)
-    _, extracted = loco.extract(stego_paths, private_key_path="private_key.pem")
-    print(f"Case 3 - Asymmetric    : {extracted.decode('utf-8')!r}")
