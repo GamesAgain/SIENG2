@@ -1,12 +1,11 @@
 from PyQt6.QtCore import QSize, Qt
-from PyQt6.QtWidgets import QButtonGroup, QFileDialog, QFrame, QLineEdit, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSizePolicy, QStackedWidget, QTabWidget, QVBoxLayout, QHBoxLayout, QLabel
+from PyQt6.QtWidgets import QButtonGroup, QFileDialog, QFrame, QLineEdit, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QTabWidget, QVBoxLayout, QHBoxLayout, QLabel
 from pathlib import Path
 
 from src.core.stego.locomotive import Locomotive
-from src.gui.components.file_drop import FileDropWidget
+from src.gui.components.files_drop import FileDropWidget, MultiFileDropWidget
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, create_icon_state
 from src.gui.components.linked_step_toggle import LinkedStepToggle
-from src.gui.components.multi_file_drop import MultiFileDropWidget
 from src.gui.components.step_output_picker import StepOutputPicker
 from src.gui.components.toggle_switch import ToggleSwitch
 from src.gui.components.visibility_stack import VisibilityStack
@@ -52,12 +51,20 @@ class LocoEmbedInputs(QFrame):
         left_layout.addWidget(self.build_locomotive_file_card())
 
         # --- Right side - Payload and Encryption ---
-        right_layout = QVBoxLayout()
-        right_layout.addWidget(self.build_payload_card())
-        right_layout.addWidget(self.build_encryption_card())
+        right_widget = QFrame()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.addWidget(self.build_payload_card(), 1)
+        right_layout.addWidget(self.build_encryption_card(), 0)
+
+        right_scroll = QScrollArea()
+        right_scroll.setObjectName("pageScrollArea")
+        right_scroll.setWidgetResizable(True)
+        right_scroll.setWidget(right_widget)
+        right_scroll.setFrameShape(QFrame.Shape.NoFrame)
 
         sub_layout.addLayout(left_layout, 1)
-        sub_layout.addLayout(right_layout, 1)
+        sub_layout.addWidget(right_scroll, 1)
 
         main_layout.addLayout(sub_layout)
 
@@ -162,7 +169,6 @@ class LocoEmbedInputs(QFrame):
 
         drop_zone = MultiFileDropWidget("Drop any files or type text", "Any file format (PDF, ZIP, EXE, TXT, ...)", icon_path=str(ICON_DIR / "file-plus.svg"))
         drop_zone.files_changed.connect(self.on_payload_file_selected)
-        drop_zone.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         file_tab_layout.addWidget(drop_zone)
 
         # --- Text Tab ---
@@ -263,7 +269,7 @@ class LocoEmbedInputs(QFrame):
         encrypt_selection = self.build_encrypt_selection()
 
         # Encryption Mode Stack
-        self.encrypt_stack = QStackedWidget()
+        self.encrypt_stack = VisibilityStack()
 
         # Add encryption modes to stack
         self.encrypt_stack.addWidget(self.build_symmetric_mode())
@@ -335,6 +341,7 @@ class LocoEmbedInputs(QFrame):
         symmetric_mode.setObjectName("symmetricMode")
 
         symmetric_layout = QVBoxLayout(symmetric_mode)
+        symmetric_layout.setContentsMargins(0, 0, 0, 8)
 
         # --- Password Input ---
         password_label = QLabel("Password")

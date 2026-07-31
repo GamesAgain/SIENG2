@@ -1,10 +1,10 @@
 from pathlib import Path
 from PIL import Image
 from PyQt6.QtCore import QSize, Qt
-from PyQt6.QtWidgets import QButtonGroup, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSizePolicy, QStackedWidget, QTabWidget, QVBoxLayout
+from PyQt6.QtWidgets import QButtonGroup, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QTabWidget, QVBoxLayout
 
 from src.core.stego.lsb_pp import HEADER_BYTES, LSBPP, estimate_overhead_bytes, get_max_message_bytes
-from src.gui.components.file_drop import FileDropWidget
+from src.gui.components.files_drop import FileDropWidget
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, create_icon_state, format_file_size
 from src.gui.components.linked_step_toggle import LinkedStepToggle
 from src.gui.components.step_output_picker import StepOutputPicker
@@ -58,12 +58,20 @@ class LSBEmbedInputs(QFrame):
         left_layout.addWidget(self.build_cover_file_card())
 
         # --- Right side - Payload and Encryption ---
-        right_layout = QVBoxLayout()
-        right_layout.addWidget(self.build_payload_card())
-        right_layout.addWidget(self.build_encryption_card())
+        right_widget = QFrame()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.addWidget(self.build_payload_card(), 1)
+        right_layout.addWidget(self.build_encryption_card(), 0)
+
+        right_scroll = QScrollArea()
+        right_scroll.setObjectName("pageScrollArea")
+        right_scroll.setWidgetResizable(True)
+        right_scroll.setWidget(right_widget)
+        right_scroll.setFrameShape(QFrame.Shape.NoFrame)
 
         sub_layout.addLayout(left_layout, 1)
-        sub_layout.addLayout(right_layout, 1)
+        sub_layout.addWidget(right_scroll, 1)
 
         main_layout.addLayout(sub_layout)
 
@@ -132,7 +140,7 @@ class LSBEmbedInputs(QFrame):
         encrypt_selection = self.build_encrypt_selection()
 
         # Encryption Mode Stack
-        self.encrypt_stack = QStackedWidget()
+        self.encrypt_stack = VisibilityStack()
 
         # Add encryption modes to stack
         self.encrypt_stack.addWidget(self.build_symmetric_mode())
@@ -157,6 +165,7 @@ class LSBEmbedInputs(QFrame):
         symmetric_mode.setObjectName("symmetricMode")
 
         symmetric_layout = QVBoxLayout(symmetric_mode)
+        symmetric_layout.setContentsMargins(0, 0, 0, 8)
 
         # Password Input
         password_label = QLabel("Password")
@@ -191,6 +200,7 @@ class LSBEmbedInputs(QFrame):
         asymmetric_layout = QVBoxLayout(asymmetric_mode)
         asymmetric_layout.setContentsMargins(0, 0, 0, 8)
         key_drop_zone = FileDropWidget("Drop public key here or click to browse", "Public key file (.pem, .der, .ssh)", icon_path=str(ICON_DIR / "file-text-shield.svg"), allowed_extensions=["pem", "der", "ssh"])
+        key_drop_zone.setMinimumHeight(115)
         key_drop_zone.file_selected.connect(self.on_public_key_selected)
         asymmetric_layout.addWidget(key_drop_zone)
 
@@ -250,7 +260,6 @@ class LSBEmbedInputs(QFrame):
     def build_payload_card(self):
         payload_card = QFrame()
         payload_card.setObjectName("card")
-        payload_card.setMinimumHeight(200)
         add_shadow_effect(payload_card)
 
         payload_layout = QVBoxLayout(payload_card)
@@ -296,7 +305,7 @@ class LSBEmbedInputs(QFrame):
 
         drop_zone = FileDropWidget("Drop text file here or click to browse", "Supported: .txt", icon_path=str(ICON_DIR / "file-text.svg"), allowed_extensions=["txt"])
         drop_zone.file_selected.connect(self.on_payload_file_selected)
-        drop_zone.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        drop_zone.setMinimumHeight(115)
         text_file_layout.addWidget(drop_zone)
 
         self.payload_tabs.addTab(text_input_tab, "Text Input")
@@ -514,7 +523,6 @@ class LSBEmbedInputs(QFrame):
             self.payload_text_area.setPlainText(payload_text)
             self.payload_tabs.setCurrentIndex(0)
         else:
-            print(f"Error reading text file: {last_error}")
             self.payload_text_area.clear()
             self.payload_tabs.setCurrentIndex(1)
 
@@ -560,9 +568,9 @@ class LSBEmbedInputs(QFrame):
             max_bytes = get_max_message_bytes(self.capacity_bits, password, public_key_path)
         except Exception:
             # เช่น public key ไฟล์เสีย/อ่านไม่ได้ — โชว์แค่ขนาดข้อความ ไม่ให้ label พังเงียบๆ
-            self.capacity_label.setText(f"Size: {text_size}")
+            self.capacity_label.setText(f"Size: {text_size} / Invalid Key")
             self.capacity_label.setToolTip("Could not read the public key to estimate capacity.")
-            self.set_capacity_state("normal")
+            self.set_capacity_state("warning")
             return
 
         self.capacity_label.setText(f"Size: {text_size} / {format_file_size(max_bytes)}")
@@ -605,8 +613,6 @@ class LSBEmbedTab(QFrame):
         # ส่วน input (reuse ร่วมกับ Configurable Pipeline)
         self.inputs = LSBEmbedInputs()
         main_layout.addWidget(self.inputs)
-
-        main_layout.addStretch()
 
         # --- Final layout for loading status bar and execute button ---
         final_layout = QHBoxLayout()

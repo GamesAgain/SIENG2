@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
 from src.core.stego.metadata_handlers.mp3_handler import (
     FRAME_INFO, STANDARD_FRAMES, APIC_TYPES, MULTI_INSTANCE_FRAMES, MetadataMP3Handler,
 )
-from src.gui.components.file_drop import FileDropWidget
+from src.gui.components.files_drop import FileDropWidget
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, create_icon_state, format_file_size
 from src.gui.components.linked_step_toggle import LinkedStepToggle
 from src.gui.components.step_output_picker import StepOutputPicker

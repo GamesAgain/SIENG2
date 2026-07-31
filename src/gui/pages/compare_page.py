@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QMessageBox, QStackedWidget,
     QTabWidget, QVBoxLayout, QWidget, QPushButton
 )
-from src.gui.components.file_drop import FileDropWidget
+from src.gui.components.files_drop import FileDropWidget
 from src.gui.components.gui_utils import create_icon_pixmap, format_file_size, truncate_text_middle
 from src.gui.tabs.metadata_shared import FileInfoBar
 from src.gui.tabs.compare.meta_diff_tab import MetaDiffTab

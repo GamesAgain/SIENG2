@@ -3,11 +3,12 @@ from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QLineEdit, QMessageBox, QProgressBar, QPushButton, QStackedWidget, QVBoxLayout, QLabel
 
 from src.core.stego.locomotive import Locomotive
-from src.gui.components.file_drop import FileDropWidget
+from src.gui.components.files_drop import FileDropWidget
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, create_icon_state
-from src.gui.components.multi_file_drop import MultiFileDropWidget
+from src.gui.components.files_drop import MultiFileDropWidget
 from src.gui.components.result_viewers import PayloadResultViewer
 from src.gui.components.toggle_switch import ToggleSwitch
+from src.gui.components.visibility_stack import VisibilityStack
 
 ICON_DIR = Path(__file__).parent.parent.parent / "assets" / "svg"
 ICON_SIZE = 14
@@ -35,24 +36,24 @@ class LocomotiveExtractTab(QFrame):
         
         # Locomotive file card
         cover_file_card = self.build_locomotive_file_card()
-        left_layout.addWidget(cover_file_card)
-        
-        # --- Right side - Payload and Encryption ---
-        right_layout = QVBoxLayout()
+        left_layout.addWidget(cover_file_card, 1)
         
         # Decryption card
         decryption_card = self.build_decryption_card()
-        right_layout.addWidget(decryption_card)
+        left_layout.addWidget(decryption_card, 0)
+        
+        # --- Right side - Extraction Result ---
+        right_layout = QVBoxLayout()
+        
+        # Extraction Result
+        self.result_viewer = PayloadResultViewer()
+        right_layout.addWidget(self.result_viewer, 1)
         
         # --- Add layouts to sub_layout ---
         sub_layout.addLayout(left_layout, 1)
         sub_layout.addLayout(right_layout, 1)
         
         main_layout.addLayout(sub_layout)
-        
-        # Extraction Result
-        self.result_viewer = PayloadResultViewer()
-        main_layout.addWidget(self.result_viewer)
         
         # Execute button
         execute_box = self.build_execution_box()
@@ -102,8 +103,9 @@ class LocomotiveExtractTab(QFrame):
         title_container.setObjectName("titleContainer")
         title_layout = QHBoxLayout(title_container)
         title_layout.setContentsMargins(0, 0, 0, 0)
-        # Toggle Switch
+        # Toggle Switch & Decryption Mode Stack
         self.decrypt_toggle_switch = ToggleSwitch()
+        self.decrypt_stack = VisibilityStack()
         self.decrypt_toggle_switch.setChecked(True)
         title_layout.addWidget(self.decrypt_toggle_switch)
         
@@ -120,19 +122,13 @@ class LocomotiveExtractTab(QFrame):
         title_layout.addStretch()
         decrypt_selection = self.build_decrypt_selection()
         
-        # Encryption Mode Stack 
-        self.decrypt_stack = QStackedWidget()
-        
-        
-        # Add encryption modes to stack
+        # Add decryption modes to stack
         self.decrypt_stack.addWidget(self.build_symmetric_mode())
         self.decrypt_stack.addWidget(self.build_asymmetric_mode())
-        self.decrypt_stack.addWidget(self.build_disabled_mode())
-        
         
         # Connect toggle switch to stack
-        self.decrypt_toggle_switch.toggled.connect(self.on_decryption_toggled)
         self.decrypt_group.idClicked.connect(self.decrypt_stack.setCurrentIndex)
+        self.decrypt_toggle_switch.toggled.connect(self.decrypt_stack.setVisible)
         
         title_layout.addWidget(decrypt_selection)
         decryption_layout.addWidget(title_container)
@@ -198,33 +194,6 @@ class LocomotiveExtractTab(QFrame):
         symmetric_layout = QVBoxLayout(symmetric_mode)
         symmetric_layout.setContentsMargins(0, 0, 0, 8)
         
-        # Guide Box
-        guide_box = QFrame()
-        guide_box.setObjectName("GuideBox")
-        guide_box.setMinimumHeight(200)
-        guide_layout = QVBoxLayout(guide_box)
-        guide_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        guide_layout.setContentsMargins(10, 10, 10, 10)
-        guide_layout.setSpacing(4)
-        
-        
-        # Icon label
-        icon_label = QLabel()
-        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon_label.setMinimumSize(1, 1)
-        icon_label.setPixmap(create_icon_pixmap(str(ICON_DIR / "arrow-big-down-lines.svg"), size=42))
-        guide_layout.addWidget(icon_label)
-        
-        # Text labels
-        main_label = QLabel("Enter password to extract hidden data")
-        main_label.setObjectName("mainLabel")
-        main_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        guide_layout.addWidget(main_label)
-        
-        symmetric_layout.addWidget(guide_box)
-        
-        guide_layout.setSpacing(20)
-        
         # Password Input
         password_label = QLabel("Password")
         password_label.setObjectName("formLabel")
@@ -237,8 +206,6 @@ class LocomotiveExtractTab(QFrame):
         symmetric_layout.addWidget(password_label)
         symmetric_layout.addWidget(self.password_input)
         
-        symmetric_layout.addStretch()
-        
         return symmetric_mode
     
     def build_asymmetric_mode(self):
@@ -248,7 +215,7 @@ class LocomotiveExtractTab(QFrame):
         asymmetric_layout = QVBoxLayout(asymmetric_mode)
         asymmetric_layout.setContentsMargins(0, 0, 0, 8)
         key_drop_zone = FileDropWidget("Drop private key here or click to browse", "Private key file (.pem, .der, .ssh)", icon_path= str(ICON_DIR / "file-text-shield.svg"), allowed_extensions=["pem", "der", "ssh"])
-        key_drop_zone.setMinimumHeight(200)
+        key_drop_zone.setMinimumHeight(115)
         key_drop_zone.file_selected.connect(self.on_private_key_selected)
         asymmetric_layout.addWidget(key_drop_zone)
         
@@ -265,47 +232,6 @@ class LocomotiveExtractTab(QFrame):
         asymmetric_layout.addWidget(self.key_password_input)
         
         return asymmetric_mode
-    
-    def build_disabled_mode(self):
-        disabled_mode = QFrame()
-        disabled_mode.setObjectName("disabledMode")
-        
-        disabled_layout = QVBoxLayout(disabled_mode)
-        disabled_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        disabled_layout.setContentsMargins(0, 0, 0, 0)
-        # Icon โล่กากบาท (แนะนำให้หาไอคอน shield-off.svg หรือคล้ายกันมาใส่ในโฟลเดอร์)
-        icon_label = QLabel()
-        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        # ใช้สีเทาหม่นๆ เพื่อให้ดูเหมือนถูก Disable ไว้
-        icon_label.setPixmap(create_icon_pixmap(ICON_DIR / "shield-off.svg", size=48, color_hex="#52525b")) 
-        
-        # ข้อความ 
-        text_label = QLabel("Decryption disabled")
-        text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        # ใช้ฟอนต์ monospace และสีเทาหม่นตาม Design ในภาพ
-        text_label.setStyleSheet("color: #52525b; font-family: 'Courier New', monospace; font-size: 13px;")
-        
-        disabled_layout.addWidget(icon_label)
-        disabled_layout.addSpacing(10)
-        disabled_layout.addWidget(text_label)
-        
-        return disabled_mode
-    
-    
-    # --- Event Handlers ---
-    def on_decryption_toggled(self, checked: bool):
-        # 1. จัดการปุ่ม Password และ Private Key (โชว์/ซ่อน/ทำให้เป็นสีเทา)
-        self.btn_symmetric.setEnabled(checked)
-        self.btn_asymmetric.setEnabled(checked)
-        
-        # 2. จัดการหน้า Stack ที่จะแสดง
-        if checked:
-            # ถ้าเปิด Toggle: ให้กลับไปโชว์หน้าที่ถูกเลือกไว้ล่าสุดใน ButtonGroup (0 หรือ 1)
-            current_checked_id = self.decrypt_group.checkedId()
-            if current_checked_id != -1:
-                self.decrypt_stack.setCurrentIndex(current_checked_id)
-        else:
-            self.decrypt_stack.setCurrentIndex(2)
             
     def build_execution_box(self):
         execution_box = QHBoxLayout()

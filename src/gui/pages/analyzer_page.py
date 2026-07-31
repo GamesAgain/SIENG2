@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QMessageBox, QStackedWidget,
     QTabBar, QTabWidget, QVBoxLayout, QWidget
 )
-from src.gui.components.file_drop import FileDropWidget
+from src.gui.components.files_drop import FileDropWidget
 from src.gui.components.gui_utils import create_icon_pixmap, format_file_size, truncate_text_middle
 from src.gui.tabs.analyzer.bit_stat import BitStatTab
 from src.gui.tabs.analyzer.file_structure import FileStructureTab

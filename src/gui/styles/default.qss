@@ -555,15 +555,22 @@ QWidget#fileListContainer {
     background-color: transparent;
 }
 
+/* ปิดสกรอลแนวนอนเฉพาะรายการไฟล์ (เพราะเน้น Scroll แนวตั้งอย่างเดียว) */
+QScrollArea#fileListScroll QScrollBar:horizontal {
+    height: 0px;
+    background: none;
+}
+
 /* กรอบรายชื่อไฟล์ 1 แถว */
 QFrame#fileItemRow {
-    background-color: #262D30; /* สว่างกว่าพื้นหลังนิดหน่อยให้ดูลอยขึ้นมา */
-    border: 1px solid #304B57;
+    background-color: #2A2A2D; /* เทาเข้มกลางๆ ไม่มีเบลอฟ้า สว่างกว่าพื้นหลังนิดหน่อย */
+    border: 1px solid #3D3D40; /* เทาอ่อนกว่าพื้น ให้ดูเป็นกรอบลอยขึ้นมา */
     border-radius: 6px;
 }
+
 QFrame#fileItemRow:hover {
-    background-color: #2C3539;
-    border: 1px solid #38BDF8; /* โฮเวอร์แล้วขอบฟ้าตามธีม */
+    background-color: #333336; /* เทาสว่างขึ้นอีกนิดตอน hover */
+    border: 1px solid #38BDF8; /* คงสีฟ้า accent ของธีมไว้ตอน hover เพื่อให้ยังรู้สึกว่าคลิกได้ */
 }
 
 /* ตัวหนังสือในรายชื่อไฟล์ */
@@ -586,6 +593,7 @@ QPushButton#btnRemoveFile {
 }
 QPushButton#btnRemoveFile:hover {
     background-color: rgba(244, 63, 94, 0.1); /* พื้นหลังแดงใสๆ เวลาชี้ */
+    border: 1px solid #7e3340;
 }
 QPushButton#btnRemoveFile:pressed {
     background-color: rgba(244, 63, 94, 0.2);
@@ -949,22 +957,68 @@ QTableCornerButton::section {
     border-bottom: 1px solid #343434;
 }
 
-/* ปรับแต่ง Scrollbar ของตารางให้เข้ากับธีม (แนวตั้ง) */
+/* ==========================================================================
+   --- Global Floating Web-Style Scrollbars (แนวตั้ง & แนวนอน ทั้งโปรแกรม) ---
+   ========================================================================== */
+
+/* --- Scrollbar แนวตั้ง (Vertical Scrollbar) --- */
 QScrollBar:vertical {
-    background-color: #1E1E1E;
-    width: 10px;
-    margin: 0px;
+    background: transparent;
+    width: 12px;
+    margin: 2px 2px 2px 2px; /* เว้นระยะรอบ thumb 2px ให้ thumb กว้าง 8px มนขอบสวยงามทั้ง 4 ด้าน */
+    border: none;
 }
 QScrollBar::handle:vertical {
-    background-color: #343434;
-    min-height: 20px;
-    border-radius: 5px;
+    background-color: #4A4A4E;
+    min-height: 32px;
+    border-radius: 4px; /* ครึ่งหนึ่งของความกว้าง thumb (8px) = โค้งมนแคปซูลสมบูรณ์ */
+    border: none;
 }
 QScrollBar::handle:vertical:hover {
-    background-color: #536072;
+    background-color: #64748B;
 }
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-    height: 0px; /* ซ่อนปุ่มลูกศรบนล่าง */
+QScrollBar::handle:vertical:pressed {
+    background-color: #94A3B8;
+}
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0px;
+    background: none;
+    border: none;
+}
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical {
+    background: none;
+}
+
+/* --- Scrollbar แนวนอน (Horizontal Scrollbar) --- */
+QScrollBar:horizontal {
+    background: transparent;
+    height: 12px;
+    margin: 2px 2px 2px 2px;
+    border: none;
+}
+QScrollBar::handle:horizontal {
+    background-color: #4A4A4E;
+    min-width: 32px;
+    border-radius: 4px; /* ครึ่งหนึ่งของความสูง thumb (8px) = โค้งมนแคปซูลสมบูรณ์ */
+    border: none;
+}
+QScrollBar::handle:horizontal:hover {
+    background-color: #64748B;
+}
+QScrollBar::handle:horizontal:pressed {
+    background-color: #94A3B8;
+}
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {
+    width: 0px;
+    background: none;
+    border: none;
+}
+QScrollBar::add-page:horizontal,
+QScrollBar::sub-page:horizontal {
+    background: none;
 }
 
 /* --- File Structure Tree --- */
@@ -1002,7 +1056,7 @@ QListWidget#binwalkList::item {
 }
 
 /* --- File Structure Analysis Summary --- */
-QScrollArea#transparentScroll, QWidget#transparentScrollContent {
+QScrollArea#transparentScroll, QWidget#transparentScrollContent, QScrollArea#pageScrollArea, QScrollArea#pageScrollArea > QWidget > QWidget {
     background-color: transparent;
 }
 

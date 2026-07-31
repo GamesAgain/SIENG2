@@ -3,10 +3,11 @@ from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QStackedWidget, QVBoxLayout
 
 from src.core.stego.lsb_pp import LSBPP
-from src.gui.components.file_drop import FileDropWidget
+from src.gui.components.files_drop import FileDropWidget
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, create_icon_state
 from src.gui.components.result_viewers import PayloadResultViewer
 from src.gui.components.toggle_switch import ToggleSwitch
+from src.gui.components.visibility_stack import VisibilityStack
 from src.gui.components.worker import FunctionWorker
 
 ICON_DIR = Path(__file__).parent.parent.parent / "assets" / "svg"
@@ -39,18 +40,18 @@ class LSBExtractTab(QFrame):
         
         # Stego file card
         stego_file_card = self.build_stego_file_card()
-        left_layout.addWidget(stego_file_card)
+        left_layout.addWidget(stego_file_card, 1)
         
         # --- Right side - Decryption ---
         right_layout = QVBoxLayout()
         
         # Decryption card
         decryption_card = self.build_decryption_card()
-        right_layout.addWidget(decryption_card)
+        left_layout.addWidget(decryption_card, 0)
         
         # Add layouts to sub_layout
-        sub_layout.addLayout(left_layout)
-        sub_layout.addLayout(right_layout)
+        sub_layout.addLayout(left_layout, 1)
+        sub_layout.addLayout(right_layout, 1)
         
         # Add sub_layout to main_layout
         main_layout.addLayout(sub_layout)
@@ -62,10 +63,7 @@ class LSBExtractTab(QFrame):
 
         # Extraction Result
         self.result_viewer = PayloadResultViewer()
-        main_layout.addWidget(self.result_viewer)
-        
-        # Add spacer
-        main_layout.addStretch()
+        right_layout.addWidget(self.result_viewer)
         
         # --- Final layout for loading status bar and execute button ---
         final_layout = QHBoxLayout()
@@ -129,41 +127,38 @@ class LSBExtractTab(QFrame):
         title_container.setObjectName("titleContainer")
         title_layout = QHBoxLayout(title_container)
         title_layout.setContentsMargins(0, 0, 0, 0)
-        # Toggle Switch
-        self.encrypt_toggle_switch = ToggleSwitch()
-        self.encrypt_toggle_switch.setChecked(True)
-        title_layout.addWidget(self.encrypt_toggle_switch)
+        # Toggle Switch &  Decryption Mode Stack 
+        self.decrypt_toggle_switch = ToggleSwitch()
+        self.decrypt_stack = VisibilityStack()
+        self.decrypt_toggle_switch.setChecked(True)
+        title_layout.addWidget(self.decrypt_toggle_switch)
         
         # Icon
         title_icon = QLabel()
         photo_icon = create_icon_pixmap(ICON_DIR / "shield-lock.svg", "#a78bfa", size=16)
         title_icon.setPixmap(photo_icon)
         
-        # Text: Encryption Options
+        # Text: Decryption Options
         title_label = QLabel("Decryption Options")
         title_label.setObjectName("cardTitle")
         title_layout.addWidget(title_icon)
         title_layout.addWidget(title_label)
         title_layout.addStretch()
-        encrypt_selection = self.build_decrypt_selection()
-        
-        # Encryption Mode Stack 
-        self.encrypt_stack = QStackedWidget()
+        decrypt_selection = self.build_decrypt_selection()
         
         
-        # Add encryption modes to stack
-        self.encrypt_stack.addWidget(self.build_symmetric_mode())
-        self.encrypt_stack.addWidget(self.build_asymmetric_mode())
-        self.encrypt_stack.addWidget(self.build_disabled_mode())
+        # Add decryption modes to stack
+        self.decrypt_stack.addWidget(self.build_symmetric_mode())
+        self.decrypt_stack.addWidget(self.build_asymmetric_mode())
         
         
         # Connect toggle switch to stack
-        self.encrypt_toggle_switch.toggled.connect(self.on_decryption_toggled)
-        self.decrypt_group.idClicked.connect(self.encrypt_stack.setCurrentIndex)
+        self.decrypt_group.idClicked.connect(self.decrypt_stack.setCurrentIndex)
+        self.decrypt_toggle_switch.toggled.connect(self.decrypt_stack.setVisible)
         
-        title_layout.addWidget(encrypt_selection)
+        title_layout.addWidget(decrypt_selection)
         decryption_layout.addWidget(title_container)
-        decryption_layout.addWidget(self.encrypt_stack)
+        decryption_layout.addWidget(self.decrypt_stack)
         
         return decryption_card
     
@@ -225,35 +220,6 @@ class LSBExtractTab(QFrame):
         symmetric_layout = QVBoxLayout(symmetric_mode)
         symmetric_layout.setContentsMargins(0, 0, 0, 8)
         
-        # Guide Box
-        guide_box = QFrame()
-        guide_box.setObjectName("GuideBox")
-        guide_box.setMinimumHeight(200)
-        quide_layout = QVBoxLayout(guide_box)
-        quide_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        quide_layout.setContentsMargins(10, 10, 10, 10)
-        quide_layout.setSpacing(4)
-        
-        
-        # Icon label
-        icon_label = QLabel()
-        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon_label.setMinimumSize(1, 1)
-        icon_label.setPixmap(create_icon_pixmap(str(ICON_DIR / "arrow-big-down-lines.svg"), size=42))
-        quide_layout.addWidget(icon_label)
-        
-        # Text labels
-        main_label = QLabel("Enter password to extract hidden data")
-        main_label.setObjectName("mainLabel")
-        main_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        quide_layout.addWidget(main_label)
-        
-        symmetric_layout.addWidget(guide_box)
-        
-        quide_layout.setSpacing(20)
-        
-
-        
         # Password Input
         password_label = QLabel("Password")
         password_label.setObjectName("formLabel")
@@ -266,8 +232,6 @@ class LSBExtractTab(QFrame):
         symmetric_layout.addWidget(password_label)
         symmetric_layout.addWidget(self.password_input)
         
-        symmetric_layout.addStretch()
-        
         return symmetric_mode
     
     def build_asymmetric_mode(self):
@@ -277,7 +241,7 @@ class LSBExtractTab(QFrame):
         asymmetric_layout = QVBoxLayout(asymmetric_mode)
         asymmetric_layout.setContentsMargins(0, 0, 0, 8)
         key_drop_zone = FileDropWidget("Drop private key here or click to browse", "Private key file (.pem, .der, .ssh)", icon_path= str(ICON_DIR / "file-text-shield.svg"), allowed_extensions=["pem", "der", "ssh"])
-        key_drop_zone.setMinimumHeight(200)
+        key_drop_zone.setMinimumHeight(115)
         key_drop_zone.file_selected.connect(self.on_private_key_selected)
         asymmetric_layout.addWidget(key_drop_zone)
         
@@ -294,31 +258,6 @@ class LSBExtractTab(QFrame):
         asymmetric_layout.addWidget(self.key_password_input)
         
         return asymmetric_mode
-    
-    def build_disabled_mode(self):
-        disabled_mode = QFrame()
-        disabled_mode.setObjectName("disabledMode")
-        
-        disabled_layout = QVBoxLayout(disabled_mode)
-        disabled_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        disabled_layout.setContentsMargins(0, 0, 0, 12)
-        # Icon โล่กากบาท (แนะนำให้หาไอคอน shield-off.svg หรือคล้ายกันมาใส่ในโฟลเดอร์)
-        icon_label = QLabel()
-        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        # ใช้สีเทาหม่นๆ เพื่อให้ดูเหมือนถูก Disable ไว้
-        icon_label.setPixmap(create_icon_pixmap(ICON_DIR / "shield-off.svg", size=48, color_hex="#52525b")) 
-        
-        # ข้อความ 
-        text_label = QLabel("Decryption disabled")
-        text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        # ใช้ฟอนต์ monospace และสีเทาหม่นตาม Design ในภาพ
-        text_label.setStyleSheet("color: #52525b; font-family: 'Courier New', monospace; font-size: 13px;")
-        
-        disabled_layout.addWidget(icon_label)
-        disabled_layout.addSpacing(10)
-        disabled_layout.addWidget(text_label)
-        
-        return disabled_mode
     
     def build_lsb_options_card(self):
         lsb_options_card = QFrame()
@@ -396,7 +335,7 @@ class LSBExtractTab(QFrame):
         password = None
         private_key = None
         
-        if not self.encrypt_toggle_switch.isChecked():
+        if not self.decrypt_toggle_switch.isChecked():
             return self.stego_file_path, private_key, password
         
         # 3. แก้ไข: ดึงค่าให้ถูกช่องกับโหมดที่เปิดใช้งานอยู่
@@ -420,7 +359,7 @@ class LSBExtractTab(QFrame):
             return False
                       
         # 2. เช็คว่าได้เปิดการถอดรหัสไหม
-        if not self.encrypt_toggle_switch.isChecked():
+        if not self.decrypt_toggle_switch.isChecked():
             return True
 
         # 3. เช็คโหมด Symmetric (Password)
@@ -446,20 +385,6 @@ class LSBExtractTab(QFrame):
         
     def on_private_key_selected(self, file_path: str):
         self.private_key_path = file_path
-        
-    def on_decryption_toggled(self, checked: bool):
-        # 1. จัดการปุ่ม Password และ Private Key (โชว์/ซ่อน/ทำให้เป็นสีเทา)
-        self.btn_symmetric.setEnabled(checked)
-        self.btn_asymmetric.setEnabled(checked)
-        
-        # 2. จัดการหน้า Stack ที่จะแสดง
-        if checked:
-            # ถ้าเปิด Toggle: ให้กลับไปโชว์หน้าที่ถูกเลือกไว้ล่าสุดใน ButtonGroup (0 หรือ 1)
-            current_checked_id = self.decrypt_group.checkedId()
-            if current_checked_id != -1:
-                self.encrypt_stack.setCurrentIndex(current_checked_id)
-        else:
-            self.encrypt_stack.setCurrentIndex(2)
             
     def on_update_progess(self, percent: int, message: str):
         self.status_label.setText(f'Status: {message}')
