@@ -2,30 +2,18 @@ import base64
 from PyQt6.QtWidgets import (
     QFrame, QVBoxLayout, QLabel, QTreeWidget, QTreeWidgetItem,
     QSplitter, QListWidget, QListWidgetItem, QHBoxLayout,
-    QScrollArea, QWidget, QAbstractItemView, QLineEdit, QSpinBox,
-    QCheckBox, QComboBox, QTableWidget, QTableWidgetItem, QHeaderView,
+    QScrollArea, QWidget, QAbstractItemView,
     QPushButton, QProgressBar, QFileDialog, QMessageBox
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QBrush
-from src.core.analyzer.docker_bridge import strings_scan, carve
+from src.core.analyzer.docker_bridge import carve
 from src.gui.tabs.analyzer.zsteg_card import ExtractPreviewDialog
-from src.gui.components.strings_scan import is_interesting
 from src.gui.components.worker import FunctionWorker
 
 RED = "#f43f5e"
 GREEN = "#34D399"
 GRAY = "#94A3B8"
-BLUE = "#38BDF8"
-STR_MAX_ROWS = 2000  # cap the strings table so a huge file doesn't build a giant widget
-
-# GNU strings `-e` encodings, as (label, value) for the picker.
-STR_ENCODINGS = [
-    ("ASCII (7-bit)", "ascii"),
-    ("8-bit / UTF-8", "8bit"),
-    ("UTF-16 LE", "utf16le"),
-    ("UTF-16 BE", "utf16be"),
-]
 NAV_ROLE = Qt.ItemDataRole.UserRole      # summary item -> the tree item it points at
 BYTES_ROLE = Qt.ItemDataRole.UserRole + 1  # tree item -> {"b64", "size"} for the hex preview
 
@@ -40,9 +28,6 @@ class FileStructureTab(QFrame):
         self._suspicious_items = []
         self._overlay_item = None
         self._file_path = None
-        self._all_strings = []
-        self._str_encoding = "ascii"
-        self._str_worker = None
         self._carve_worker = None
         self.init_ui()
 
@@ -168,94 +153,12 @@ class FileStructureTab(QFrame):
         content_layout.addWidget(right_container, stretch=3)
 
         outer.addWidget(top_row)
-        outer.addWidget(self._build_strings_card())
 
         scroll_area.setWidget(scroll_content)
         main_layout.addWidget(scroll_area)
 
-    def _build_strings_card(self) -> QFrame:
-        card = QFrame()
-        card.setObjectName("card")
-        lay = QVBoxLayout(card)
-        lay.setContentsMargins(15, 15, 15, 15)
-        lay.setSpacing(10)
-
-        title = QLabel("Strings")
-        title.setObjectName("cardTitle")
-        lay.addWidget(title)
-
-        hint = QLabel("GNU <b>strings</b> over the raw bytes — finds plaintext hidden in an appended "
-                      "overlay, a metadata chunk, or padding. Compressed pixel data yields mostly "
-                      "coincidental runs, so raise <b>Min length</b> or use the filters to find real text.")
-        hint.setObjectName("hintLabel")
-        hint.setWordWrap(True)
-        lay.addWidget(hint)
-
-        # `-n` / `-e` are scan parameters, so they only take effect on an explicit Scan - running
-        # the tool on every spinner tick fired a Docker call per keystroke.
-        controls = QHBoxLayout()
-        controls.addWidget(QLabel("Min length:"))
-        self.str_minlen = QSpinBox()
-        self.str_minlen.setRange(1, 64)
-        self.str_minlen.setValue(6)
-        self.str_minlen.setFixedWidth(60)
-        controls.addWidget(self.str_minlen)
-
-        self.str_enc = QComboBox()
-        for label, _value in STR_ENCODINGS:
-            self.str_enc.addItem(label)
-        controls.addWidget(self.str_enc)
-
-        self.str_scan_btn = QPushButton("Scan")
-        self.str_scan_btn.setObjectName("PrimaryActionBtn")
-        self.str_scan_btn.clicked.connect(self._fetch_strings)
-        controls.addWidget(self.str_scan_btn)
-
-        self.str_progress = QProgressBar()
-        self.str_progress.setRange(0, 0)  # indeterminate
-        self.str_progress.setTextVisible(False)
-        self.str_progress.setFixedSize(90, 6)
-        self.str_progress.hide()
-        controls.addWidget(self.str_progress)
-
-        self.str_search = QLineEdit()
-        self.str_search.setObjectName("formInput")
-        self.str_search.setPlaceholderText("Filter strings…")
-        self.str_search.textChanged.connect(self._render_strings)
-        controls.addWidget(self.str_search, 1)
-
-        self.str_interesting = QCheckBox("Interesting only")
-        self.str_interesting.toggled.connect(self._render_strings)
-        controls.addWidget(self.str_interesting)
-
-        self.str_count = QLabel("")
-        self.str_count.setObjectName("hintLabel")
-        controls.addWidget(self.str_count)
-        lay.addLayout(controls)
-
-        self.str_table = QTableWidget(0, 3)
-        self.str_table.setObjectName("darkTable")
-        self.str_table.setHorizontalHeaderLabels(["Offset", "Enc", "String"])
-        self.str_table.verticalHeader().setVisible(False)
-        self.str_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        h = self.str_table.horizontalHeader()
-        h.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        h.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        h.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        self.str_table.setMinimumHeight(220)
-        lay.addWidget(self.str_table)
-
-        return card
-
     def set_target_file(self, file_path: str):
-        """Point the Strings scanner at the current file. Scanning is user-triggered (Scan) -
-        it's a separate Docker call and can be slow on large files, so it doesn't ride along
-        with Run Analysis."""
         self._file_path = file_path
-        self._all_strings = []
-        self.str_table.setRowCount(0)
-        self.str_scan_btn.setEnabled(bool(file_path))
-        self.str_count.setText("Click Scan to search the file for text" if file_path else "")
         self.carve_btn.setEnabled(bool(file_path))
         self.carve_status.setText("")
 
@@ -294,64 +197,6 @@ class FileStructureTab(QFrame):
         more = f"\n  … and {len(files) - 20} more" if len(files) > 20 else ""
         QMessageBox.information(self, "Files Extracted",
                                 f"{len(files)} file(s) written to:\n{out_dir}\n\n{listing}{more}")
-
-    def _fetch_strings(self):
-        """Run GNU strings in the analyzer container, off the UI thread."""
-        if not self._file_path or (self._str_worker and self._str_worker.isRunning()):
-            return
-        self._str_encoding = STR_ENCODINGS[self.str_enc.currentIndex()][1]
-        self._set_strings_busy(True)
-        self._str_worker = FunctionWorker(strings_scan, self._file_path,
-                                      min_len=self.str_minlen.value(), encoding=self._str_encoding)
-        self._str_worker.done.connect(self._on_strings_done)
-        self._str_worker.start()
-
-    def _set_strings_busy(self, busy: bool):
-        for w in (self.str_minlen, self.str_enc, self.str_scan_btn):
-            w.setEnabled(not busy)
-        self.str_progress.setVisible(busy)
-        if busy:
-            self.str_count.setText("Scanning…")
-
-    def _on_strings_done(self, result: dict):
-        self._set_strings_busy(False)
-        if not isinstance(result, dict) or result.get("error"):
-            self._all_strings = []
-            self.str_table.setRowCount(0)
-            self.str_count.setText((result or {}).get("error", "strings failed")
-                                   if isinstance(result, dict) else "strings failed")
-            return
-        self._all_strings = result.get("strings", [])
-        self._str_truncated = result.get("truncated", False)
-        self._render_strings()
-
-    def _render_strings(self):
-        query = self.str_search.text().lower()
-        only_interesting = self.str_interesting.isChecked()
-        rows = []
-        for entry in self._all_strings:
-            text = entry.get("text", "")
-            if only_interesting and not is_interesting(text):
-                continue
-            if query and query not in text.lower():
-                continue
-            rows.append((entry.get("offset", 0), text))
-            if len(rows) >= STR_MAX_ROWS:
-                break
-
-        self.str_table.setRowCount(len(rows))
-        for i, (off, text) in enumerate(rows):
-            self.str_table.setRowHeight(i, 24)
-            self.str_table.setItem(i, 0, QTableWidgetItem(f"0x{off:X}"))
-            self.str_table.setItem(i, 1, QTableWidgetItem(self._str_encoding))
-            item = QTableWidgetItem(text)
-            if is_interesting(text):
-                item.setForeground(QBrush(QColor(BLUE)))
-            self.str_table.setItem(i, 2, item)
-
-        total = len(self._all_strings)
-        note = " (capped)" if len(rows) >= STR_MAX_ROWS or getattr(self, "_str_truncated", False) else ""
-        self.str_count.setText(f"{len(rows)} shown / {total} total{note}")
 
     # ---------------- data ----------------
     def load_data(self, data: dict):

@@ -79,11 +79,6 @@ def zsteg_scan(file_path: str, all_methods: bool = False, bits: str = None, chan
 def zsteg_extract(file_path: str, combination: str) -> dict:
     return _run(["zsteg-extract", "{file}", combination], file_path)
 
-
-def strings_scan(file_path: str, min_len: int = 6, encoding: str = "ascii") -> dict:
-    return _run(["strings-scan", "{file}", "--min", str(min_len), "--encoding", encoding], file_path)
-
-
 def carve(file_path: str, out_dir: str) -> dict:
     """Extract embedded files into `out_dir` on the host (mounted writable at /out)."""
     out = Path(out_dir).resolve()

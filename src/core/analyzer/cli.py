@@ -42,12 +42,6 @@ def main():
     p_extract.add_argument("file")
     p_extract.add_argument("combination")
 
-    p_strings = sub.add_parser("strings-scan")
-    p_strings.add_argument("file")
-    p_strings.add_argument("--min", type=int, default=6)
-    p_strings.add_argument("--encoding", default="ascii",
-                           choices=["ascii", "8bit", "utf16le", "utf16be"])
-
     p_carve = sub.add_parser("carve")
     p_carve.add_argument("file")
     p_carve.add_argument("--out", required=True)
@@ -66,9 +60,6 @@ def main():
         elif args.command == "zsteg-extract":
             from src.core.analyzer.external_tools.zsteg_wrapper import extract
             result = extract(args.file, args.combination)
-        elif args.command == "strings-scan":
-            from src.core.analyzer.external_tools.strings_wrapper import scan
-            result = scan(args.file, min_len=args.min, encoding=args.encoding)
         elif args.command == "carve":
             from src.core.analyzer.external_tools.binwalk_wrapper import carve
             result = carve(args.file, args.out)
