@@ -7,7 +7,8 @@ from PyQt6.QtWidgets import (
 )
 from src.gui.components.files_drop import FileDropWidget
 from src.gui.components.gui_utils import create_icon_pixmap, format_file_size, truncate_text_middle
-from src.gui.tabs.metadata_shared import FileInfoBar
+from src.gui.components.file_info_bar import FileInfoBar
+from src.gui.components.visibility_stack import VisibilityStack
 from src.gui.tabs.compare.meta_diff_tab import MetaDiffTab
 from src.gui.tabs.compare.struct_diff_tab import StructDiffTab
 from src.gui.tabs.compare.stat_diff_tab import StatDiffTab
@@ -30,8 +31,7 @@ class ComparePage(QFrame):
         main_layout = QVBoxLayout(self)
 
         # -- Input Section --
-        self.input_stack = QStackedWidget()
-        self.input_stack.setFixedHeight(160)
+        self.input_stack = VisibilityStack()
         self.input_stack.addWidget(self.build_drop_zones())
         self.input_stack.addWidget(self.build_selected_zones())
         main_layout.addWidget(self.input_stack)
@@ -39,7 +39,7 @@ class ComparePage(QFrame):
         # -- Compare Button --
         self.btn_compare = QPushButton("Run Comparison")
         self.btn_compare.setObjectName("primaryButton")
-        self.btn_compare.setFixedHeight(40)
+        self.btn_compare.setMinimumHeight(40)
         self.btn_compare.setEnabled(False) # Enabled only when both files are selected
         self.btn_compare.clicked.connect(self.on_compare_clicked)
         main_layout.addWidget(self.btn_compare)

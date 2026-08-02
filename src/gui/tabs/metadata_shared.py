@@ -1,13 +1,12 @@
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+
 from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, ID3NoHeaderError
 from PIL import Image
 
 from src.core.stego.metadata_handlers.png_handler import MetadataPNGHandler
-from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, format_file_size, truncate_text_middle
+from src.gui.components.gui_utils import format_file_size, truncate_text_middle
 
 ICON_DIR = Path(__file__).parent.parent / "assets" / "svg"
 
@@ -46,6 +45,7 @@ def get_file_display_info(file_path: str) -> dict:
             frame_count = 0
 
         return {
+            "path": file_path,
             "icon": str(ICON_DIR / "file-music.svg"),
             "name": display_name,
             "detail": f"{size_text} · {duration_text} · {bitrate_text} · {id3_version}",
@@ -71,92 +71,9 @@ def get_file_display_info(file_path: str) -> dict:
             chunk_text = "-- text chunks"
 
         return {
+            "path": file_path,
             "icon": str(ICON_DIR / "photo.svg"),
             "name": display_name,
             "detail": f"{size_text} · {width} × {height} · {bit_depth}-bit",
             "badges": [("PNG", "blue"), (chunk_text, "neutral")],
         }
-
-
-class FileInfoBar(QFrame):
-    """แถบข้อมูลไฟล์ที่เลือกไว้ (icon + ชื่อ + รายละเอียด + badge + ปุ่ม Change File)
-    ใช้ร่วมกันทั้งฝั่ง embed และ extract
-    """
-    change_file_requested = pyqtSignal()
-
-    def __init__(self):
-        super().__init__()
-        self.setObjectName("fileInfoCard")
-        add_shadow_effect(self)
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(12)
-
-        icon_box = QFrame()
-        icon_box.setObjectName("fileInfoIconBox")
-        icon_box.setFixedSize(44, 44)
-        icon_box_layout = QVBoxLayout(icon_box)
-        icon_box_layout.setContentsMargins(0, 0, 0, 0)
-        icon_box_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self.file_info_icon = QLabel()
-        icon_box_layout.addWidget(self.file_info_icon)
-        layout.addWidget(icon_box)
-
-        text_layout = QVBoxLayout()
-        text_layout.setSpacing(2)
-        text_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-
-        self.file_info_name = QLabel()
-        self.file_info_name.setObjectName("fileInfoName")
-
-        self.file_info_detail = QLabel()
-        self.file_info_detail.setObjectName("fileInfoDetail")
-
-        text_layout.addWidget(self.file_info_name)
-        text_layout.addWidget(self.file_info_detail)
-        layout.addLayout(text_layout)
-
-        layout.addStretch()
-
-        self.badge_layout = QHBoxLayout()
-        self.badge_layout.setSpacing(6)
-        layout.addLayout(self.badge_layout)
-
-        change_file_btn = QPushButton("Change File")
-        change_file_btn.setObjectName("SecondaryBtn")
-        change_file_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        change_file_btn.clicked.connect(self.change_file_requested.emit)
-        layout.addWidget(change_file_btn)
-        self._change_file_btn = change_file_btn
-
-    def add_extra_button(self, text: str) -> QPushButton:
-        """เพิ่มปุ่มเสริมทางซ้ายของปุ่ม Change File (เช่น "View Frames" ในหน้า extract)
-        ไม่ได้ผูกไว้ใน __init__ ตรงๆ เพราะปุ่มนี้ใช้เฉพาะบางหน้า (ไม่ใช่ทุกที่ที่ใช้ FileInfoBar)
-        """
-        btn = QPushButton(text)
-        btn.setObjectName("SecondaryBtn")
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        index = self.layout().indexOf(self._change_file_btn)
-        self.layout().insertWidget(index, btn)
-        return btn
-
-    def update_info(self, info: dict):
-        self.file_info_icon.setPixmap(create_icon_pixmap(info["icon"], "#38BDF8", size=20))
-        self.file_info_name.setText(info["name"])
-        self.file_info_detail.setText(info["detail"])
-
-        # เคลียร์ badge เก่าก่อนเติมชุดใหม่ (จำนวน badge ไม่เท่ากันในแต่ละไฟล์)
-        while self.badge_layout.count():
-            item = self.badge_layout.takeAt(0)
-            widget = item.widget()
-            if widget:
-                widget.hide()  # deleteLater() รอรอบ event loop ถัดไป ต้อง hide() ก่อนกันค้างเห็นซ้อนกัน
-                widget.deleteLater()
-
-        for label_text, color in info["badges"]:
-            badge = QLabel(label_text)
-            badge.setObjectName("fileInfoBadge")
-            badge.setProperty("badgeColor", color)
-            self.badge_layout.addWidget(badge, 0, Qt.AlignmentFlag.AlignVCenter)

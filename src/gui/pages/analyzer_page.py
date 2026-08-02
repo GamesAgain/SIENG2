@@ -1,17 +1,16 @@
 from pathlib import Path
-from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QMessageBox, QStackedWidget,
-    QTabBar, QTabWidget, QVBoxLayout, QWidget
+    QFrame, QMessageBox, QTabWidget, QVBoxLayout, QWidget
 )
 from src.gui.components.files_drop import FileDropWidget
 from src.gui.components.gui_utils import create_icon_pixmap, format_file_size, truncate_text_middle
+from src.gui.components.visibility_stack import VisibilityStack
 from src.gui.tabs.analyzer.bit_stat import BitStatTab
 from src.gui.tabs.analyzer.file_structure import FileStructureTab
 from src.gui.tabs.analyzer.metadata_tab import MetadataTab
 from src.gui.tabs.analyzer.report_tab import ReportTab
-from src.gui.tabs.metadata_shared import FileInfoBar
+from src.gui.components.file_info_bar import FileInfoBar
 from src.gui.components.worker import FunctionWorker
 
 ICON_DIR = Path(__file__).resolve().parent.parent / "assets" / "svg"
@@ -33,6 +32,7 @@ def get_analyzer_file_display_info(file_path: str) -> dict:
             width, height, bit_depth = 0, 0, 8
         
         return {
+            "path": file_path,
             "icon": str(ICON_DIR / "photo.svg"),
             "name": display_name,
             "detail": f"{size_text} · {width} × {height} · {bit_depth}-bit",
@@ -41,6 +41,7 @@ def get_analyzer_file_display_info(file_path: str) -> dict:
     else:
         ext_upper = ext.upper().replace(".", "")
         return {
+            "path": file_path,
             "icon": str(ICON_DIR / "file.svg"),
             "name": display_name,
             "detail": f"{size_text} · {ext_upper} File",
@@ -58,8 +59,8 @@ class AnalyzerPage(QFrame):
     def init_ui(self):
         main_layout = QVBoxLayout(self)
 
-        self.file_stack = QStackedWidget()
-        self.file_stack.setFixedHeight(110)
+        self.file_stack = VisibilityStack()
+        self.file_stack.setMaximumHeight(100)
         self.file_stack.addWidget(self.build_file_drop_card())
         self.file_stack.addWidget(self.build_file_selected_card())
         main_layout.addWidget(self.file_stack)

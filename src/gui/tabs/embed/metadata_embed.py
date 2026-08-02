@@ -8,7 +8,8 @@ from src.gui.components.step_output_picker import StepOutputPicker
 from src.gui.components.visibility_stack import VisibilityStack
 from src.gui.tabs.embed.metadata_mp3_editor import MP3MetadataEditor
 from src.gui.tabs.embed.metadata_png_editor import PNGMetadataEditor
-from src.gui.tabs.metadata_shared import FileInfoBar, get_file_display_info
+from src.gui.components.file_info_bar import FileInfoBar
+from src.gui.tabs.metadata_shared import get_file_display_info
 
 ICON_DIR = Path(__file__).parent.parent.parent / "assets" / "svg"
 ICON_SIZE = 14

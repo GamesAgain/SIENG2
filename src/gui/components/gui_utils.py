@@ -109,5 +109,3 @@ def create_icon_pixmap(icon_path: str, color_hex: str = "#94a3b8", size: int = 2
     painter.end()
     
     return icon_pixmap
-    
-    

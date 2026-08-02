@@ -2,7 +2,7 @@ from pathlib import Path
 from PyQt6.QtCore import QFileInfo, Qt, pyqtSignal
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QMouseEvent, QPixmap
 from PyQt6.QtWidgets import (
-    QFileDialog, QFileIconProvider, QFrame, QLabel, QSizePolicy,
+    QFileDialog, QFileIconProvider, QFrame, QLabel,
     QVBoxLayout, QHBoxLayout, QPushButton, QScrollArea, QWidget, QMessageBox
 )
 

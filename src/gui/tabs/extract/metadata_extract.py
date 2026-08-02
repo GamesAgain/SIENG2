@@ -13,7 +13,8 @@ from src.core.stego.metadata_handlers.mp3_handler import (
 from src.core.stego.metadata_handlers.png_handler import PNG_TEXT_KEYWORDS, MetadataPNGHandler
 from src.gui.components.files_drop import FileDropWidget
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, create_icon_state, format_file_size
-from src.gui.tabs.metadata_shared import FileInfoBar, get_file_display_info
+from src.gui.components.file_info_bar import FileInfoBar
+from src.gui.tabs.metadata_shared import get_file_display_info
 
 ICON_DIR = Path(__file__).parent.parent.parent / "assets" / "svg"
 
