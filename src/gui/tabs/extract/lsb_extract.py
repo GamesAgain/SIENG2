@@ -381,9 +381,15 @@ class LSBExtractTab(QFrame):
     
     # --- Event Handler ---
     def on_stego_file_selected(self, file_path: str):
+        if not file_path:
+            self.stego_file_path = None
+            return
         self.stego_file_path = file_path
         
     def on_private_key_selected(self, file_path: str):
+        if not file_path:
+            self.private_key_path = None
+            return
         self.private_key_path = file_path
             
     def on_update_progess(self, percent: int, message: str):

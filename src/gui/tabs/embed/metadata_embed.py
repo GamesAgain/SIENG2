@@ -109,6 +109,9 @@ class MetadataEmbedTab(QFrame):
 
     # --- Event Handler ---
     def on_cover_file_selected(self, file_path: str):
+        if not file_path:
+            self.cover_file = None
+            return
         self.cover_file = file_path
         info = get_file_display_info(file_path)
         self.file_info_bar.update_info(info)

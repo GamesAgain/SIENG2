@@ -105,10 +105,18 @@ class ComparePage(QFrame):
         return container
 
     def on_file_orig_selected(self, file_path: str):
+        if not file_path:
+            self.file_orig_path = None
+            self.check_files_ready()
+            return
         self.file_orig_path = file_path
         self.check_files_ready()
 
     def on_file_stego_selected(self, file_path: str):
+        if not file_path:
+            self.file_stego_path = None
+            self.check_files_ready()
+            return
         self.file_stego_path = file_path
         self.check_files_ready()
         

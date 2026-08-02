@@ -457,6 +457,9 @@ class LSBEmbedInputs(QFrame):
 
     # --- Event Handler ---
     def on_cover_file_selected(self, file_path: str):
+        if not file_path:
+            self.cover_file_path = None
+            return
         self.cover_file_path = file_path
 
         self.isCalculating = True
@@ -499,6 +502,9 @@ class LSBEmbedInputs(QFrame):
         self.update_capacity_label()  # ขนาด RSA key มีผลต่อ overhead ของโหมด asymmetric
 
     def on_payload_file_selected(self, file_path: str):
+        if not file_path:
+            self.payload_file_path = None
+            return
         self.payload_file_path = file_path
 
         encodings_to_try = ['utf-8-sig', 'utf-8', 'utf-16', 'cp874']

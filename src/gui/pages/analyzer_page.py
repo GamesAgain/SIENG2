@@ -105,6 +105,9 @@ class AnalyzerPage(QFrame):
 
     # --- Event Handlers ---
     def on_file_selected(self, file_path: str):
+        if not file_path:
+            self.file_path = None
+            return
         self.file_path = file_path
         
         info = get_analyzer_file_display_info(file_path)
