@@ -440,7 +440,7 @@ class LSBPP:
             raise ValueError("Extraction failed: image capacity too small to contain a valid header.")
 
         # 1. Read the header first (magic + length) to find the total message size
-        header_bytes = self.lsb_extract(stego_image, pixel_order, capacity_map, max_bits=header_bits)
+        header_bytes = self.lsb_extract(stego_image, pixel_order, capacity_map, max_bits=header_bits, total_bits=None)
 
         if header_bytes[:3] not in (MAGIC_SYM, MAGIC_ASYM, MAGIC_NONE):
             raise ValueError("Extraction failed: Invalid SIENG2 signature. Please verify your image and password.")
@@ -453,7 +453,7 @@ class LSBPP:
             raise ValueError("Extraction failed: decoded length exceeds image capacity. Please verify your image and password.")
 
         # 3. Perform a second read for the exact required bits (header + payload)
-        extracted_bytes = self.lsb_extract(stego_image, pixel_order, capacity_map, max_bits=required_bits)
+        extracted_bytes = self.lsb_extract(stego_image, pixel_order, capacity_map, max_bits=required_bits, total_bits=required_bits)
         data_bytes = self.unpack_data(extracted_bytes, private_key_path, password)
 
         # Decode message
@@ -552,11 +552,12 @@ class LSBPP:
         
         return stego_image
 
-    def lsb_extract(self, stego_image: Image.Image, pixel_order: np.ndarray, capacity_map: np.ndarray, max_bits: int = None) -> bytes:
+    def lsb_extract(self, stego_image: Image.Image, pixel_order: np.ndarray, capacity_map: np.ndarray, max_bits: int = None, total_bits: int = None) -> bytes:
         """
         Extract message from stego image.
         Dynamically adjusts the extraction bits (k) based on image texture surface
         max_bits: Bits to read (None = read all supported by pixel_order).
+        total_bits: Total length of payload. If None, won't shrink chunk at end.
         """
         # 1. Convert image to numpy array
         img_array = np.array(stego_image)
@@ -591,7 +592,8 @@ class LSBPP:
                 idx = px * 3 + channel
                 value = rgb_flat[idx]
                 
-                actual_k = min(k, max_bits - bit_count) # trap in case there are less than k
+                # If total_bits is known (end of payload), shrink k. Otherwise read full k.
+                actual_k = k if total_bits is None else min(k, total_bits - bit_count)
                 
                 # Extract embedding bits
                 extraction_mask = (1 << actual_k) - 1
@@ -600,8 +602,9 @@ class LSBPP:
                 # Convert the extracted integer back into an array of bits (0, 1)
                 # Extract from MSB down to LSB to preserve the original embedded sequence (chunk). 
                 for i in range(actual_k - 1, -1, -1):
-                    extracted_bits[bit_count] = (extracted_value >> i) & 1
-                    bit_count += 1
+                    if bit_count < max_bits:
+                        extracted_bits[bit_count] = (extracted_value >> i) & 1
+                        bit_count += 1
 
         # 4. Convert bits to bytes
         extracted_bytes = np.packbits(extracted_bits)
