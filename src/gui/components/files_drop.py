@@ -9,7 +9,19 @@ from PyQt6.QtWidgets import (
 from src.gui.components.gui_utils import create_icon_pixmap, format_file_size, truncate_text_middle
 
 ICON_DIR = Path(__file__).parent.parent / "assets" / "svg"
-
+IMAGE_EXTENSIONS = [
+    # 1. Standard & Web (ไฟล์มาตรฐานที่ใช้งานบ่อยที่สุดและรองรับ Preview)
+    '.png', '.jpg', '.jpeg', '.gif', '.webp',
+    
+    # 2. JPEG Family (นามสกุลย่อยที่มักได้จากการดาวน์โหลดบนเว็บ)
+    '.jpe', '.jfif',
+    
+    # 3. Bitmap & High Res (ไฟล์ภาพดิบและภาพความละเอียดสูงสำหรับงานพิมพ์)
+    '.bmp', '.dib', '.tiff', '.tif',
+    
+    # 4. Icons & Legacy Graphics (ไฟล์ไอคอนและกราฟิกเฉพาะทาง)
+    '.ico', '.tga'
+]
 
 # ==========================================
 # 1. คลาสสำหรับ 1 แถวของไฟล์ (File Item Row)
@@ -32,7 +44,7 @@ class FileItemWidget(QFrame):
 
         file_path_obj = Path(self.file_path)
         file_ext = file_path_obj.suffix.lower()
-        image_exts = ['.png', '.jpg', '.jpeg', '.bmp', '.gif']
+        image_exts = IMAGE_EXTENSIONS
 
         # 1. Preview / Icon
         self.icon_label = QLabel()
@@ -403,7 +415,7 @@ class FilesDropWidget(QFrame):
             file_path = self.selected_files[0]
 
             # โหลดภาพแคช
-            if Path(file_path).suffix.lower() in ['.png', '.jpg', '.jpeg', '.bmp', '.gif']:
+            if Path(file_path).suffix.lower() in IMAGE_EXTENSIONS:
                 self._preview_pixmap = QPixmap(file_path)
             else:
                 self._preview_pixmap = None
@@ -432,7 +444,7 @@ class FilesDropWidget(QFrame):
     def render_single_preview(self, file_path):
         file_path_obj = Path(file_path)
         file_ext = file_path_obj.suffix.lower()
-        image_exts = ['.png', '.jpg', '.jpeg', '.bmp', '.gif']
+        image_exts = IMAGE_EXTENSIONS
 
         if file_ext in image_exts and self._preview_pixmap is not None:
             self.main_label.hide()

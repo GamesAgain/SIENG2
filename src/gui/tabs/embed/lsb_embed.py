@@ -340,7 +340,21 @@ class LSBEmbedInputs(QFrame):
         title_layout.addStretch()
         
         # Declare allowed image file format
-        allowed_exts = ["png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "tiff", "tif"]
+        allowed_exts = [
+            # 1. กลุ่มที่คนใช้งานเยอะที่สุด (ภาพพื้นใส / ภาพถ่าย / ภาพบนเว็บ)
+            ".png", 
+            ".jpg", ".jpeg", ".webp",
+            
+            # 2. กลุ่มนามสกุลย่อยของ JPEG (เจอบ่อยเวลาเซฟรูปจากอินเทอร์เน็ต / Twitter / Facebook)
+            ".jpe", ".jfif", 
+            
+            # 3. กลุ่มภาพมาตรฐานระบบ Windows และงานสแกนเอกสาร/งานพิมพ์
+            ".bmp", 
+            ".tiff", ".tif", 
+            
+            # 4. กลุ่มไอคอนมาตรฐาน
+            ".ico"
+        ]
         
         drop_zone = FileDropWidget("Drop PNG file here or click to browse", "PNG format only", str(ICON_DIR / "photo.svg"), allowed_extensions=allowed_exts)
         drop_zone.file_selected.connect(self.on_cover_file_selected)
