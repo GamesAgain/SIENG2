@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
 
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap
 from src.gui.components.result_viewers import PayloadResultViewer
+from src.gui.components.worker import FunctionWorker
 from src.gui.pages.sub_pages.embed.pipeline_constants import STEP_META
 from src.gui.tabs.extract.metadata_extract import AllFramesDialog, MP3MetadataViewer, PNGAllChunksDialog, PNGMetadataViewer
 
@@ -89,6 +90,8 @@ class ExtractConfigurablePage(QFrame):
         self.resource_rows = []          # ResourceRow ต่อไฟล์ตั้งต้น
         self.session = None              # ExtractSession — สร้างตอน import, res_path อัปเดตสดตามที่แนบไฟล์
         self.workflow_rows = {}          # embed_id -> refs สำหรับอัปเดตสถานะสด
+        self._extract_worker = None
+        self._extract_result = None
         self.setup_ui()
 
     def setup_ui(self):
@@ -190,9 +193,6 @@ class ExtractConfigurablePage(QFrame):
         card.setObjectName("card")
         add_shadow_effect(card)
         layout = QVBoxLayout(card)
-        self.status_label = QLabel("Status: Ready")
-        self.status_label.setObjectName("statusLabel")
-        layout.addWidget(self.status_label)
         self.progress_bar = QProgressBar()
         self.progress_bar.setObjectName("loadingIndicator")
         self.progress_bar.setTextVisible(False)
@@ -200,6 +200,10 @@ class ExtractConfigurablePage(QFrame):
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         layout.addWidget(self.progress_bar)
+        self.status_label = QLabel("Status: Ready")
+        self.status_label.setObjectName("statusLabel")
+        self.status_label.setWordWrap(True)
+        layout.addWidget(self.status_label)
         return card
 
     # ── Import handler → populate resources + workflow ──
@@ -405,6 +409,8 @@ class ExtractConfigurablePage(QFrame):
 
     # ── ปุ่ม Extract ต่อการ์ด — รันเฉพาะ node นี้ทีเดียว (ไม่ cascade ต่อให้เอง ต้องกดทีละการ์ด) ──
     def _on_extract_clicked(self, node: dict):
+        if self._extract_worker is not None and self._extract_worker.isRunning():
+            return
         if self.session is None or not self.session.is_ready(node):
             QMessageBox.warning(
                 self, "Extract",
@@ -427,12 +433,54 @@ class ExtractConfigurablePage(QFrame):
                     return
                 secret = {"private_key_path": refs["key_path"]}
 
+        self.progress_bar.setValue(0)
+        self.status_label.setText(f"Extracting {node['embed_id']}...")
+        self._set_extract_running(True, node)
+        self._extract_result = None
+        self._extract_worker = FunctionWorker(self.session.run_node, node, secret, report_progress=True)
+        self._extract_worker.progress.connect(self._on_extract_progress)
+        self._extract_worker.done.connect(lambda result, current=node: self._on_extract_done(current, result))
+        self._extract_worker.finished.connect(self._on_extract_finished)
+        self._extract_worker.finished.connect(self._extract_worker.deleteLater)
+        self._extract_worker.start()
+        return
+
         try:
             self.session.run_node(node, secret)
         except Exception as e:
             QMessageBox.critical(self, "Extract", f"Extraction failed:\n{e}")
             return
         self._refresh_all_rows()
+
+    def _set_extract_running(self, running: bool, active_node: dict = None):
+        self.import_btn.setEnabled(not running)
+        for resource_row in self.resource_rows:
+            resource_row.attach_btn.setEnabled(not running)
+        for node_id, refs in self.workflow_rows.items():
+            refs["extract_btn"].setEnabled(not running and refs["extract_btn"].isEnabled())
+            refs["view_btn"].setEnabled(not running and refs["view_btn"].isEnabled())
+            if running and active_node is not None and node_id == active_node["embed_id"]:
+                refs["extract_btn"].setText(" Extracting...")
+            elif not running:
+                refs["extract_btn"].setText(" Extract")
+
+    def _on_extract_progress(self, percent: int, message: str):
+        self.progress_bar.setValue(percent)
+        self.status_label.setText(message)
+
+    def _on_extract_done(self, node: dict, result):
+        self._extract_result = (node, result)
+
+    def _on_extract_finished(self):
+        self._extract_worker = None
+        self._set_extract_running(False)
+        self._refresh_all_rows()
+        node, result = self._extract_result or (None, None)
+        self._extract_result = None
+        if isinstance(result, dict) and set(result) == {"error"} and isinstance(result["error"], str):
+            self.progress_bar.setValue(0)
+            self.status_label.setText(f"Extraction failed: {node['embed_id']}")
+            QMessageBox.critical(self, "Extract", f"Extraction failed:\n{result['error']}")
 
     # ── ปุ่ม View Result — เปิด dialog ที่ reuse ตัว viewer เดียวกับ Standalone extract ──
     def _on_view_result_clicked(self, node: dict):

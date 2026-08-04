@@ -803,6 +803,9 @@ class MP3ImagesTab(QWidget):
 
     # --- Events ---
     def on_image_file_selected(self, file_path: str):
+        if not file_path:
+            return
+        
         path_obj = Path(file_path)
         self._pending_image_bytes = path_obj.read_bytes()
         ext = path_obj.suffix.lower()

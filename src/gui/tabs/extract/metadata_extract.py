@@ -726,6 +726,11 @@ class MetadataExtractTab(QFrame):
 
     # --- Event Handler ---
     def on_stego_file_selected(self, file_path: str):
+        
+        if not file_path:
+            self.stego_file = None
+            return
+        
         self.stego_file = file_path
         info = get_file_display_info(file_path)
         self.file_info_bar.update_info(info)

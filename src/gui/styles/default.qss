@@ -666,6 +666,12 @@ QLabel#fileInfoBadge[badgeColor="orange"] {
     border: 1px solid rgba(245, 158, 15, 0.5);
     color: #F59E0F;
 }
+/* Badge สีแดง สำหรับแสดง Error หรือสถานะที่มีปัญหา */                                                                                           
+QLabel#fileInfoBadge[badgeColor="red"] {                                                                                                 
+    background-color: rgba(239, 68, 68, 0.1);                                                                                            
+    border: 1px solid rgba(239, 68, 68, 0.5);                                                                                            
+    color: #EF4444;                                                                                                                      
+}  
 
 
 

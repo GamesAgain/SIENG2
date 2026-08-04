@@ -618,6 +618,14 @@ class MetadataMP3Handler:
         if clear_existing:
             tag.clear()
 
+        # Diff: ลบ frame ที่เคยมีในไฟล์เดิม แต่ไม่ได้ถูกส่งมาจาก GUI (ผู้ใช้ตั้งใจลบทิ้ง)
+        if not clear_existing:
+            existing_ids = {key.split(":")[0] for key in tag.keys()}
+            incoming_ids = set(frames_by_id.keys())
+            deleted_ids = existing_ids - incoming_ids
+            for frame_id in deleted_ids:
+                tag.delall(frame_id)
+
         # เขียนทับเฉพาะ instance ที่ HashKey ตรงกันเป๊ะๆ (เช่น "TXXX:SIENG_SECRET")
         # instance อื่นของ frame ประเภทเดียวกัน (เช่น TXXX:Encoded_by) ไม่ถูกลบ
         for frames in frames_by_id.values():
@@ -631,7 +639,7 @@ class MetadataMP3Handler:
                     tag.delall(frame.HashKey)
                 tag.add(frame)
 
-        tag.save(save_path, v2_version=4)
+        tag.save(save_path, v2_version=3, v23_sep='/')
         return save_path
 
     def _dedupe_identity(self, items: list, field: str, extra_key: str = None) -> list:
@@ -765,19 +773,21 @@ class MetadataMP3Handler:
                         mime = item.get("mime", "image/png")
 
                     if img_data:
-                        desc = item.get("desc") or "Cover"
+                        desc = item.get("desc") or None
                         base_desc = desc
                         suffix = 2
                         while desc in used_descs:
                             desc = f"{base_desc} ({suffix})"
                             suffix += 1
-                        used_descs.add(desc)
-
+                            
+                        if desc is not None:
+                            used_descs.add(desc)
+                            
                         apic_frames.append(APIC(
                             encoding=self.enc,
                             mime=mime,
                             type=item.get("type", 3),
-                            desc=desc,
+                            desc=desc or "",
                             data=img_data,
                         ))
 

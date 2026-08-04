@@ -1,7 +1,7 @@
 from pathlib import Path
 
 
-from mutagen.mp3 import MP3
+from mutagen.mp3 import MP3, HeaderNotFoundError
 from mutagen.id3 import ID3, ID3NoHeaderError
 from PIL import Image
 
@@ -21,18 +21,19 @@ def get_file_display_info(file_path: str) -> dict:
     display_name = truncate_text_middle(path_obj.name, 110)
 
     if path_obj.suffix.lower() == ".mp3":
-        audio = MP3(file_path)
-
-        # ระยะเวลาเพลง: mutagen ให้เป็นวินาที (float) แปลงเป็น "นาที:วินาที"
-        total_seconds = int(audio.info.length)
-        duration_text = f"{total_seconds // 60}:{total_seconds % 60:02d}"
-
-        # bitrate: mutagen ให้หน่วยเป็น bps แปลงเป็น kbps
-        bitrate_text = f"{audio.info.bitrate // 1000} kbps"
-
-        # เวอร์ชัน ID3 tag เช่น (2, 4, 0) -> "ID3v2.4" ถ้าไฟล์ไม่มี tag เลยให้แจ้งว่า No Tag
-        # จำนวน frame: นับ entry ใน ID3 tag ไม่รวม PRIV:S2M (สารบัญภายในของแอปเอง ไม่ใช่ metadata ผู้ใช้)
+        
         try:
+            audio = MP3(file_path)
+
+            # ระยะเวลาเพลง: mutagen ให้เป็นวินาที (float) แปลงเป็น "นาที:วินาที"
+            total_seconds = int(audio.info.length)
+            duration_text = f"{total_seconds // 60}:{total_seconds % 60:02d}"
+
+            # bitrate: mutagen ให้หน่วยเป็น bps แปลงเป็น kbps
+            bitrate_text = f"{audio.info.bitrate // 1000} kbps"
+
+            # เวอร์ชัน ID3 tag เช่น (2, 4, 0) -> "ID3v2.4" ถ้าไฟล์ไม่มี tag เลยให้แจ้งว่า No Tag
+            # จำนวน frame: นับ entry ใน ID3 tag ไม่รวม PRIV:S2M (สารบัญภายในของแอปเอง ไม่ใช่ metadata ผู้ใช้)
             tag = ID3(file_path)
             major, minor, _ = tag.version
             id3_version = f"ID3v{major}.{minor}"
@@ -40,9 +41,26 @@ def get_file_display_info(file_path: str) -> dict:
                 1 for k, frame in tag.items()
                 if not (k.startswith("PRIV:") and getattr(frame, "owner", None) == "S2M")
             )
+        except HeaderNotFoundError:
+            return {                                                                                                                     
+                    "path": file_path,                                                                                                       
+                    "icon": str(ICON_DIR / "file-music.svg"),                                                                                
+                    "name": display_name,                                                                                                    
+                    "detail": "Invalid or Corrupted MP3 file",                                                                               
+                    "badges": [("MP3 Header Not Found", "red")],                                                                                            
+                }
         except ID3NoHeaderError:
             id3_version = "No Tag"
             frame_count = 0
+        except Exception as e:                                                                                                           
+                # ดักเผื่อ Error ยิบย่อยอื่นๆ ที่อาจเกิดขึ้นตอนอ่านไฟล์                                                                                    
+                return {                                                                                                                     
+                    "path": file_path,                                                                                                       
+                    "icon": str(ICON_DIR / "file-music.svg"),                                                                                
+                    "name": display_name,                                                                                                    
+                    "detail": f"Error: {str(e)}",                                                                                            
+                    "badges": [("Error", "red")],                                                                                            
+                } 
 
         return {
             "path": file_path,

@@ -13,6 +13,7 @@ from src.gui.components.flow_layout import FlowLayout
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap
 from src.gui.components.step_card import StepCard, center_in_band, make_arrow
 from src.gui.components.step_config_widgets import PlaceholderInputs, StepConfigDialog, StepConfigPanel
+from src.gui.components.worker import FunctionWorker
 from src.gui.tabs.embed.lsb_embed import LSBEmbedInputs
 from src.gui.tabs.embed.loco_embed import LocoEmbedInputs
 from src.gui.tabs.embed.metadata_embed import MetadataEmbedTab
@@ -119,6 +120,7 @@ class EmbedConfigurablePage(QFrame):
         # ผลลัพธ์ของ run ล่าสุด — เก็บไว้ให้ Save Outputs ใช้ (None = ยังไม่มี output ให้ save)
         self.last_run_results = None
         self.last_run_config = None
+        self._pipeline_worker = None
         self.setup_ui()
         self.render_nodes()
 
@@ -138,7 +140,8 @@ class EmbedConfigurablePage(QFrame):
         main_layout.setContentsMargins(4, 11, 4, 4)
         main_layout.setSpacing(10)
 
-        main_layout.addWidget(self.build_pipeline_builder_card())
+        self.pipeline_builder_card = self.build_pipeline_builder_card()
+        main_layout.addWidget(self.pipeline_builder_card)
 
         # ช่องสำหรับ Inline Panel (step config แบบฝังในหน้า) — โผล่ใต้การ์ด
         self.inline_slot = QVBoxLayout()
@@ -297,10 +300,6 @@ class EmbedConfigurablePage(QFrame):
         status_card.setObjectName("card")
         status_layout = QVBoxLayout(status_card)
 
-        self.status_label = QLabel("Status: Ready")
-        self.status_label.setObjectName("statusLabel")
-        status_layout.addWidget(self.status_label)
-
         self.progress_bar = QProgressBar()
         self.progress_bar.setObjectName("loadingIndicator")
         self.progress_bar.setTextVisible(False)
@@ -308,6 +307,11 @@ class EmbedConfigurablePage(QFrame):
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         status_layout.addWidget(self.progress_bar)
+
+        self.status_label = QLabel("Status: Ready")
+        self.status_label.setObjectName("statusLabel")
+        self.status_label.setWordWrap(True)
+        status_layout.addWidget(self.status_label)
 
         execution_bar.addWidget(status_card, 1)
 
@@ -586,27 +590,69 @@ class EmbedConfigurablePage(QFrame):
             QMessageBox.critical(self, "Export Config", f"Export failed:\n{e}")
 
     def on_run_pipeline(self):
+        if self._pipeline_worker is not None and self._pipeline_worker.isRunning():
+            return
         if not self._steps_ready("Run Pipeline"):
             return
-        self._clear_workspace_output()   # ลบ output รันก่อนหน้าทิ้งเสมอ (workspace เป็น temp)
-        self.last_run_results = None
-        self.last_run_config = None
-        self.save_outputs_btn.setEnabled(False)
-        self.status_label.setText("Running pipeline...")
         try:
-            # run_embed_pipeline validate ก่อนรันเอง เจอ error จะ raise ออกมา (รันแบบ sync — UI ค้างจนเสร็จ)
             config = self.build_config_dict()
-            results = run_embed_pipeline(config)
-            self.last_run_results = results
-            self.last_run_config = config
-            self.progress_bar.setValue(100)
-            self.save_outputs_btn.setEnabled(True)   # มี output แล้ว → save ได้
-            self.status_label.setText(f"Done — {len(results)} steps · click Save Outputs to keep the files")
-            QMessageBox.information(self, "Run Pipeline", f"Pipeline finished successfully ({len(results)} steps).")
         except Exception as e:
             self.progress_bar.setValue(0)
+            self.status_label.setText("Pipeline could not be prepared")
+            QMessageBox.critical(self, "Run Pipeline", f"Pipeline could not be prepared:\n{e}")
+            return
+
+        self.last_run_results = None
+        self.last_run_config = None
+        self.progress_bar.setValue(0)
+        self.status_label.setText("Preparing pipeline...")
+        self._set_pipeline_running(True)
+        self._pipeline_worker = FunctionWorker(self._run_pipeline_worker, config, report_progress=True)
+        self._pipeline_worker.progress.connect(self._on_pipeline_progress)
+        self._pipeline_worker.done.connect(self._on_pipeline_done)
+        self._pipeline_worker.finished.connect(self._on_pipeline_finished)
+        self._pipeline_worker.finished.connect(self._pipeline_worker.deleteLater)
+        self._pipeline_worker.start()
+        return
+
+        if False:
+            self.status_label.setText(f"Done — {len(results)} steps · click Save Outputs to keep the files")
+            QMessageBox.information(self, "Run Pipeline", f"Pipeline finished successfully ({len(results)} steps).")
+
+    def _set_pipeline_running(self, running: bool):
+        self.pipeline_builder_card.setEnabled(not running)
+        self.run_pipeline_btn.setEnabled(not running)
+        self.save_outputs_btn.setEnabled(not running and bool(self.last_run_results))
+        self.run_pipeline_btn.setText("Running..." if running else "Run Pipeline")
+
+    def _run_pipeline_worker(self, config: dict, progress_callback=None):
+        if progress_callback is not None:
+            progress_callback(0, "Clearing prior workspace output...")
+        self._clear_workspace_output()
+        return run_embed_pipeline(config, progress_callback=progress_callback)
+
+    def _on_pipeline_progress(self, percent: int, message: str):
+        self.progress_bar.setValue(percent)
+        self.status_label.setText(message)
+
+    def _on_pipeline_done(self, result):
+        if isinstance(result, dict) and set(result) == {"error"} and isinstance(result["error"], str):
+            self.progress_bar.setValue(0)
             self.status_label.setText("Pipeline failed")
-            QMessageBox.critical(self, "Run Pipeline", f"Pipeline run failed:\n{e}")
+            QMessageBox.critical(self, "Run Pipeline", f"Pipeline run failed:\n{result['error']}")
+            return
+
+        self.last_run_results = result
+        self.last_run_config = self.build_config_dict()
+        self.progress_bar.setValue(100)
+        self.status_label.setText(
+            f"Done — {len(result)} steps • click Save Outputs to keep the files"
+        )
+        QMessageBox.information(self, "Run Pipeline", f"Pipeline finished successfully ({len(result)} steps).")
+
+    def _on_pipeline_finished(self):
+        self._pipeline_worker = None
+        self._set_pipeline_running(False)
 
     # --- Save Outputs (ย้ายไฟล์ผลลัพธ์สุดท้าย + เขียน extract config, แล้วเคลียร์ workspace) ---
     def _clear_workspace_output(self):

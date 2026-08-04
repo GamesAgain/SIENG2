@@ -3,11 +3,21 @@ import re
 import zipfile
 import yaml
 from pathlib import Path
+from typing import Callable, Optional
 
 # Import Stego technique engine
 from src.core.stego.lsb_pp import LSBPP
 from src.core.stego.locomotive import Locomotive
 from src.core.stego.metadata import MetadataEmbedder
+
+
+ProgressCallback = Optional[Callable[[int, str], None]]
+
+
+def update_progress(callback: ProgressCallback, percent: int, message: str) -> None:
+    """Report bounded progress without coupling the pipeline core to any GUI."""
+    if callback is not None:
+        callback(max(0, min(100, int(percent))), message)
 
 # ---- Read & Write Yaml Config ----
 def read_yaml(yaml_path: str| Path) -> dict:
@@ -79,7 +89,7 @@ def to_workspace(value):
     return value
 
 # ---- Handle Function ----
-def handle_lsbpp(inputs: dict, outputs: dict):
+def handle_lsbpp(inputs: dict, outputs: dict, progress_callback: ProgressCallback = None):
     # LSB++ payload = ข้อความเท่านั้น (text หรืออ่านจากไฟล์ .txt)
     message = inputs.get("text_payload")
     if message is None and inputs.get("text_file"):
@@ -93,11 +103,12 @@ def handle_lsbpp(inputs: dict, outputs: dict):
         cover_image_path=inputs["covers"][0], # lsb = ภาพเดียว(หยิบตัวแรก)
         message=message,
         **crypto_kwargs(inputs.get("encryption")),
+        progress_callback=progress_callback,
     )
     save_path = outputs["stego_file"] # เป็น path ใต้ workspace แล้ว (runner แปลงให้)
     Path(save_path).write_bytes(stego_bytes)
 
-def handle_locomotive(inputs: dict, outputs: dict):
+def handle_locomotive(inputs: dict, outputs: dict, progress_callback: ProgressCallback = None):
     # Locomotive: ฝังไฟล์ (list) หรือ raw_text โดย covers เป็น list และ output เป็น list เสมอ
     loco = Locomotive()
     results = loco.embed(
@@ -105,6 +116,7 @@ def handle_locomotive(inputs: dict, outputs: dict):
         file_paths=inputs.get("file_payload"),
         raw_text=inputs.get("text_payload"),
         **crypto_kwargs(inputs.get("encryption")),
+        progress_callback=progress_callback,
     )  # -> list[(filename, bytes)] ยาวเท่าจำนวน cover
 
     output_paths = outputs["stego_files"] # list ยาวเท่ากับ covers
@@ -121,13 +133,15 @@ def handle_locomotive(inputs: dict, outputs: dict):
     # nonce ที่ engine gen เอง ปลอดภัยที่จะเก็บลง extract_config.yaml
     return {"session_id": loco.last_session_id}
 
-def handle_metadata(inputs: dict, outputs: dict):
+def handle_metadata(inputs: dict, outputs: dict, progress_callback: ProgressCallback = None):
     # Metadata: dispatch PNG/MP3 ตามนามสกุล cover เอง · ไม่รองรับ encryption (ดู validate_pipeline)
+    update_progress(progress_callback, 10, "Preparing metadata...")
     MetadataEmbedder().embed(
         file_path=inputs["covers"][0],
         data=inputs["meta_dict"],
         save_path=outputs["stego_file"], # เป็น path ใต้ workspace แล้ว
     )
+    update_progress(progress_callback, 100, "Metadata written.")
 
 MODULE_HANDLERS = {
     "lsbpp": handle_lsbpp,
@@ -269,7 +283,7 @@ def validate_pipeline(config_dict: dict) -> list:
     return issues
 
 
-def run_embed_pipeline(config_dict: dict) -> dict:
+def run_embed_pipeline(config_dict: dict, progress_callback: ProgressCallback = None) -> dict:
     # ตรวจก่อนรัน เจอ error = ไม่รันต่อ
     issues = validate_pipeline(config_dict)
     for level, step_id, message in issues:
@@ -283,17 +297,36 @@ def run_embed_pipeline(config_dict: dict) -> dict:
 
     # context = memory ระหว่างรัน: เก็บ variables + output ของ step ที่รันไปแล้ว
     context = {"variables": config_dict.get("variables", {}), "steps": {}}
-    for step in parse_pipeline(config_dict):
+    steps = parse_pipeline(config_dict)
+    total_steps = len(steps)
+    update_progress(progress_callback, 0, "Pipeline validated. Preparing steps...")
+    for index, step in enumerate(steps):
         step_id, module = step["step_id"], step["module"]
         handler = MODULE_HANDLERS.get(module)
         if handler is None:
             raise ValueError(f"Unknown module {module!r} in step {step_id!r}")
 
+        start_percent = round(index * 100 / total_steps) if total_steps else 0
+        end_percent = round((index + 1) * 100 / total_steps) if total_steps else 100
+
+        def report_step_progress(percent: int, message: str, *, _index=index,
+                                 _start=start_percent, _end=end_percent,
+                                 _step_id=step_id, _module=module):
+            local_percent = max(0, min(100, int(percent)))
+            overall_percent = round(_start + ((_end - _start) * local_percent / 100))
+            update_progress(
+                progress_callback,
+                overall_percent,
+                f"Step {_index + 1}/{total_steps} ({_module}) — {_step_id}: {message}",
+            )
+
+        report_step_progress(0, "Starting...")
         inputs = resolve_value(step["inputs"], context)
         outputs = to_workspace(resolve_value(step["outputs" ], context))  # path จริงใต้ workspace
         print(f"[STEP] {step_id} (module={module})")
-        extra = handler(inputs, outputs) or {}   # handler คืน dict metadata เสริมได้ (ไม่บังคับ) เช่น locomotive คืน session_id
+        extra = handler(inputs, outputs, progress_callback=report_step_progress) or {}   # handler คืน dict metadata เสริมได้ (ไม่บังคับ) เช่น locomotive คืน session_id
         context["steps"][step_id] = {"outputs": outputs, **extra}  # ให้ step ถัดไปอ้าง ${{ steps.ID.outputs.KEY }}
+        report_step_progress(100, "Step complete.")
     return context["steps"]
 
 
@@ -561,7 +594,8 @@ def run_extract_pipeline(config_dict: dict, embed_results: dict, private_key_pat
     return recovered
 
 
-def _run_one_extract_node(node: dict, kw: dict, res_path: dict, recovered: dict, out_dir: Path) -> None:
+def _run_one_extract_node(node: dict, kw: dict, res_path: dict, recovered: dict, out_dir: Path,
+                          progress_callback: ProgressCallback = None) -> None:
     """รัน extract 1 node จริง (lsbpp/locomotive/metadata) — อัปเดต res_path/recovered ให้เอง
     kw = kwargs ที่ resolve มาแล้วสำหรับ .extract() (password/private_key_path ถ้าเข้ารหัส)
     เรียกจากทั้ง run_extract_pipeline/run_extract_from_config (รันรวดเดียวทั้ง pipeline) และ
@@ -569,11 +603,16 @@ def _run_one_extract_node(node: dict, kw: dict, res_path: dict, recovered: dict,
     eid, module = node["embed_id"], node["module"]
     sources = [res_path[n] for n in node["needs"]]   # Locomotive อาจต้องหลายไฟล์ (fragment ครบ)
     print(f"[EXT] {node['step_id']} (module={module}) <- {[Path(s).name for s in sources]}")
+    update_progress(progress_callback, 0, "Starting...")
 
     if module == "lsbpp":
-        recovered[node["provides"][0]] = LSBPP().extract(sources[0], **kw)
+        recovered[node["provides"][0]] = LSBPP().extract(
+            sources[0], progress_callback=progress_callback, **kw
+        )
     elif module == "locomotive":
-        name, data = Locomotive().extract(sources, session_id=node.get("session_id"), **kw)
+        name, data = Locomotive().extract(
+            sources, session_id=node.get("session_id"), progress_callback=progress_callback, **kw
+        )
         if node.get("payload_files"):   # payload มาจากหลาย producer พร้อมกัน → เป็น zip, แกะแยกคืนแต่ละตัว
             routed = _route_locomotive_payload(data, node, out_dir, eid)
             res_path.update(routed)
@@ -585,12 +624,14 @@ def _run_one_extract_node(node: dict, kw: dict, res_path: dict, recovered: dict,
             res_path[provide] = str(dst)     # ไฟล์ stego ชั้นในที่กู้ได้ ให้ step ถัดไปแกะต่อ
             recovered[provide] = str(dst)
     elif module == "metadata":
+        update_progress(progress_callback, 20, "Reading metadata...")
         meta = MetadataEmbedder().extract(sources[0])
         recovered[node["provides"][0]] = meta   # provides[0] = payload:sid (text metadata ของตัวเอง)
         if node.get("apic_files"):   # มีรูป APIC ที่เป็น output ของ step อื่น → เขียนเป็นไฟล์ แจกคืน
             routed = _route_apic_images(meta, node, out_dir, eid)
             res_path.update(routed)
             recovered.update(routed)
+    update_progress(progress_callback, 100, "Extraction complete.")
 
 
 # =========================================================================
@@ -670,10 +711,14 @@ class ExtractSession:
     def is_done(self) -> bool:
         return len(self.done_ids) == len(self.nodes)
 
-    def run_node(self, node: dict, secret: dict = None) -> None:
+    def run_node(self, node: dict, secret: dict = None,
+                 progress_callback: ProgressCallback = None) -> None:
         """รัน node เดียว (ต้อง ready แล้ว) · secret ใส่เฉพาะ node ที่มี decrypt"""
         kw = _decrypt_kwargs_from_node(node.get("decrypt"), secret or {})
-        _run_one_extract_node(node, kw, self.res_path, self.recovered, self.out_dir)
+        _run_one_extract_node(
+            node, kw, self.res_path, self.recovered, self.out_dir,
+            progress_callback=progress_callback,
+        )
         self.done_ids.add(node["embed_id"])
 
     def run_ready_without_secrets(self) -> list:
