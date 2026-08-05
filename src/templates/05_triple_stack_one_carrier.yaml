@@ -29,6 +29,7 @@ workflows:
     # 1) ชั้นล่างสุด — Metadata-PNG (custom key "origin")
     - step_id: "layer_meta"
       module: "metadata"
+      guidenote: "เขียน metadata เป็นชั้นแรกของ PNG เดียว เพื่อแสดงว่าหนึ่ง carrier เก็บข้อมูลได้หลายเทคนิค"
       inputs:
         covers:
           - ${{ variables.SRC_IMG }}
@@ -42,6 +43,7 @@ workflows:
     #    LSB++ รักษา metadata chunk เดิมไว้ (preserve-and-reappend)
     - step_id: "layer_lsb"
       module: "lsbpp"
+      guidenote: "ฝังข้อความลับที่เข้ารหัสบนผลลัพธ์ของ metadata โดยคง metadata ชั้นแรกไว้ในไฟล์เดียวกัน"
       inputs:
         covers:
           - ${{ steps.layer_meta.outputs.stego_file }}
@@ -56,6 +58,7 @@ workflows:
     #    Locomotive append ท้ายไฟล์ ไม่ยุ่งพิกเซล/metadata ที่มีอยู่
     - step_id: "layer_loco"
       module: "locomotive"
+      guidenote: "ซ่อนไฟล์ลับที่เข้ารหัสด้วย public key ต่อท้าย PNG เดียวกัน เป็นชั้นสุดท้ายและไฟล์ส่งมอบใบเดียว"
       inputs:
         covers:
           - ${{ steps.layer_lsb.outputs.stego_file }}

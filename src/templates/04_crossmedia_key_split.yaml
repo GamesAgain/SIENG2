@@ -29,6 +29,7 @@ workflows:
     # 1) ความลับจริง → LSB++ เข้ารหัสด้วยรหัสผ่านเต็ม (ภาพนี้เดี่ยว ๆ เปิดไม่ได้ถ้าไม่มีรหัส)
     - step_id: "secret_image"
       module: "lsbpp"
+      guidenote: "ฝังข้อความลับหลักด้วยรหัสผ่านเต็ม ผู้รับต้องประกอบรหัสจาก metadata ของภาพกุญแจและ MP3 กุญแจ"
       inputs:
         covers:
           - ${{ variables.SRC_IMG_SECRET }}
@@ -42,6 +43,7 @@ workflows:
     # 2) รหัสครึ่งแรก → Metadata-PNG ในภาพอีกใบ (custom key "keyA")
     - step_id: "keyA_image"
       module: "metadata"
+      guidenote: "เก็บรหัสผ่านครึ่งแรกใน metadata ของภาพกุญแจ ส่งภาพนี้คนละช่องทางกับไฟล์ลับได้"
       inputs:
         covers:
           - ${{ variables.SRC_IMG_KEY }}
@@ -54,6 +56,7 @@ workflows:
     # 3) รหัสครึ่งหลัง → Metadata-MP3 (TXXX desc="keyB")
     - step_id: "keyB_audio"
       module: "metadata"
+      guidenote: "เก็บรหัสผ่านครึ่งหลังใน TXXX ของ MP3 ผู้รับต้องมีทั้งภาพกุญแจและ MP3 ก่อนปลดล็อกภาพลับ"
       inputs:
         covers:
           - ${{ variables.SRC_MP3_KEY }}

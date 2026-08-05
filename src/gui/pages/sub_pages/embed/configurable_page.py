@@ -487,7 +487,7 @@ class EmbedConfigurablePage(QFrame):
         inputs = s.get("inputs", {}) or {}
         step = {
             "type": module, "step_id": s["step_id"], "step_id_custom": True,
-            "valid": True, "imported": True,
+            "valid": True, "editor_hydrated": False,
             "linked_cover_index": [], "linked_payload_index": [],
             "guidenote": s.get("guidenote", ""),
         }
@@ -575,7 +575,35 @@ class EmbedConfigurablePage(QFrame):
         if not all(step.get("valid") for step in self.steps):
             QMessageBox.warning(self, title, "Some steps are not configured — open each step and click Save Step first.")
             return False
+
+        missing_files = self._missing_input_files()
+        if missing_files:
+            QMessageBox.warning(self, title, "Select the required files before running:\n" + "\n".join(missing_files))
+            return False
         return True
+
+    def _missing_input_files(self) -> list[str]:
+        missing = []
+        for step in self.steps:
+            inputs = step.get("module_inputs", {})
+            paths = []
+            if not step.get("linked_cover_index"):
+                paths.extend(inputs.get("covers") or [])
+            if step["type"] == "lsbpp" and not inputs.get("text_payload"):
+                paths.append(inputs.get("text_file"))
+            if step["type"] == "locomotive" and not step.get("linked_payload_index"):
+                paths.extend(inputs.get("file_payload") or [])
+
+            encryption = inputs.get("encryption") or {}
+            if encryption.get("mode") == "asymmetric":
+                paths.append(encryption.get("public_key"))
+
+            for path in paths:
+                if path and not Path(path).is_file():
+                    name = Path(path).name
+                    if name not in missing:
+                        missing.append(name)
+        return missing
 
     def on_export_config(self):
         if not self._steps_ready("Export Config"):
@@ -764,6 +792,19 @@ class EmbedConfigurablePage(QFrame):
         if step.get("inputs") is None:
             step["inputs"] = self.make_step_inner(idx, step["type"])
         return step["inputs"]
+
+    def hydrate_step_inner(self, idx, inner):
+        step = self.steps[idx]
+        if step.get("editor_hydrated"):
+            return
+
+        if hasattr(inner, "load_pipeline_inputs"):
+            inner.load_pipeline_inputs(
+                step["module_inputs"],
+                step.get("linked_cover_index", []),
+                step.get("linked_payload_index", []),
+            )
+        step["editor_hydrated"] = True
 
     def park_inner(self, inner):
         """ดึง inner กลับมาฝากไว้กับ page แบบซ่อน (ไม่ใช่ setParent(None) เพราะจะ
@@ -1117,6 +1158,7 @@ class EmbedConfigurablePage(QFrame):
             inner.set_payload_link_candidates(self.available_link_candidates(idx, slot="payload_any"))
         if hasattr(inner, "set_apic_link_candidates"):
             inner.set_apic_link_candidates(self.available_link_candidates(idx, slot="payload_image"))
+        self.hydrate_step_inner(idx, inner)
         commit = lambda sid, custom, guidenote: self.commit_step(idx, inner, sid, custom, guidenote)
         step_id_default = step["step_id"]
         initial_custom = step.get("step_id_custom", False)

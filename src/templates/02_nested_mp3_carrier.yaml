@@ -47,6 +47,7 @@ workflows:
     # 1) PDF → เข้ารหัส Public Key → กระจายฝังในภาพ 2 & 3 (Locomotive, 2 covers → 2 outputs)
     - step_id: "pdf_fragment"
       module: "locomotive"
+      guidenote: "เข้ารหัส PDF ด้วย public key แล้วกระจายลงภาพ 2 และ 3 ต้องได้ output ทั้งคู่จึงกู้ PDF ได้"
       inputs:
         covers:
           - ${{ variables.SRC_IMG2 }}
@@ -65,6 +66,7 @@ workflows:
     #    ⇒ ภาพ 2 "หายไป" ไม่ต้องส่งออก
     - step_id: "hide_img2_in_img1"
       module: "locomotive"
+      guidenote: "ซ่อนภาพที่ 2 ซึ่งถือชิ้นส่วน PDF ไว้ในภาพที่ 1 ด้วยรหัสผ่าน ทำให้ไม่ต้องส่งภาพที่ 2 แยก"
       inputs:
         covers:
           - ${{ variables.SRC_IMG1 }}
@@ -80,6 +82,7 @@ workflows:
     # 3) รหัสกู้ภาพ 2 ชิ้นที่ 1 → Metadata-PNG บนภาพ 1 (custom key "Part1")
     - step_id: "keypart1_in_img1_meta"
       module: "metadata"
+      guidenote: "เก็บส่วนต้นของรหัสกู้ภาพที่ 2 ใน metadata ของภาพที่ 1 ผู้รับต้องนำไปต่อกับค่าจาก MP3"
       inputs:
         covers:
           - ${{ steps.hide_img2_in_img1.outputs.stego_files[0] }}   # ภาพ 1 (ซ่อนภาพ 2 ไว้แล้ว)
@@ -93,6 +96,7 @@ workflows:
     #    ⇒ ผู้รับได้ไฟล์เดียว: audio_stego.mp3
     - step_id: "final_mp3_carrier"
       module: "metadata"
+      guidenote: "MP3 คือไฟล์ส่งมอบหลัก: เก็บส่วนท้ายของรหัสและแนบภาพที่ 1 กับ 3 เป็น APIC สำหรับการกู้คืน"
       inputs:
         covers:
           - ${{ variables.SRC_MP3 }}

@@ -312,6 +312,14 @@ class PNGMetadataEditor(QFrame):
             else:
                 self._add_custom_row(keyword, value)
 
+    def load_existing(self, metadata: dict):
+        self.clear_all()
+        for keyword, value in metadata.items():
+            if keyword in self.standard_fields:
+                self.standard_fields[keyword].set_value(value)
+            else:
+                self._add_custom_row(keyword, value)
+
     def collect_data(self) -> dict:
         data = {}
         # standard: keyword คงที่, ใส่เฉพาะที่มีค่า

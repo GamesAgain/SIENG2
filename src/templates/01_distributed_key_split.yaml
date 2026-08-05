@@ -32,14 +32,15 @@ variables:
   # -- ความลับและเบาะแสรหัสผ่าน (แก้ข้อความได้ตามต้องการ) --
   SECRET_MESSAGE: "I LOVE YOU ALICE"
   LSB_PASSWORD: "password"
-  PASS_PART_1: "pass"       # ชิ้นที่ 1 ของ password → ซ่อนใน LSB++ ภาพ 2
-  PASS_PART_2: "word"       # ชิ้นที่ 2 ของ password → ซ่อนใน Metadata ภาพ 3
+  PASSWORD_FRAGMENT_1: "pass"  # ส่วนต้นของ LSB_PASSWORD → ซ่อนใน LSB++ ภาพ 2
+  PASSWORD_FRAGMENT_2: "word"  # ส่วนท้ายของ LSB_PASSWORD → ซ่อนใน Metadata ภาพ 3
 
 workflows:
   embed:
     # 1) ความลับจริง → LSB++ ในภาพ 1 (เข้ารหัส symmetric)
     - step_id: "secret_in_img1"
       module: "lsbpp"
+      guidenote: "ตั้งรหัสผ่านหลักที่นี่ก่อน จากนั้นกำหนดส่วนต้นและส่วนท้ายของรหัสเดียวกันใน Step 2 และ 3"
       inputs:
         covers:
           - ${{ variables.SRC_IMG1 }}
@@ -53,10 +54,11 @@ workflows:
     # 2) รหัสผ่านชิ้นที่ 1 → LSB++ ในภาพ 2 (ไม่เข้ารหัส)
     - step_id: "keypart1_in_img2"
       module: "lsbpp"
+      guidenote: "เก็บส่วนต้นของรหัสผ่านหลักไว้ในภาพที่ 2 ผู้รับต้องนำค่านี้ไปต่อกับส่วนท้ายจาก Step 3"
       inputs:
         covers:
           - ${{ variables.SRC_IMG2 }}
-        text_payload: ${{ variables.PASS_PART_1 }}
+        text_payload: ${{ variables.PASSWORD_FRAGMENT_1 }}
         encryption: null
       outputs:
         stego_file: "output/002_stego.png"
@@ -64,11 +66,12 @@ workflows:
     # 3) รหัสผ่านชิ้นที่ 2 → Metadata-PNG ในภาพ 3 (custom key "part2")
     - step_id: "keypart2_in_img3"
       module: "metadata"
+      guidenote: "เก็บส่วนท้ายของรหัสผ่านหลักใน custom metadata key_fragment_2 แล้วต่อหลังค่าจาก Step 2"
       inputs:
         covers:
           - ${{ variables.SRC_IMG3 }}
         meta_dict:
-          part2: ${{ variables.PASS_PART_2 }}
+          key_fragment_2: ${{ variables.PASSWORD_FRAGMENT_2 }}
         encryption: null
       outputs:
         stego_file: "output/003_stego.png"
@@ -77,6 +80,7 @@ workflows:
     #    ซ่อนภาพ 1 (ความลับจริง) เข้าไป · เข้ารหัสด้วย Public Key ของผู้รับ
     - step_id: "decoy_carrier"
       module: "locomotive"
+      guidenote: "ซ่อนภาพที่มีข้อความลับไว้ใน carrier สองใบและเข้ารหัสด้วย public key ผู้รับ ต้องส่ง output ทั้งสองใบ"
       inputs:
         covers:
           - ${{ steps.keypart1_in_img2.outputs.stego_file }}

@@ -204,6 +204,32 @@ class MetadataEmbedTab(QFrame):
             self.cover_file_stack.setCurrentIndex(0)
         self.linked_cover_index = []
 
+    def load_pipeline_inputs(self, inputs: dict, linked_cover: list, _linked_payload: list):
+        metadata = inputs.get("meta_dict", {})
+        is_mp3 = False
+
+        if linked_cover:
+            target = linked_cover[0]
+            candidate = self.link_candidates.get(target)
+            if candidate:
+                self.set_linked_cover(target, candidate["label"], candidate["type"])
+                is_mp3 = candidate["type"] == "mp3"
+        else:
+            covers = inputs.get("covers") or []
+            cover = covers[0] if covers else None
+            if cover:
+                is_mp3 = Path(cover).suffix.lower() == ".mp3"
+            if cover and Path(cover).is_file():
+                self.drop_zone.add_files([cover])
+
+        if is_mp3:
+            self.mp3_editor.text_frames_tab.load_existing(
+                {key: value for key, value in metadata.items() if key != "APIC"}
+            )
+            self.mp3_editor.images_tab.load_existing(metadata.get("APIC", []))
+        else:
+            self.png_editor.load_existing(metadata)
+
     # --- Input API (ให้ pipeline เรียกใช้) ---
     def get_meta_dict(self) -> dict:
         """คืน metadata dict จาก editor ที่ตรงกับชนิดไฟล์ที่เลือก (PNG/MP3) — ถ้า cover เป็น

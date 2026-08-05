@@ -93,6 +93,7 @@ class LocoEmbedInputs(QFrame):
         title_layout.addStretch()
 
         drop_zone = MultiFileDropWidget("Drop PNG files here or click to browse", "PNG format only (Single file OR Multiple files)", str(ICON_DIR / "photo.svg"), allowed_extensions=[".png"])
+        self.cover_drop_zone = drop_zone
         drop_zone.files_changed.connect(self.on_locomotive_file_selected)
 
         locomotive_file_layout.addWidget(title_container, 0)  # top
@@ -169,6 +170,7 @@ class LocoEmbedInputs(QFrame):
         file_tab_layout.setContentsMargins(0, 12, 0, 0)
 
         drop_zone = MultiFileDropWidget("Drop any files or type text", "Any file format (PDF, ZIP, EXE, TXT, ...)", icon_path=str(ICON_DIR / "file-plus.svg"))
+        self.payload_file_drop_zone = drop_zone
         drop_zone.files_changed.connect(self.on_payload_file_selected)
         file_tab_layout.addWidget(drop_zone)
 
@@ -236,6 +238,44 @@ class LocoEmbedInputs(QFrame):
             self.payload_linked_toggle.set_linked(False)
             self.payload_source_stack.setCurrentIndex(0)
             self.payload_picker.clear_selection()
+
+    def load_pipeline_inputs(self, inputs: dict, linked_cover: list, linked_payload: list):
+        encryption = inputs.get("encryption")
+        self.encrypt_toggle_switch.setChecked(bool(encryption))
+        if encryption and encryption.get("mode") == "symmetric":
+            self.btn_symmetric.setChecked(True)
+            self.encrypt_stack.setCurrentIndex(0)
+            self.password_input.setText(encryption.get("password", ""))
+        elif encryption and encryption.get("mode") == "asymmetric":
+            self.btn_asymmetric.setChecked(True)
+            self.encrypt_stack.setCurrentIndex(1)
+            key_path = encryption.get("public_key")
+            if key_path and Path(key_path).is_file():
+                self.public_key_drop_zone.add_files([key_path])
+
+        if linked_cover:
+            self.linked_cover_index = list(linked_cover)
+            self.linked_toggle.set_linked(True)
+            self.cover_source_stack.setCurrentIndex(1)
+            self.cover_picker.set_selected_indices(self.linked_cover_index)
+        else:
+            covers = [path for path in inputs.get("covers", []) if Path(path).is_file()]
+            if covers:
+                self.cover_drop_zone.add_files(covers)
+
+        if linked_payload:
+            self.linked_payload_index = list(linked_payload)
+            self.payload_linked_toggle.set_linked(True)
+            self.payload_source_stack.setCurrentIndex(1)
+            self.payload_picker.set_selected_indices(self.linked_payload_index)
+        elif inputs.get("file_payload"):
+            files = [path for path in inputs["file_payload"] if Path(path).is_file()]
+            if files:
+                self.payload_file_drop_zone.add_files(files)
+                self.payload_tabs.setCurrentIndex(0)
+        elif inputs.get("text_payload") is not None:
+            self.payload_text_area.setPlainText(inputs["text_payload"])
+            self.payload_tabs.setCurrentIndex(1)
 
     def build_encryption_card(self):
         encryption_card = QFrame()
@@ -379,6 +419,7 @@ class LocoEmbedInputs(QFrame):
         asymmetric_layout = QVBoxLayout(asymmetric_mode)
         asymmetric_layout.setContentsMargins(0, 0, 0, 8)
         key_drop_zone = FileDropWidget("Drop public key here or click to browse", "Public key file (.pem, .der, .ssh)", icon_path=str(ICON_DIR / "file-text-shield.svg"), allowed_extensions=["pem", "der", "ssh"])
+        self.public_key_drop_zone = key_drop_zone
         key_drop_zone.file_selected.connect(self.on_public_key_selected)
         asymmetric_layout.addWidget(key_drop_zone)
 

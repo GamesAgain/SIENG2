@@ -150,6 +150,11 @@ class StepOutputPicker(QFrame):
     def selected_indices(self) -> list[int]:
         return list(self._selected)
 
+    def set_selected_indices(self, indices: list[int]):
+        self._selected = list(indices)
+        for index, row in self._rows.items():
+            row.set_selected(index in self._selected)
+
     def clear_selection(self):
         self._selected = []
         for row in self._rows.values():

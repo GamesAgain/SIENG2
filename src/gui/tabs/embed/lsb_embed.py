@@ -200,6 +200,7 @@ class LSBEmbedInputs(QFrame):
         asymmetric_layout = QVBoxLayout(asymmetric_mode)
         asymmetric_layout.setContentsMargins(0, 0, 0, 8)
         key_drop_zone = FileDropWidget("Drop public key here or click to browse", "Public key file (.pem, .der, .ssh)", icon_path=str(ICON_DIR / "file-text-shield.svg"), allowed_extensions=["pem", "der", "ssh"])
+        self.public_key_drop_zone = key_drop_zone
         key_drop_zone.setMinimumHeight(115)
         key_drop_zone.file_selected.connect(self.on_public_key_selected)
         asymmetric_layout.addWidget(key_drop_zone)
@@ -304,6 +305,7 @@ class LSBEmbedInputs(QFrame):
         text_file_layout.setContentsMargins(0, 12, 0, 0)
 
         drop_zone = FileDropWidget("Drop text file here or click to browse", "Supported: .txt", icon_path=str(ICON_DIR / "file-text.svg"), allowed_extensions=["txt"])
+        self.payload_file_drop_zone = drop_zone
         drop_zone.file_selected.connect(self.on_payload_file_selected)
         drop_zone.setMinimumHeight(115)
         text_file_layout.addWidget(drop_zone)
@@ -357,6 +359,7 @@ class LSBEmbedInputs(QFrame):
         ]
         
         drop_zone = FileDropWidget("Drop PNG file here or click to browse", "PNG format only", str(ICON_DIR / "photo.svg"), allowed_extensions=allowed_exts)
+        self.cover_drop_zone = drop_zone
         drop_zone.file_selected.connect(self.on_cover_file_selected)
 
         cover_file_layout.addWidget(title_container, 0)  # top
@@ -404,6 +407,39 @@ class LSBEmbedInputs(QFrame):
             self.linked_toggle.set_linked(False)
             self.cover_source_stack.setCurrentIndex(0)
             self.cover_picker.clear_selection()
+
+    def load_pipeline_inputs(self, inputs: dict, linked_cover: list, _linked_payload: list):
+        self.payload_text_area.setPlainText(inputs.get("text_payload", ""))
+
+        encryption = inputs.get("encryption")
+        self.encrypt_toggle_switch.setChecked(bool(encryption))
+        if encryption and encryption.get("mode") == "symmetric":
+            self.btn_symmetric.setChecked(True)
+            self.encrypt_stack.setCurrentIndex(0)
+            password = encryption.get("password", "")
+            self.password_input.setText(password)
+            self.confirm_input.setText(password)
+        elif encryption and encryption.get("mode") == "asymmetric":
+            self.btn_asymmetric.setChecked(True)
+            self.encrypt_stack.setCurrentIndex(1)
+            key_path = encryption.get("public_key")
+            if key_path and Path(key_path).is_file():
+                self.public_key_drop_zone.add_files([key_path])
+
+        if linked_cover:
+            self.linked_cover_index = list(linked_cover)
+            self.linked_toggle.set_linked(True)
+            self.cover_source_stack.setCurrentIndex(1)
+            self.cover_picker.set_selected_indices(self.linked_cover_index)
+            return
+
+        covers = inputs.get("covers") or []
+        if covers and Path(covers[0]).is_file():
+            self.cover_drop_zone.add_files([covers[0]])
+
+        text_file = inputs.get("text_file")
+        if not inputs.get("text_payload") and text_file and Path(text_file).is_file():
+            self.payload_file_drop_zone.add_files([text_file])
 
     # --- Input API (ให้ tab / pipeline เรียกใช้) ---
     def get_input_data(self) -> tuple[str, str, str, str] | bool:
