@@ -129,21 +129,31 @@ def test_generate_dialog_uses_secure_recommended_defaults(app, tmp_path):
 
 def test_generate_dialog_password_visibility_toggle(app, tmp_path):
     dialog = GenerateKeyDialog(KeyRegistry(tmp_path / "registry.json"))
-    action = next(
+    password_action = next(
         action
         for action in dialog.password_edit.actions()
         if action.objectName() == "passwordVisibilityAction"
     )
+    confirm_action = next(
+        action
+        for action in dialog.confirm_edit.actions()
+        if action.objectName() == "passwordVisibilityAction"
+    )
 
     assert dialog.password_edit.echoMode() == QLineEdit.EchoMode.Password
-    assert action.toolTip() == "Show password"
+    assert dialog.confirm_edit.echoMode() == QLineEdit.EchoMode.Password
+    assert password_action.toolTip() == "Show password"
+    assert confirm_action.toolTip() == "Show password"
 
-    action.trigger()
+    password_action.trigger()
     assert dialog.password_edit.echoMode() == QLineEdit.EchoMode.Normal
-    assert action.toolTip() == "Hide password"
+    assert dialog.confirm_edit.echoMode() == QLineEdit.EchoMode.Normal
+    assert password_action.toolTip() == "Hide password"
+    assert confirm_action.toolTip() == "Hide password"
 
-    action.trigger()
+    confirm_action.trigger()
     assert dialog.password_edit.echoMode() == QLineEdit.EchoMode.Password
+    assert dialog.confirm_edit.echoMode() == QLineEdit.EchoMode.Password
 
 
 def test_generate_dialog_disables_password_fields_when_unprotected(app, tmp_path):

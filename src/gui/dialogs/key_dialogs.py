@@ -254,13 +254,12 @@ class GenerateKeyDialog(QDialog):
         self.password_edit = QLineEdit()
         self.password_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.password_edit.setPlaceholderText("Private key password")
-        add_password_visibility_toggle(self.password_edit)
         form.addRow("Password", self.password_edit)
 
         self.confirm_edit = QLineEdit()
         self.confirm_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.confirm_edit.setPlaceholderText("Confirm private key password")
-        add_password_visibility_toggle(self.confirm_edit)
+        add_password_visibility_toggle(self.password_edit, self.confirm_edit)
         form.addRow("Confirm", self.confirm_edit)
         layout.addLayout(form)
 

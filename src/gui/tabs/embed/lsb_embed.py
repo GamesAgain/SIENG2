@@ -183,7 +183,6 @@ class LSBEmbedInputs(QFrame):
         self.password_input = QLineEdit()
         self.password_input.setObjectName("formInput")
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
-        add_password_visibility_toggle(self.password_input)
         self.password_input.setPlaceholderText("Enter passphrase...")
 
         symmetric_layout.addWidget(password_label)
@@ -196,7 +195,7 @@ class LSBEmbedInputs(QFrame):
         self.confirm_input = QLineEdit()
         self.confirm_input.setObjectName("formInput")
         self.confirm_input.setEchoMode(QLineEdit.EchoMode.Password)
-        add_password_visibility_toggle(self.confirm_input)
+        add_password_visibility_toggle(self.password_input, self.confirm_input)
         self.confirm_input.setPlaceholderText("Confirm your passphrase...")
 
         symmetric_layout.addWidget(confirm_label)

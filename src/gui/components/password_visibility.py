@@ -5,8 +5,11 @@ from PyQt6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QLineEdit
 
 
-def add_password_visibility_toggle(line_edit: QLineEdit) -> None:
-    """Add a show/hide action to a password field."""
+def add_password_visibility_toggle(
+    line_edit: QLineEdit,
+    *linked_line_edits: QLineEdit,
+) -> None:
+    """Add synchronized show/hide actions to one or more password fields."""
 
     def create_eye_icon(is_open: bool) -> QIcon:
         pixmap = QPixmap(24, 24)
@@ -29,19 +32,32 @@ def add_password_visibility_toggle(line_edit: QLineEdit) -> None:
 
     visible_icon = create_eye_icon(True)
     hidden_icon = create_eye_icon(False)
-    action = line_edit.addAction(
-        hidden_icon,
-        QLineEdit.ActionPosition.TrailingPosition,
-    )
-    action.setObjectName("passwordVisibilityAction")
-    action.setToolTip("Show password")
+    fields = (line_edit, *linked_line_edits)
+    actions = []
 
-    def toggle_visibility() -> None:
-        is_hidden = line_edit.echoMode() == QLineEdit.EchoMode.Password
-        line_edit.setEchoMode(
-            QLineEdit.EchoMode.Normal if is_hidden else QLineEdit.EchoMode.Password
+    def set_visibility(visible: bool) -> None:
+        echo_mode = (
+            QLineEdit.EchoMode.Normal if visible else QLineEdit.EchoMode.Password
         )
-        action.setIcon(visible_icon if is_hidden else hidden_icon)
-        action.setToolTip("Hide password" if is_hidden else "Show password")
+        for field, action in zip(fields, actions):
+            field.setEchoMode(echo_mode)
+            action.setIcon(visible_icon if visible else hidden_icon)
+            action.setToolTip("Hide password" if visible else "Show password")
 
-    action.triggered.connect(toggle_visibility)
+    for field in fields:
+        action = field.addAction(
+            hidden_icon,
+            QLineEdit.ActionPosition.TrailingPosition,
+        )
+        action.setObjectName("passwordVisibilityAction")
+        action.setToolTip("Show password")
+        actions.append(action)
+
+        def toggle_visibility(
+            checked: bool = False,
+            source: QLineEdit = field,
+        ) -> None:
+            del checked
+            set_visibility(source.echoMode() == QLineEdit.EchoMode.Password)
+
+        action.triggered.connect(toggle_visibility)

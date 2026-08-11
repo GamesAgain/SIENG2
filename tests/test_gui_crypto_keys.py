@@ -4,7 +4,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from cryptography.hazmat.primitives import serialization
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QLineEdit
 
 from src.core.configurable.config_mode import decrypt_kwargs_from_node, decrypt_kwargs
 from src.core.crypto.asym_encrypt import (
@@ -127,6 +127,44 @@ def test_encryption_options_password_fields_have_visibility_toggles(app):
                 action.objectName() == "passwordVisibilityAction"
                 for action in actions
             )
+
+
+def test_embed_password_and_confirmation_visibility_stays_in_sync(app):
+    widgets = [LSBEmbedInputs(), LocoEmbedInputs()]
+
+    for widget in widgets:
+        password_action = next(
+            action
+            for action in widget.password_input.actions()
+            if action.objectName() == "passwordVisibilityAction"
+        )
+        confirm_action = next(
+            action
+            for action in widget.confirm_input.actions()
+            if action.objectName() == "passwordVisibilityAction"
+        )
+
+        password_action.trigger()
+        assert widget.password_input.echoMode() == QLineEdit.EchoMode.Normal
+        assert widget.confirm_input.echoMode() == QLineEdit.EchoMode.Normal
+
+        confirm_action.trigger()
+        assert widget.password_input.echoMode() == QLineEdit.EchoMode.Password
+        assert widget.confirm_input.echoMode() == QLineEdit.EchoMode.Password
+
+
+def test_extract_password_visibility_toggles_remain_independent(app):
+    widget = LSBExtractTab()
+    password_action = next(
+        action
+        for action in widget.password_input.actions()
+        if action.objectName() == "passwordVisibilityAction"
+    )
+
+    password_action.trigger()
+
+    assert widget.password_input.echoMode() == QLineEdit.EchoMode.Normal
+    assert widget.key_password_input.echoMode() == QLineEdit.EchoMode.Password
 
 
 def test_extract_pages_support_encrypted_private_key_password(app, rsa_key_files):
