@@ -5,7 +5,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QLineEdit
 
 from src.core.crypto.key_management import (
     generate_and_save_keypair,
@@ -125,6 +125,34 @@ def test_generate_dialog_uses_secure_recommended_defaults(app, tmp_path):
     assert dialog.encoding_combo.currentText() == "PEM"
     assert dialog.protect_checkbox.isChecked()
     assert dialog.password_edit.isEnabled()
+
+
+def test_generate_dialog_password_visibility_toggle(app, tmp_path):
+    dialog = GenerateKeyDialog(KeyRegistry(tmp_path / "registry.json"))
+    action = next(
+        action
+        for action in dialog.password_edit.actions()
+        if action.objectName() == "passwordVisibilityAction"
+    )
+
+    assert dialog.password_edit.echoMode() == QLineEdit.EchoMode.Password
+    assert action.toolTip() == "Show password"
+
+    action.trigger()
+    assert dialog.password_edit.echoMode() == QLineEdit.EchoMode.Normal
+    assert action.toolTip() == "Hide password"
+
+    action.trigger()
+    assert dialog.password_edit.echoMode() == QLineEdit.EchoMode.Password
+
+
+def test_generate_dialog_disables_password_fields_when_unprotected(app, tmp_path):
+    dialog = GenerateKeyDialog(KeyRegistry(tmp_path / "registry.json"))
+
+    dialog.protect_checkbox.setChecked(False)
+
+    assert not dialog.password_edit.isEnabled()
+    assert not dialog.confirm_edit.isEnabled()
 
 
 def test_removing_registry_item_does_not_delete_key_file(app, registry_with_pair):

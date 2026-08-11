@@ -23,6 +23,7 @@ from src.core.crypto.key_management import (
     inspect_private_key_file,
     inspect_public_key_file,
 )
+from src.gui.components.password_visibility import add_password_visibility_toggle
 from src.gui.components.worker import FunctionWorker
 from src.gui.services.key_registry import KeyRegistry
 
@@ -159,6 +160,7 @@ class ImportKeyDialog(QDialog):
         self.password_edit = QLineEdit()
         self.password_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.password_edit.setPlaceholderText("Only needed to inspect an encrypted private key")
+        add_password_visibility_toggle(self.password_edit)
         form.addRow("Key password", self.password_edit)
         layout.addLayout(form)
 
@@ -244,6 +246,7 @@ class GenerateKeyDialog(QDialog):
         form.addRow("Save to", destination_row)
 
         self.protect_checkbox = QCheckBox("Protect private key with a password")
+        self.protect_checkbox.setObjectName("protectPrivateKeyCheckbox")
         self.protect_checkbox.setChecked(True)
         self.protect_checkbox.toggled.connect(self.update_password_state)
         form.addRow("", self.protect_checkbox)
@@ -251,11 +254,13 @@ class GenerateKeyDialog(QDialog):
         self.password_edit = QLineEdit()
         self.password_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.password_edit.setPlaceholderText("Private key password")
+        add_password_visibility_toggle(self.password_edit)
         form.addRow("Password", self.password_edit)
 
         self.confirm_edit = QLineEdit()
         self.confirm_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.confirm_edit.setPlaceholderText("Confirm private key password")
+        add_password_visibility_toggle(self.confirm_edit)
         form.addRow("Confirm", self.confirm_edit)
         layout.addLayout(form)
 

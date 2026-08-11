@@ -112,6 +112,23 @@ def test_embed_pages_validate_selected_public_key(app, rsa_key_files):
         assert set(widget.public_key_drop_zone.file_exts) == {".pem", ".der", ".pub"}
 
 
+def test_encryption_options_password_fields_have_visibility_toggles(app):
+    widget_fields = [
+        (LSBEmbedInputs(), ("password_input", "confirm_input")),
+        (LocoEmbedInputs(), ("password_input", "confirm_input")),
+        (LSBExtractTab(), ("password_input", "key_password_input")),
+        (LocomotiveExtractTab(), ("password_input", "key_password_input")),
+    ]
+
+    for widget, field_names in widget_fields:
+        for field_name in field_names:
+            actions = getattr(widget, field_name).actions()
+            assert any(
+                action.objectName() == "passwordVisibilityAction"
+                for action in actions
+            )
+
+
 def test_extract_pages_support_encrypted_private_key_password(app, rsa_key_files):
     widgets = [LSBExtractTab(), LocomotiveExtractTab()]
 
@@ -150,6 +167,10 @@ def test_configurable_extract_has_private_key_password_and_validation(
     refs["key_password_edit"].setText(PRIVATE_KEY_PASSWORD)
 
     assert refs["key_password_edit"] is not None
+    assert any(
+        action.objectName() == "passwordVisibilityAction"
+        for action in refs["key_password_edit"].actions()
+    )
     assert page._validate_key_for_row(node).valid
 
 

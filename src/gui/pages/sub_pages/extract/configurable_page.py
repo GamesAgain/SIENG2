@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
 
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap
 from src.gui.components.key_validation import KeyValidationLabel, inspect_private_key
+from src.gui.components.password_visibility import add_password_visibility_toggle
 from src.gui.dialogs.key_dialogs import KeyPickerDialog
 from src.gui.components.result_viewers import PayloadResultViewer
 from src.gui.components.worker import FunctionWorker
@@ -357,6 +358,7 @@ class ExtractConfigurablePage(QFrame):
                 pw_edit = QLineEdit()
                 pw_edit.setObjectName("formInput")
                 pw_edit.setEchoMode(QLineEdit.EchoMode.Password)
+                add_password_visibility_toggle(pw_edit)
                 pw_edit.setPlaceholderText("Password for this step")
                 secret_row.addWidget(pw_edit, 1)
                 refs["secret_password_edit"] = pw_edit
@@ -392,6 +394,7 @@ class ExtractConfigurablePage(QFrame):
                 key_password_edit = QLineEdit()
                 key_password_edit.setObjectName("formInput")
                 key_password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+                add_password_visibility_toggle(key_password_edit)
                 key_password_edit.setPlaceholderText("Private key password (optional)")
                 key_password_edit.editingFinished.connect(lambda: self._validate_key_for_row(node))
                 secret_row.addWidget(key_password_edit, 1)

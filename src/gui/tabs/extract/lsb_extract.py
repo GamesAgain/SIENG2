@@ -7,6 +7,7 @@ from src.gui.components.files_drop import FileDropWidget
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, create_icon_state
 from src.gui.components.key_validation import KeyValidationLabel, inspect_private_key
 from src.gui.components.key_source import KeySourceWidget
+from src.gui.components.password_visibility import add_password_visibility_toggle
 from src.gui.components.result_viewers import PayloadResultViewer
 from src.gui.components.toggle_switch import ToggleSwitch
 from src.gui.components.visibility_stack import VisibilityStack
@@ -231,6 +232,7 @@ class LSBExtractTab(QFrame):
         self.password_input = QLineEdit()
         self.password_input.setObjectName("formInput")
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        add_password_visibility_toggle(self.password_input)
         self.password_input.setPlaceholderText("Enter passphrase...")
         
         symmetric_layout.addWidget(password_label)
@@ -256,6 +258,7 @@ class LSBExtractTab(QFrame):
         self.key_password_input = QLineEdit()
         self.key_password_input.setObjectName("formInput")
         self.key_password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        add_password_visibility_toggle(self.key_password_input)
         self.key_password_input.setPlaceholderText("Enter key password...")
         self.key_password_input.editingFinished.connect(self.validate_selected_private_key)
 

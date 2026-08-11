@@ -1227,7 +1227,31 @@ QDialog QLineEdit:focus {
     border-color: #38BDF8;
 }
 
+QDialog QLineEdit:disabled {
+    background-color: #202020;
+    border-color: #303030;
+    color: #52525B;
+}
+
 QDialog QCheckBox {
     color: #CBD5E1;
-    spacing: 7px;
+    spacing: 9px;
+}
+
+QDialog QCheckBox::indicator {
+    width: 18px;
+    height: 18px;
+    background-color: #252525;
+    border: 1px solid #3A4650;
+    border-radius: 4px;
+}
+
+QDialog QCheckBox::indicator:hover {
+    border-color: #38BDF8;
+}
+
+QDialog QCheckBox::indicator:checked {
+    background-color: #38BDF8;
+    border-color: #38BDF8;
+    image: url(src/gui/assets/svg/check.svg);
 }

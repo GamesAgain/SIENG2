@@ -9,6 +9,7 @@ from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, 
 from src.gui.components.key_validation import KeyValidationLabel, inspect_public_key
 from src.gui.components.key_source import KeySourceWidget
 from src.gui.components.linked_step_toggle import LinkedStepToggle
+from src.gui.components.password_visibility import add_password_visibility_toggle
 from src.gui.components.step_output_picker import StepOutputPicker
 from src.gui.components.toggle_switch import ToggleSwitch
 from src.gui.components.visibility_stack import VisibilityStack
@@ -182,6 +183,7 @@ class LSBEmbedInputs(QFrame):
         self.password_input = QLineEdit()
         self.password_input.setObjectName("formInput")
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        add_password_visibility_toggle(self.password_input)
         self.password_input.setPlaceholderText("Enter passphrase...")
 
         symmetric_layout.addWidget(password_label)
@@ -194,6 +196,7 @@ class LSBEmbedInputs(QFrame):
         self.confirm_input = QLineEdit()
         self.confirm_input.setObjectName("formInput")
         self.confirm_input.setEchoMode(QLineEdit.EchoMode.Password)
+        add_password_visibility_toggle(self.confirm_input)
         self.confirm_input.setPlaceholderText("Confirm your passphrase...")
 
         symmetric_layout.addWidget(confirm_label)
