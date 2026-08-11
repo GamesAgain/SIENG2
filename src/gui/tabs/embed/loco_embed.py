@@ -6,11 +6,13 @@ from src.core.stego.locomotive import Locomotive
 from src.gui.components.files_drop import FileDropWidget, MultiFileDropWidget
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, create_icon_state
 from src.gui.components.key_validation import KeyValidationLabel, inspect_public_key
+from src.gui.components.key_source import KeySourceWidget
 from src.gui.components.linked_step_toggle import LinkedStepToggle
 from src.gui.components.step_output_picker import StepOutputPicker
 from src.gui.components.toggle_switch import ToggleSwitch
 from src.gui.components.visibility_stack import VisibilityStack
 from src.gui.components.worker import FunctionWorker
+from src.gui.services.key_registry import KeyRegistry
 
 ICON_DIR = Path(__file__).parent.parent.parent / "assets" / "svg"
 ICON_SIZE = 14
@@ -23,8 +25,13 @@ class LocoEmbedInputs(QFrame):
     แยกออกจาก execute bar เพื่อ reuse ทั้งหน้า Standalone (LocomotiveEmbedTab) และ
     Configurable Pipeline (step config popup/inline) — เปิด API `get_input_data()`"""
 
-    def __init__(self, pipeline_mode: bool = False):
+    def __init__(
+        self,
+        pipeline_mode: bool = False,
+        key_registry: KeyRegistry | None = None,
+    ):
         super().__init__()
+        self.key_registry = key_registry
 
         # Locomotive & Payload
         self.locomotive_file_paths: list[str] = None
@@ -419,15 +426,10 @@ class LocoEmbedInputs(QFrame):
 
         asymmetric_layout = QVBoxLayout(asymmetric_mode)
         asymmetric_layout.setContentsMargins(0, 0, 0, 8)
-        key_drop_zone = FileDropWidget(
-            "Drop public key here or click to browse",
-            "RSA public key (.pem, .der, .pub)",
-            icon_path=str(ICON_DIR / "file-text-shield.svg"),
-            allowed_extensions=[".pem", ".der", ".pub"],
-        )
-        self.public_key_drop_zone = key_drop_zone
-        key_drop_zone.file_selected.connect(self.on_public_key_selected)
-        asymmetric_layout.addWidget(key_drop_zone)
+        self.public_key_source = KeySourceWidget("public", self.key_registry)
+        self.public_key_drop_zone = self.public_key_source.drop_zone
+        self.public_key_source.key_selected.connect(self.on_public_key_selected)
+        asymmetric_layout.addWidget(self.public_key_source)
 
         self.public_key_status = KeyValidationLabel()
         asymmetric_layout.addWidget(self.public_key_status)
@@ -537,8 +539,9 @@ class LocomotiveEmbedTab(QFrame):
     """หน้า Standalone ของ Locomotive — ห่อ LocoEmbedInputs + execute bar
     (status + ปุ่ม Embed Data) ที่รัน engine + เซฟไฟล์เองในโหมดนี้"""
 
-    def __init__(self):
+    def __init__(self, key_registry: KeyRegistry | None = None):
         super().__init__()
+        self.key_registry = key_registry
         self.init_ui()
 
     def init_ui(self):
@@ -546,7 +549,7 @@ class LocomotiveEmbedTab(QFrame):
         main_layout.setContentsMargins(4, 11, 4, 4)
 
         # ส่วน input (reuse ร่วมกับ Configurable Pipeline)
-        self.inputs = LocoEmbedInputs()
+        self.inputs = LocoEmbedInputs(key_registry=self.key_registry)
         main_layout.addWidget(self.inputs)
 
         # --- Final layout for loading status bar and execute button ---

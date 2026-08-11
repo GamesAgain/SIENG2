@@ -1100,3 +1100,134 @@ QListWidget#summaryList::item {
     padding: 10px 4px;
     border-bottom: 1px solid #343434;
 }
+
+/* --- RSA Key Management --- */
+QFrame#keyManagementPage {
+    background-color: #1E1E1E;
+}
+
+QLabel#pageTitle, QLabel#dialogTitle {
+    color: #E2E8F0;
+    font-size: 20px;
+    font-weight: 700;
+}
+
+QLabel#keyDetailValue {
+    color: #CBD5E1;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+}
+
+QListWidget#keyManagementList, QListWidget#keyPickerList {
+    background-color: #1E1E1E;
+    color: #CBD5E1;
+    border: 1px solid #343434;
+    border-radius: 7px;
+    outline: none;
+    padding: 4px;
+}
+
+QListWidget#keyManagementList::item, QListWidget#keyPickerList::item {
+    padding: 10px;
+    border-bottom: 1px solid #303030;
+}
+
+QListWidget#keyManagementList::item:hover, QListWidget#keyPickerList::item:hover {
+    background-color: #252F33;
+}
+
+QListWidget#keyManagementList::item:selected, QListWidget#keyPickerList::item:selected {
+    background-color: #1C292F;
+    color: #38BDF8;
+    border: 1px solid #224A5B;
+    border-radius: 5px;
+}
+
+QFrame#keyListItemContent {
+    background-color: transparent;
+    border: none;
+}
+
+QLabel#keyListDisplayName {
+    color: #E2E8F0;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+QLabel#keyListSummary {
+    color: #64748B;
+    font-size: 10px;
+}
+
+QLabel#keyListDisplayName[selected="true"] {
+    color: #7DD3FC;
+}
+
+QLabel#keyListSummary[selected="true"] {
+    color: #8FB4C8;
+}
+
+QPushButton#KeyLibraryBtn {
+    background-color: #1C292F;
+    border: 1px solid #224A5B;
+    border-radius: 6px;
+    color: #38BDF8;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 7px 12px;
+}
+
+QPushButton#KeyLibraryBtn:hover {
+    background-color: #21353F;
+    border-color: #38BDF8;
+}
+
+QPushButton#KeyLibraryBtn:pressed {
+    background-color: #17252B;
+}
+
+QPushButton#KeyLibraryBtn:disabled {
+    background-color: transparent;
+    color: #52525B;
+    border-color: #2A2A2A;
+}
+
+QPushButton#DangerBtn {
+    background-color: transparent;
+    border: 1px solid rgba(244, 63, 94, 0.45);
+    border-radius: 6px;
+    color: #FB7185;
+    font-size: 11px;
+    padding: 7px 12px;
+}
+
+QPushButton#DangerBtn:hover {
+    background-color: rgba(244, 63, 94, 0.12);
+    border-color: #F43F5E;
+}
+
+QDialog {
+    background-color: #202020;
+    color: #CBD5E1;
+}
+
+QDialog QLabel {
+    color: #CBD5E1;
+}
+
+QDialog QLineEdit {
+    background-color: #252525;
+    border: 1px solid #3A4650;
+    border-radius: 6px;
+    color: #E2E8F0;
+    padding: 7px 9px;
+}
+
+QDialog QLineEdit:focus {
+    border-color: #38BDF8;
+}
+
+QDialog QCheckBox {
+    color: #CBD5E1;
+    spacing: 7px;
+}

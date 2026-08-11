@@ -14,6 +14,7 @@ from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap
 from src.gui.components.step_card import StepCard, center_in_band, make_arrow
 from src.gui.components.step_config_widgets import PlaceholderInputs, StepConfigDialog, StepConfigPanel
 from src.gui.components.worker import FunctionWorker
+from src.gui.services.key_registry import KeyRegistry
 from src.gui.tabs.embed.lsb_embed import LSBEmbedInputs
 from src.gui.tabs.embed.loco_embed import LocoEmbedInputs
 from src.gui.tabs.embed.metadata_embed import MetadataEmbedTab
@@ -110,8 +111,9 @@ def _promote_literals(value, tag_parts: list, variables: dict, value_to_var: dic
 # ══════════════════════════════════════════════════════════════════════════
 class EmbedConfigurablePage(QFrame):
 
-    def __init__(self):
+    def __init__(self, key_registry: KeyRegistry | None = None):
         super().__init__()
+        self.key_registry = key_registry
         # state: list ของ {"type": str, "sub": str, "valid": bool}
         self.steps = []
         self.config_variant = "popup"
@@ -778,9 +780,9 @@ class EmbedConfigurablePage(QFrame):
         # pipeline_mode=True → โชว์ toggle Manual Upload/Linked from Step บน cover card ทุก technique
         # (Metadata เพิ่ม: ซ่อนปุ่ม "Save metadata" ด้วย เพราะ save = embed จริง ต้องรันผ่าน Run Pipeline)
         if step_type == "lsbpp":
-            return LSBEmbedInputs(pipeline_mode=True)
+            return LSBEmbedInputs(pipeline_mode=True, key_registry=self.key_registry)
         if step_type == "locomotive":
-            return LocoEmbedInputs(pipeline_mode=True)
+            return LocoEmbedInputs(pipeline_mode=True, key_registry=self.key_registry)
         if step_type == "metadata":
             return MetadataEmbedTab(pipeline_mode=True)
         return PlaceholderInputs(idx, step_type)

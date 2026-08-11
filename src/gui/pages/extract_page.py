@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QPushButton, QSta
 from src.gui.components.gui_utils import create_icon_state
 from src.gui.pages.sub_pages.extract.standalone_page import ExtractStandalonePage
 from src.gui.pages.sub_pages.extract.configurable_page import ExtractConfigurablePage
+from src.gui.services.key_registry import KeyRegistry
 
 ICON_DIR = Path(__file__).resolve().parent.parent / "assets" / "svg"
 MODE_ICON_SIZE = 16
@@ -13,8 +14,9 @@ MODE_ICON_COLOR_CHECKED_STANDALONE = "#38BDF8"
 MODE_ICON_COLOR_CHECKED_CONFIGURABLE = "#F59E0F"
 
 class ExtractPage(QFrame):
-    def __init__(self):
+    def __init__(self, key_registry: KeyRegistry | None = None):
         super().__init__()
+        self.key_registry = key_registry
         self.setObjectName("extractPage")
         self.init_ui()
     
@@ -35,8 +37,8 @@ class ExtractPage(QFrame):
         # Mode Stack 
         self.mode_stack = QStackedWidget()
         
-        self.mode_stack.addWidget(ExtractStandalonePage())
-        self.mode_stack.addWidget(ExtractConfigurablePage())
+        self.mode_stack.addWidget(ExtractStandalonePage(self.key_registry))
+        self.mode_stack.addWidget(ExtractConfigurablePage(self.key_registry))
         
         self.mode_group.idClicked.connect(self.mode_stack.setCurrentIndex)
         main_layout.addWidget(self.mode_selection)

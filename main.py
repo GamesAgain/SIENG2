@@ -18,6 +18,8 @@ def apply_stylesheet(app: QApplication, style: str = "default.qss"):
 
 def main():
     app = QApplication(sys.argv)
+    app.setOrganizationName("SIENG2")
+    app.setApplicationName("SIENG2")
     
     palette = app.palette()
     palette.setColor(QPalette.ColorRole.WindowText, QColor("#94a3b8"))

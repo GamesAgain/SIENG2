@@ -9,9 +9,11 @@ from PyQt6.QtWidgets import (
 
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap
 from src.gui.components.key_validation import KeyValidationLabel, inspect_private_key
+from src.gui.dialogs.key_dialogs import KeyPickerDialog
 from src.gui.components.result_viewers import PayloadResultViewer
 from src.gui.components.worker import FunctionWorker
 from src.gui.pages.sub_pages.embed.pipeline_constants import STEP_META
+from src.gui.services.key_registry import KeyRegistry
 from src.gui.tabs.extract.metadata_extract import AllFramesDialog, MP3MetadataViewer, PNGAllChunksDialog, PNGMetadataViewer
 
 from src.core.configurable.config_mode import (
@@ -85,8 +87,9 @@ class ResourceRow(QFrame):
 # ExtractConfigurablePage
 # ══════════════════════════════════════════════════════════════════════════
 class ExtractConfigurablePage(QFrame):
-    def __init__(self):
+    def __init__(self, key_registry: KeyRegistry | None = None):
         super().__init__()
+        self.key_registry = key_registry
         self.extract_config = None       # dict ที่ import มา
         self.resource_rows = []          # ResourceRow ต่อไฟล์ตั้งต้น
         self.session = None              # ExtractSession — สร้างตอน import, res_path อัปเดตสดตามที่แนบไฟล์
@@ -358,6 +361,22 @@ class ExtractConfigurablePage(QFrame):
                 secret_row.addWidget(pw_edit, 1)
                 refs["secret_password_edit"] = pw_edit
             else:
+                saved_key_btn = QPushButton(" Saved Keys")
+                saved_key_btn.setObjectName("KeyLibraryBtn")
+                saved_key_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                saved_key_btn.setEnabled(self.key_registry is not None)
+                saved_key_btn.setIcon(
+                    QIcon(
+                        create_icon_pixmap(
+                            ICON_DIR / "books.svg",
+                            color_hex="#38BDF8",
+                            size=ICON_SIZE,
+                        )
+                    )
+                )
+                saved_key_btn.clicked.connect(lambda: self._choose_saved_key_for_row(node))
+                secret_row.addWidget(saved_key_btn)
+
                 key_btn = QPushButton(" Choose private key...")
                 key_btn.setObjectName("SecondaryBtn")
                 key_btn.setProperty("textColor", "white")
@@ -414,12 +433,21 @@ class ExtractConfigurablePage(QFrame):
         refs["extract_btn"] = extract_btn
         return row, refs
 
+    def _choose_saved_key_for_row(self, node: dict):
+        picker = KeyPickerDialog(self.key_registry, "private", self)
+        if not picker.exec() or not picker.selected_path:
+            return
+        self._set_key_for_row(node, picker.selected_path)
+
     def _browse_key_for_row(self, node: dict):
         path, _ = QFileDialog.getOpenFileName(
             self, f"Private key for '{node['embed_id']}'", "", "RSA key files (*.pem *.der *.key);;All files (*.*)"
         )
         if not path:
             return
+        self._set_key_for_row(node, path)
+
+    def _set_key_for_row(self, node: dict, path: str):
         refs = self.workflow_rows[node["embed_id"]]
         refs["key_path"] = path
         refs["key_path_label"].setText(Path(path).name)

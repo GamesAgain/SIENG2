@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QLabel, QPushButt
 from src.gui.pages.sub_pages.embed.configurable_page import EmbedConfigurablePage
 from src.gui.pages.sub_pages.embed.standalone_page import EmbedStandalonePage
 from src.gui.components.gui_utils import create_icon_state
+from src.gui.services.key_registry import KeyRegistry
 
 ICON_DIR = Path(__file__).resolve().parent.parent / "assets" / "svg"
 MODE_ICON_SIZE = 16
@@ -12,8 +13,9 @@ MODE_ICON_COLOR_CHECKED_STANDALONE = "#38BDF8"
 MODE_ICON_COLOR_CHECKED_CONFIGURABLE = "#F59E0F"
 
 class EmbedPage(QFrame):
-    def __init__(self):
+    def __init__(self, key_registry: KeyRegistry | None = None):
         super().__init__()
+        self.key_registry = key_registry
         self.setObjectName("embedPage")
         self.init_ui()
     
@@ -34,8 +36,8 @@ class EmbedPage(QFrame):
         # Mode Stack 
         self.mode_stack = QStackedWidget()
         
-        self.mode_stack.addWidget(EmbedStandalonePage())
-        self.mode_stack.addWidget(EmbedConfigurablePage())
+        self.mode_stack.addWidget(EmbedStandalonePage(self.key_registry))
+        self.mode_stack.addWidget(EmbedConfigurablePage(self.key_registry))
         
         self.mode_group.idClicked.connect(self.mode_stack.setCurrentIndex)
         main_layout.addWidget(self.mode_selection)

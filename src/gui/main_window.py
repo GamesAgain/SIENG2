@@ -9,6 +9,8 @@ from src.gui.pages.embed_page import EmbedPage
 from src.gui.pages.extract_page import ExtractPage
 from src.gui.pages.analyzer_page import AnalyzerPage
 from src.gui.pages.compare_page import ComparePage
+from src.gui.pages.key_management_page import KeyManagementPage
+from src.gui.services.key_registry import KeyRegistry
 
 CURRENT_DIR = Path(__file__).resolve().parent
 ICON_DIR = CURRENT_DIR / "assets" / "svg"
@@ -17,11 +19,13 @@ EMBED_ICON       = str(ICON_DIR / "lock-plus.svg")
 EXTRACT_ICON     = str(ICON_DIR / "lock-open.svg")
 ANALYZER_ICON = str(ICON_DIR / "file-search.svg")
 COMPARE_ICON     = str(ICON_DIR / "columns.svg")
+KEYS_ICON        = str(ICON_DIR / "key.svg")
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, key_registry: KeyRegistry | None = None):
         super().__init__()
+        self.key_registry = key_registry or KeyRegistry()
         
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         
@@ -57,8 +61,9 @@ class MainWindow(QMainWindow):
         # -- Main Content --
         self.page_container = QStackedWidget()
         
-        self.page_container.addWidget(EmbedPage())
-        self.page_container.addWidget(ExtractPage())
+        self.page_container.addWidget(EmbedPage(self.key_registry))
+        self.page_container.addWidget(ExtractPage(self.key_registry))
+        self.page_container.addWidget(KeyManagementPage(self.key_registry))
         self.page_container.addWidget(AnalyzerPage())
         self.page_container.addWidget(ComparePage())
         
@@ -98,11 +103,10 @@ class MainWindow(QMainWindow):
         
         self.sidebar_group.addButton(self.embed_btn, 0)
         self.sidebar_group.addButton(self.extract_btn, 1)
-        
-        # -- Section Separator --
+
         sidebar_layout.addSpacing(16)
         sidebar_layout.addWidget(self.create_separator_line())
-        
+
         # -- Steganalysis Section --
         sidebar_layout.addWidget(self.create_section_label("Steganalysis"))
         
@@ -111,8 +115,19 @@ class MainWindow(QMainWindow):
         sidebar_layout.addWidget(self.analyzer_btn)
         sidebar_layout.addWidget(self.compare_btn)
 
-        self.sidebar_group.addButton(self.analyzer_btn, 2)
-        self.sidebar_group.addButton(self.compare_btn, 3)
+        self.sidebar_group.addButton(self.analyzer_btn, 3)
+        self.sidebar_group.addButton(self.compare_btn, 4)
+
+        # -- Section Separator --
+        sidebar_layout.addSpacing(16)
+        sidebar_layout.addWidget(self.create_separator_line())
+
+        # -- Utility Section --
+        sidebar_layout.addWidget(self.create_section_label("Utility"))
+
+        self.keys_btn = SidebarButton("Key Management", KEYS_ICON)
+        sidebar_layout.addWidget(self.keys_btn)
+        self.sidebar_group.addButton(self.keys_btn, 2)
         
         sidebar_layout.addStretch()
         

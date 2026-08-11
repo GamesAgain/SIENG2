@@ -7,11 +7,13 @@ from src.core.stego.lsb_pp import HEADER_BYTES, LSBPP, estimate_overhead_bytes, 
 from src.gui.components.files_drop import FileDropWidget
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, create_icon_state, format_file_size
 from src.gui.components.key_validation import KeyValidationLabel, inspect_public_key
+from src.gui.components.key_source import KeySourceWidget
 from src.gui.components.linked_step_toggle import LinkedStepToggle
 from src.gui.components.step_output_picker import StepOutputPicker
 from src.gui.components.toggle_switch import ToggleSwitch
 from src.gui.components.visibility_stack import VisibilityStack
 from src.gui.components.worker import FunctionWorker
+from src.gui.services.key_registry import KeyRegistry
 
 ICON_DIR = Path(__file__).parent.parent.parent / "assets" / "svg"
 
@@ -28,8 +30,13 @@ class LSBEmbedInputs(QFrame):
     เก็บ widget/state ทั้งหมดไว้บน self แล้วเปิด API `get_input_data()` /
     `validate_input()` ให้ผู้เรียก (tab หรือ pipeline) ดึงค่าไปใช้ต่อ"""
 
-    def __init__(self, pipeline_mode: bool = False):
+    def __init__(
+        self,
+        pipeline_mode: bool = False,
+        key_registry: KeyRegistry | None = None,
+    ):
         super().__init__()
+        self.key_registry = key_registry
 
         # Cover & Payload
         self.cover_file_path = None
@@ -200,16 +207,10 @@ class LSBEmbedInputs(QFrame):
 
         asymmetric_layout = QVBoxLayout(asymmetric_mode)
         asymmetric_layout.setContentsMargins(0, 0, 0, 8)
-        key_drop_zone = FileDropWidget(
-            "Drop public key here or click to browse",
-            "RSA public key (.pem, .der, .pub)",
-            icon_path=str(ICON_DIR / "file-text-shield.svg"),
-            allowed_extensions=[".pem", ".der", ".pub"],
-        )
-        self.public_key_drop_zone = key_drop_zone
-        key_drop_zone.setMinimumHeight(115)
-        key_drop_zone.file_selected.connect(self.on_public_key_selected)
-        asymmetric_layout.addWidget(key_drop_zone)
+        self.public_key_source = KeySourceWidget("public", self.key_registry)
+        self.public_key_drop_zone = self.public_key_source.drop_zone
+        self.public_key_source.key_selected.connect(self.on_public_key_selected)
+        asymmetric_layout.addWidget(self.public_key_source)
 
         self.public_key_status = KeyValidationLabel()
         asymmetric_layout.addWidget(self.public_key_status)
@@ -681,8 +682,9 @@ class LSBEmbedTab(QFrame):
     """หน้า Standalone ของ LSB — ห่อ LSBEmbedInputs แล้วต่อ execute bar
     (status + progress + ปุ่ม Embed Data) ที่รัน engine + เซฟไฟล์เองในโหมดนี้"""
 
-    def __init__(self):
+    def __init__(self, key_registry: KeyRegistry | None = None):
         super().__init__()
+        self.key_registry = key_registry
         self.init_ui()
 
     def init_ui(self):
@@ -690,7 +692,7 @@ class LSBEmbedTab(QFrame):
         main_layout.setContentsMargins(4, 11, 4, 4)
 
         # ส่วน input (reuse ร่วมกับ Configurable Pipeline)
-        self.inputs = LSBEmbedInputs()
+        self.inputs = LSBEmbedInputs(key_registry=self.key_registry)
         main_layout.addWidget(self.inputs)
 
         # --- Final layout for loading status bar and execute button ---

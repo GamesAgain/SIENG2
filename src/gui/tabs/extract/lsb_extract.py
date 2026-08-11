@@ -6,10 +6,12 @@ from src.core.stego.lsb_pp import LSBPP
 from src.gui.components.files_drop import FileDropWidget
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, create_icon_state
 from src.gui.components.key_validation import KeyValidationLabel, inspect_private_key
+from src.gui.components.key_source import KeySourceWidget
 from src.gui.components.result_viewers import PayloadResultViewer
 from src.gui.components.toggle_switch import ToggleSwitch
 from src.gui.components.visibility_stack import VisibilityStack
 from src.gui.components.worker import FunctionWorker
+from src.gui.services.key_registry import KeyRegistry
 
 ICON_DIR = Path(__file__).parent.parent.parent / "assets" / "svg"
 
@@ -18,8 +20,9 @@ COLOR_CHECKED_SYM = "#a78bfa"
 COLOR_CHECKED_ASYM = "#34D399"
 
 class LSBExtractTab(QFrame):
-    def __init__(self):
+    def __init__(self, key_registry: KeyRegistry | None = None):
         super().__init__()
+        self.key_registry = key_registry
         
         # Stego file
         self.stego_file_path = None
@@ -241,27 +244,21 @@ class LSBExtractTab(QFrame):
         
         asymmetric_layout = QVBoxLayout(asymmetric_mode)
         asymmetric_layout.setContentsMargins(0, 0, 0, 8)
-        key_drop_zone = FileDropWidget(
-            "Drop private key here or click to browse",
-            "RSA private key (.pem, .der, .key)",
-            icon_path=str(ICON_DIR / "file-text-shield.svg"),
-            allowed_extensions=[".pem", ".der", ".key"],
-        )
-        self.private_key_drop_zone = key_drop_zone
-        key_drop_zone.setMinimumHeight(115)
-        key_drop_zone.file_selected.connect(self.on_private_key_selected)
-        asymmetric_layout.addWidget(key_drop_zone)
-        
+        self.private_key_source = KeySourceWidget("private", self.key_registry)
+        self.private_key_drop_zone = self.private_key_source.drop_zone
+        self.private_key_source.key_selected.connect(self.on_private_key_selected)
+        asymmetric_layout.addWidget(self.private_key_source)
+
         # Password Input
         key_password_label = QLabel("Private Key Password (Optional)")
         key_password_label.setObjectName("formLabel")
-        
+
         self.key_password_input = QLineEdit()
         self.key_password_input.setObjectName("formInput")
         self.key_password_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.key_password_input.setPlaceholderText("Enter key password...")
         self.key_password_input.editingFinished.connect(self.validate_selected_private_key)
-        
+
         asymmetric_layout.addWidget(key_password_label)
         asymmetric_layout.addWidget(self.key_password_input)
 
