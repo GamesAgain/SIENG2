@@ -1,10 +1,12 @@
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout, QLabel, QPushButton
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QPixmap
 from pathlib import Path
 
 
 CURRENT_DIR = Path(__file__).resolve().parent
 ICON_DIR = CURRENT_DIR.parent / "assets" / "svg"
+PNG_DIR = CURRENT_DIR.parent / "assets" / "png"
 
 class SIENG2TitleBar(QFrame):
     def __init__(self, parent=None):
@@ -22,10 +24,24 @@ class SIENG2TitleBar(QFrame):
         layout.setContentsMargins(16, 0, 16, 0)
         layout.setSpacing(12)
 
-        # โลโก้ (สร้างเป็นกล่องสีฟ้าตามภาพ)
+        # SIENG2 application logo
         self.logo_mark = QLabel()
-        self.logo_mark.setFixedSize(28, 28)
+        self.logo_mark.setFixedSize(36, 36)
         self.logo_mark.setObjectName("logoMark")
+        self.logo_mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        logo_path = PNG_DIR / "sieng2-icon.png"
+        logo_pixmap = QPixmap(str(logo_path))
+        if logo_pixmap.isNull():
+            raise FileNotFoundError(f"Unable to load SIENG2 logo: {logo_path}")
+
+        self.logo_mark.setPixmap(
+            logo_pixmap.scaled(
+                self.logo_mark.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
         layout.addWidget(self.logo_mark)
 
         # ชื่อโปรแกรมและซับไตเติ้ล

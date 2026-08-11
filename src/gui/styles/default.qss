@@ -15,11 +15,8 @@
 
 /* Logo */
 #logoMark {
-    background-color: #38bdf8;
-    border-radius: 6px;
-    color: #181818;
-    font-size: 16px;
-    font-weight: bold;
+    background-color: transparent;
+    border: none;
 }
 
 /* ชื่อแอป SIENG2 */
