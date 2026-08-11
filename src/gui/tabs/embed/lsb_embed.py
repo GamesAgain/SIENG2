@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import QButtonGroup, QFileDialog, QFrame, QHBoxLayout, QLab
 from src.core.stego.lsb_pp import HEADER_BYTES, LSBPP, estimate_overhead_bytes, get_max_message_bytes
 from src.gui.components.files_drop import FileDropWidget
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, create_icon_state, format_file_size
+from src.gui.components.key_validation import KeyValidationLabel, inspect_public_key
 from src.gui.components.linked_step_toggle import LinkedStepToggle
 from src.gui.components.step_output_picker import StepOutputPicker
 from src.gui.components.toggle_switch import ToggleSwitch
@@ -199,11 +200,19 @@ class LSBEmbedInputs(QFrame):
 
         asymmetric_layout = QVBoxLayout(asymmetric_mode)
         asymmetric_layout.setContentsMargins(0, 0, 0, 8)
-        key_drop_zone = FileDropWidget("Drop public key here or click to browse", "Public key file (.pem, .der, .ssh)", icon_path=str(ICON_DIR / "file-text-shield.svg"), allowed_extensions=["pem", "der", "ssh"])
+        key_drop_zone = FileDropWidget(
+            "Drop public key here or click to browse",
+            "RSA public key (.pem, .der, .pub)",
+            icon_path=str(ICON_DIR / "file-text-shield.svg"),
+            allowed_extensions=[".pem", ".der", ".pub"],
+        )
         self.public_key_drop_zone = key_drop_zone
         key_drop_zone.setMinimumHeight(115)
         key_drop_zone.file_selected.connect(self.on_public_key_selected)
         asymmetric_layout.addWidget(key_drop_zone)
+
+        self.public_key_status = KeyValidationLabel()
+        asymmetric_layout.addWidget(self.public_key_status)
 
         return asymmetric_mode
 
@@ -503,6 +512,12 @@ class LSBEmbedInputs(QFrame):
                 QMessageBox.warning(self, "Validation Error", "Please drop a Public Key file for asymmetric encryption.")
                 return False
 
+            result = inspect_public_key(self.public_key_path)
+            self.public_key_status.set_result(result)
+            if not result.valid:
+                QMessageBox.warning(self, "Invalid Public Key", result.message)
+                return False
+
         return True
 
     # --- Event Handler ---
@@ -548,6 +563,14 @@ class LSBEmbedInputs(QFrame):
         self.update_capacity_label()
         
     def on_public_key_selected(self, file_path: str):
+        if not file_path:
+            self.public_key_path = None
+            self.public_key_status.clear_result()
+            self.update_capacity_label()
+            return
+
+        result = inspect_public_key(file_path)
+        self.public_key_status.set_result(result)
         self.public_key_path = file_path
         self.update_capacity_label()  # ขนาด RSA key มีผลต่อ overhead ของโหมด asymmetric
 

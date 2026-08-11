@@ -472,6 +472,24 @@ QLineEdit#formInput:focus {
     border: 1px solid #38bdf8;
 }
 
+QLabel#keyValidationLabel {
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    padding: 2px 0;
+}
+
+QLabel#keyValidationLabel[keyState="valid"] {
+    color: #34D399;
+}
+
+QLabel#keyValidationLabel[keyState="pending"] {
+    color: #F59E0F;
+}
+
+QLabel#keyValidationLabel[keyState="error"] {
+    color: #EF4444;
+}
+
 
 QLabel#capacityLabel {
     font-family: 'Courier New', monospace;

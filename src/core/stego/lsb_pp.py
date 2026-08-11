@@ -9,8 +9,18 @@ from skimage.morphology import footprint_rectangle
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
  
-from src.core.crypto.sym_encrypt import SymmetricEncryption
-from src.core.crypto.asym_encrypt import AsymmetricEncryption, load_public_key, load_private_key, get_public_bytes
+from src.core.crypto.sym_encrypt import (
+    AES_NONCE_LENGTH,
+    AES_SALT_LENGTH,
+    AES_TAG_LENGTH,
+    SymmetricEncryption,
+)
+from src.core.crypto.asym_encrypt import (
+    AsymmetricEncryption, 
+    load_public_key, 
+    load_private_key, 
+    get_public_bytes
+)
 
 DEFAULT_LSBPP_CONFIG = {
     'default_seed': 'Default',
@@ -35,9 +45,9 @@ DEFAULT_LSBPP_CONFIG = {
 }
 
 # Encrypt Mode constants SIENG2 [SE = Steganography Encryption]
-MAGIC_SYM = b"SES" # Steganography Encryption Symmetric
-MAGIC_ASYM = b"SEA" # Steganography Encryption Asymmetric
-MAGIC_NONE = b"SEN" # Steganography Encryption None
+MAGIC_SYM = b"SES" # Symmetric Header
+MAGIC_ASYM = b"SEA" # Asymmetric Header
+MAGIC_NONE = b"SEN" # None Header
 HEADER_BYTES = 7  # MAGIC (3 bytes) + LENGTH (4 bytes)
 
 # IEND chunk เต็ม 12 bytes (length 0 + "IEND" + CRC) = จุดจบไฟล์ PNG จริง
@@ -51,6 +61,17 @@ ProgressCallback = Optional[Callable[[int, str], None]]
 def update_progress(callBack: ProgressCallback, percent: int, message: str):
     if callBack is not None:
         callBack(percent, message)
+
+
+def validate_encryption_mode(
+    password: str = None,
+    public_key_path: str = None,
+) -> None:
+    """Embed must use either password mode or public-key mode."""
+    if password is not None and public_key_path is not None:
+        raise ValueError(
+            "Choose either password encryption or public-key encryption, not both."
+        )
 
 # ลูปเข้าไปอ่าน type chunks, chunk data ภายในภาพ PNG                
 def iterate_png_chunks(raw_data_bytes: bytes):
@@ -110,6 +131,8 @@ class LSBPP:
         """
         Embed payload message into cover image using LSB++ algorithm
         """
+        # 0. Validate encryption mode
+        validate_encryption_mode(password, public_key_path)
         
         # 1. Prepare cover image
         update_progress(progress_callback, 5, "Preparing cover image...")
@@ -126,7 +149,7 @@ class LSBPP:
         
         # 4. Get seed
         update_progress(progress_callback, 45, "Deriving seed...")
-        seed = self.get_seed(password, public_key_path)
+        seed = self.get_seed(password=password, public_key_path=public_key_path)
             
         # 5. Get pixel order
         update_progress(progress_callback, 50, "Pixel ordering...")
@@ -231,7 +254,7 @@ class LSBPP:
 
         # 4. Get seed
         update_progress(progress_callback, 50, "Deriving seed...")
-        seed = self.get_seed(password, private_key_path)
+        seed = self.get_seed(password=password, private_key_path=private_key_path)
 
         # 5. Get pixel order
         update_progress(progress_callback, 55, "Pixel ordering...")
@@ -647,35 +670,27 @@ class LSBPP:
                 f"3. Select a cover image with a larger capacity."
             )
 
-    def get_seed(self, password: str = None, key_path: str = None) -> int:
-        """
-        Generate seed from password or public key
-        """
-        
-        if password is not None and key_path is None:
-            seed = password.encode()
-            
-        elif key_path is not None: 
-            # Check if encrypt private key with password
-            key_password = password if password else None
-                
-            with open(key_path, "rb") as f:
-                key_data = f.read()
-                
-            if b"PRIVATE KEY" in key_data:                
-                private_key = load_private_key(key_path, key_password)
-                public_key = private_key.public_key()
-                
-            elif b"PUBLIC KEY" in key_data:
-                public_key = load_public_key(key_path)
-                
-            else:
-                raise ValueError("Invalid key file format")
-            
+    def get_seed(
+        self,
+        password: str = None,
+        public_key_path: str = None,
+        private_key_path: str = None,
+    ) -> int:
+        """Generate the pixel seed from the selected encryption credential."""
+        validate_encryption_mode(password, public_key_path)
+        if public_key_path is not None and private_key_path is not None:
+            raise ValueError("Choose either a public key or a private key, not both.")
+
+        if public_key_path is not None:
+            public_key = load_public_key(public_key_path)
             seed = get_public_bytes(public_key)
-            
+        elif private_key_path is not None:
+            private_key = load_private_key(private_key_path, password)
+            seed = get_public_bytes(private_key.public_key())
+        elif password is not None:
+            seed = password.encode("utf-8")
         else:
-            seed = self.default_seed.encode()
+            seed = self.default_seed.encode("utf-8")
             
         hkdf = HKDF(
             algorithm=hashes.SHA256(),
@@ -693,6 +708,8 @@ class LSBPP:
         Build complete payload: [MAGIC (3 bytes) + LENGTH (4 bytes) + ENCRYPTED_DATA]
         Returns: (header_bytes, encrypted_data_bytes)
         """
+        validate_encryption_mode(password, public_key_path)
+
         # 1. Process message based on encryption mode
         if password is not None:
             magic = MAGIC_SYM  # SES: Symmetric encryption
@@ -764,16 +781,18 @@ def estimate_overhead_bytes(password: str = None, public_key_path: str = None) -
     """
     Estimate the pack_data() byte overhead for the selected encryption mode.
     """
+    validate_encryption_mode(password, public_key_path)
+
     if password is not None:
         # Symmetric: HEADER + salt(16) + nonce(12) + tag(16)
-        return HEADER_BYTES + 16 + 12 + 16  # = 51
+        return HEADER_BYTES + AES_SALT_LENGTH + AES_NONCE_LENGTH + AES_TAG_LENGTH
 
     if public_key_path is not None:
         # Asymmetric: HEADER + RSA-encrypted session key (actual key size) + nonce(12) + tag(16)
         # Load the actual key to determine size dynamically, supporting various RSA key sizes.
         public_key = load_public_key(public_key_path)
         encrypted_key_length = public_key.key_size // 8
-        return HEADER_BYTES + encrypted_key_length + 12 + 16
+        return HEADER_BYTES + encrypted_key_length + AES_NONCE_LENGTH + AES_TAG_LENGTH
 
     # No encryption: Header only
     return HEADER_BYTES

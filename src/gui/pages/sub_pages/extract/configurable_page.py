@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap
+from src.gui.components.key_validation import KeyValidationLabel, inspect_private_key
 from src.gui.components.result_viewers import PayloadResultViewer
 from src.gui.components.worker import FunctionWorker
 from src.gui.pages.sub_pages.embed.pipeline_constants import STEP_META
@@ -342,7 +343,8 @@ class ExtractConfigurablePage(QFrame):
 
         refs = {
             "row": row, "status_label": status_label, "extracted_label": extracted_label,
-            "secret_row": None, "secret_password_edit": None, "key_path": None, "key_path_label": None,
+            "secret_row": None, "secret_password_edit": None, "key_path": None,
+            "key_path_label": None, "key_password_edit": None, "key_status": None,
         }
 
         if node.get("decrypt"):
@@ -367,8 +369,23 @@ class ExtractConfigurablePage(QFrame):
                 secret_row.addWidget(key_btn)
                 secret_row.addWidget(key_path_label, 1)
                 refs["key_path_label"] = key_path_label
+
+                key_password_edit = QLineEdit()
+                key_password_edit.setObjectName("formInput")
+                key_password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+                key_password_edit.setPlaceholderText("Private key password (optional)")
+                key_password_edit.editingFinished.connect(lambda: self._validate_key_for_row(node))
+                secret_row.addWidget(key_password_edit, 1)
+                refs["key_password_edit"] = key_password_edit
+
+                refs["key_status"] = KeyValidationLabel()
             secret_row_frame = QFrame()
-            secret_row_frame.setLayout(secret_row)
+            secret_box = QVBoxLayout(secret_row_frame)
+            secret_box.setContentsMargins(0, 0, 0, 0)
+            secret_box.setSpacing(4)
+            secret_box.addLayout(secret_row)
+            if refs["key_status"]:
+                secret_box.addWidget(refs["key_status"])
             col.addWidget(secret_row_frame)
             refs["secret_row"] = secret_row_frame
 
@@ -399,13 +416,25 @@ class ExtractConfigurablePage(QFrame):
 
     def _browse_key_for_row(self, node: dict):
         path, _ = QFileDialog.getOpenFileName(
-            self, f"Private key for '{node['embed_id']}'", "", "Key files (*.pem *.der *.ssh);;All files (*.*)"
+            self, f"Private key for '{node['embed_id']}'", "", "RSA key files (*.pem *.der *.key);;All files (*.*)"
         )
         if not path:
             return
         refs = self.workflow_rows[node["embed_id"]]
         refs["key_path"] = path
         refs["key_path_label"].setText(Path(path).name)
+        self._validate_key_for_row(node)
+
+    def _validate_key_for_row(self, node: dict):
+        refs = self.workflow_rows[node["embed_id"]]
+        if not refs["key_path"]:
+            refs["key_status"].clear_result()
+            return None
+
+        password = refs["key_password_edit"].text() or None
+        result = inspect_private_key(refs["key_path"], password)
+        refs["key_status"].set_result(result)
+        return result
 
     # ── ปุ่ม Extract ต่อการ์ด — รันเฉพาะ node นี้ทีเดียว (ไม่ cascade ต่อให้เอง ต้องกดทีละการ์ด) ──
     def _on_extract_clicked(self, node: dict):
@@ -431,7 +460,15 @@ class ExtractConfigurablePage(QFrame):
                 if not refs["key_path"]:
                     QMessageBox.warning(self, "Extract", "Select a private key file for this step first.")
                     return
-                secret = {"private_key_path": refs["key_path"]}
+
+                result = self._validate_key_for_row(node)
+                if not result.valid:
+                    title = "Private Key Password Required" if result.state == "pending" else "Invalid Private Key"
+                    QMessageBox.warning(self, title, result.message)
+                    return
+
+                password = refs["key_password_edit"].text() or None
+                secret = {"private_key_path": refs["key_path"], "password": password}
 
         self.progress_bar.setValue(0)
         self.status_label.setText(f"Extracting {node['embed_id']}...")

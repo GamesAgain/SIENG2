@@ -1,41 +1,38 @@
+"""Password-based symmetric encryption using AES-256-GCM and Argon2id.
+
+The encrypted payload layout is::
+
+    Argon2id salt | AES-GCM nonce | AES-GCM ciphertext and tag
+
+A 256-bit AES key is derived from the password using Argon2id with a random
+128-bit salt. AES-GCM provides authenticated encryption, allowing incorrect
+passwords or modified ciphertext to be detected during decryption.
+
+Supports encryption and decryption of arbitrary bytes using password-derived
+AES-256 keys.
+"""
+
 import os
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.argon2 import Argon2id
 
 # AES-GCM parameters
-DEFAULT_SALT_LENGTH = 16          # 128 bits
-DEFAULT_NONCE_LENGTH = 12         # 96 bits, ideal for AES-GCM
-DEFAULT_TAG_LENGTH = 16           # 128 bits authentication tag
-DEFAULT_KEY_LENGTH = 32           # 256 bits for AES-256
+AES_SALT_LENGTH = 16          # 128 bits
+AES_NONCE_LENGTH = 12         # 96 bits, ideal for AES-GCM
+AES_TAG_LENGTH = 16           # 128 bits authentication tag
+AES_KEY_LENGTH = 32           # 256 bits for AES-256
 
 # Argon2id parameters (RFC 9106 low memory: t=3, m=64MiB, p=4)
-DEFAULT_MEMORY_COST = 65536    # 64 MiB (KiB)
-DEFAULT_ITERATION_COST = 3
-DEFAULT_PARALLELISM = 4
+ARGON2ID_MEMORY_COST = 65536    # 64 MiB (KiB)
+ARGON2ID_ITERATION_COST = 3
+ARGON2ID_PARALLELISM = 4
 
 class SymmetricEncryption:
     def __init__(self):
         """
         Symmetric Encryption using AES-GCM and Argon2id
         """
-        self.set_config()
-        
-    def set_config(self, config: dict = None):
-        if config is None:
-            config = {}
-        
-        self.config = config
-        
-        # AES-GCM
-        self.salt_length = config.get('salt_length', DEFAULT_SALT_LENGTH)
-        self.nonce_length = config.get('nonce_length', DEFAULT_NONCE_LENGTH)
-        self.tag_length = config.get('tag_length', DEFAULT_TAG_LENGTH)  
-        self.kdf_length = config.get('kdf_length', DEFAULT_KEY_LENGTH)
-        
-        # Argon2id
-        self.memory_cost = config.get('memory_cost', DEFAULT_MEMORY_COST)
-        self.iterations = config.get('iterations', DEFAULT_ITERATION_COST)
-        self.parallelism = config.get('parallelism', DEFAULT_PARALLELISM)
+        pass
 
     def encrypt(self, data: bytes, password: str) -> bytes:
         """
@@ -45,9 +42,9 @@ class SymmetricEncryption:
         if not data:
             raise ValueError("Data cannot be empty")
         
-        # 2. Random Salt 16 bytes & Nonce 12 bytes
-        salt = os.urandom(self.salt_length)
-        nonce = os.urandom(self.nonce_length)
+        # 2. Random Salt 16 bytes & Nonce 12 bytes (use module constants)
+        salt = os.urandom(AES_SALT_LENGTH)
+        nonce = os.urandom(AES_NONCE_LENGTH)
         
         # 3. Create Key with Argon2id
         key = self.derive_key(password, salt)
@@ -65,14 +62,14 @@ class SymmetricEncryption:
         Decrypt Data With AES-256-GCM: [Salt + Nonce + Ciphertext + Tag]
         """
         # Check minimum length: Salt(16) + Nonce(12) + Tag(16) = 44 bytes
-        min_length = self.salt_length + self.nonce_length + self.tag_length
+        min_length = AES_SALT_LENGTH + AES_NONCE_LENGTH + AES_TAG_LENGTH
         if len(encrypted_data) < min_length:
             raise ValueError("Ciphertext is too short or corrupted")
             
         # 1. Split data into components [Salt, Nonce, Ciphertext, Tag]
-        salt = encrypted_data[:self.salt_length]
-        nonce = encrypted_data[self.salt_length:self.salt_length + self.nonce_length]
-        ciphertext = encrypted_data[self.salt_length + self.nonce_length:]
+        salt = encrypted_data[:AES_SALT_LENGTH]
+        nonce = encrypted_data[AES_SALT_LENGTH:AES_SALT_LENGTH + AES_NONCE_LENGTH]
+        ciphertext = encrypted_data[AES_SALT_LENGTH + AES_NONCE_LENGTH:]
         
         # 2. Create Key back to Salt 
         key = self.derive_key(password, salt)
@@ -97,10 +94,10 @@ class SymmetricEncryption:
         
         kdf = Argon2id(
             salt=salt,
-            length=self.kdf_length,          # ต้องการ Key 32 bytes สำหรับ AES-256
-            iterations=self.iterations,       # จำนวนรอบ (ตามมาตรฐาน RFC 9106)
-            lanes=self.parallelism,            # จำนวน Thread ที่ใช้ประมวลผล
-            memory_cost=self.memory_cost,  # ใช้ RAM 64 MB (ป้องกันการใช้ GPU สร้างฮาร์ดแวร์ถอดรหัสเฉพาะ)
+            length=AES_KEY_LENGTH,          # ต้องการ Key 32 bytes สำหรับ AES-256
+            iterations=ARGON2ID_ITERATION_COST,       # จำนวนรอบ (ตามมาตรฐาน RFC 9106)
+            lanes=ARGON2ID_PARALLELISM,            # จำนวน Thread ที่ใช้ประมวลผล
+            memory_cost=ARGON2ID_MEMORY_COST,  # ใช้ RAM 64 MB (ป้องกันการใช้ GPU สร้างฮาร์ดแวร์ถอดรหัสเฉพาะ)
             ad=None,
             secret=None
         )

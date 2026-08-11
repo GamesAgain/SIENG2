@@ -15,9 +15,9 @@ from src.core.crypto.asym_encrypt import AsymmetricEncryption
 from src.core.crypto.asym_encrypt import load_public_key, load_private_key, get_public_bytes
 
 # Encrypt Mode constants SIENG2
-MAGIC_NONE = b"\x00" # Steganography Encryption None
-MAGIC_SYM = b"\x01" # Steganography Encryption Symmetric
-MAGIC_ASYM = b"\x02" # Steganography Encryption Asymmetric
+MAGIC_NONE = b"\x00" #  None Encryption
+MAGIC_SYM = b"\x01" #   Symmetric Encryption
+MAGIC_ASYM = b"\x02" #   Asymmetric Encryption
 ENCRYPT_MAGIC_LENGTH = 1  # bytes -- length of MAGIC_NONE/SYM/ASYM above
 
 PNG_EOF_SIG = b'\x00\x00\x00\x00IEND\xaeB`\x82'  # PNG End-of-File marker
@@ -28,6 +28,17 @@ ProgressCallback = Optional[Callable[[int, str], None]]
 def update_progress(callBack: ProgressCallback, percent: int, message: str):
     if callBack is not None:
         callBack(percent, message)
+
+
+def validate_encryption_mode(
+    password: str = None,
+    public_key_path: str = None,
+) -> None:
+    """Embed must use either password mode or public-key mode."""
+    if password is not None and public_key_path is not None:
+        raise ValueError(
+            "Choose either password encryption or public-key encryption, not both."
+        )
         
 class Locomotive:
     def __init__(self):
@@ -47,7 +58,9 @@ class Locomotive:
         ) -> list[tuple[str, bytes]]:
         """
         Embed payload file into cover image using Locomotive algorithm
-        """       
+        """
+        validate_encryption_mode(password, public_key_path)
+
         # 1. Read File data    
         update_progress(progress_callback, 5, "Reading payload data...")
         if raw_text is not None:
@@ -70,7 +83,10 @@ class Locomotive:
 
         # 4. Create session ID and blocks
         update_progress(progress_callback, 70, "Creating session blocks...")
-        marker = self.get_marker(password, public_key_path)
+        marker = self.get_marker(
+            password=password,
+            public_key_path=public_key_path,
+        )
         payload_blocks = self.create_session_block(num_parts, chunk_size, encrypted_payload, payload_length, marker)
             
         # 5. Embed payload into cover images
@@ -105,7 +121,10 @@ class Locomotive:
 
         # Marker must be derived the same way embed() derived it (same password/key)
         update_progress(progress_callback, 5, "Initializing extraction process...")
-        marker = self.get_marker(password, private_key_path)
+        marker = self.get_marker(
+            password=password,
+            private_key_path=private_key_path,
+        )
 
         # Extract from each stego image
         update_progress(progress_callback, 10, "Extracting payload blocks from images...")
@@ -222,28 +241,26 @@ class Locomotive:
         
         return num_parts, chunk_size
     
-    def get_marker(self, password: str = None, key_path: str = None) -> bytes:
-        """
-        Derive the per-embed fragment marker from the password/key
-        """
-        if password is not None and key_path is None:
-            seed = password.encode()
-        elif key_path is not None:
-            key_password = password if password else None
-            with open(key_path, "rb") as f:
-                key_data = f.read()
+    def get_marker(
+        self,
+        password: str = None,
+        public_key_path: str = None,
+        private_key_path: str = None,
+    ) -> bytes:
+        """Derive the fragment marker from the selected credential."""
+        validate_encryption_mode(password, public_key_path)
+        if public_key_path is not None and private_key_path is not None:
+            raise ValueError("Choose either a public key or a private key, not both.")
 
-            if b"PRIVATE KEY" in key_data:
-                private_key = load_private_key(key_path, key_password)
-                public_key = private_key.public_key()
-            elif b"PUBLIC KEY" in key_data:
-                public_key = load_public_key(key_path)
-            else:
-                raise ValueError("Invalid key file format")
-
+        if public_key_path is not None:
+            public_key = load_public_key(public_key_path)
             seed = get_public_bytes(public_key)
+        elif private_key_path is not None:
+            private_key = load_private_key(private_key_path, password)
+            seed = get_public_bytes(private_key.public_key())
+        elif password is not None:
+            seed = password.encode("utf-8")
         else:
-            # No encryption
             seed = b"SIENG2_LOCOMOTIVE_DEFAULT"
 
         hkdf = HKDF(
@@ -306,7 +323,9 @@ class Locomotive:
         """
         Encrypt the data using either symmetric or asymmetric encryption
         """
-        if password is not None and public_key_path is None:
+        validate_encryption_mode(password, public_key_path)
+
+        if password is not None:
             magic = MAGIC_SYM  # 0x01: Symmetric encryption
             encryptor = SymmetricEncryption()
             data_bytes = encryptor.encrypt(data, password)

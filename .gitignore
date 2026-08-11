@@ -9,6 +9,8 @@ env/
 
 # Python Cache
 __pycache__/
+.pytest-tmp/
+.pytest_cache
 *.pyc
 
 # OS generated files

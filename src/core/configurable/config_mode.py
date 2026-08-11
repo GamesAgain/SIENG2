@@ -520,12 +520,16 @@ def order_extract_nodes(nodes: list, available) -> list:
 
 
 # ---- Extract execution ----
-def decrypt_kwargs(encryption, private_key_path=None) -> dict:
+def decrypt_kwargs(encryption, private_key_path=None, private_key_password=None) -> dict:
     """encryption ตอน embed → kwargs สำหรับ .extract() (สลับ public_key → private_key)"""
     if not encryption:
         return {}
     if encryption["mode"] == "symmetric":  return {"password": encryption["password"]}
-    if encryption["mode"] == "asymmetric": return {"private_key_path": private_key_path}
+    if encryption["mode"] == "asymmetric":
+        return {
+            "private_key_path": private_key_path,
+            "password": private_key_password,
+        }
     return {}
 
 def _output_list(outputs: dict) -> list:
@@ -568,7 +572,12 @@ def _route_apic_images(meta: dict, node: dict, out_dir: Path, eid: str) -> dict:
         result[resource_id] = str(dst)
     return result
 
-def run_extract_pipeline(config_dict: dict, embed_results: dict, private_key_path: str = None) -> dict:
+def run_extract_pipeline(
+    config_dict: dict,
+    embed_results: dict,
+    private_key_path: str = None,
+    private_key_password: str = None,
+) -> dict:
     """รัน extract ตามลำดับที่ topological-sort ให้ คืน dict ของ resource → payload ที่กู้ได้
     embed_results: {step_id: {"outputs": {...}}} — ต้องมีอย่างน้อยไฟล์ deliverable ที่ผู้รับถืออยู่"""
     by_id = {s["step_id"]: s for s in parse_pipeline(config_dict)}
@@ -588,13 +597,13 @@ def run_extract_pipeline(config_dict: dict, embed_results: dict, private_key_pat
     for node in generate_extract_pipeline(config_dict, embed_results):
         eid = node["embed_id"]
         enc = resolve_value(by_id[eid]["inputs"].get("encryption"), var_ctx)
-        kw = decrypt_kwargs(enc, private_key_path)
-        _run_one_extract_node(node, kw, res_path, recovered, out_dir)
+        kw = decrypt_kwargs(enc, private_key_path, private_key_password)
+        run_one_extract_node(node, kw, res_path, recovered, out_dir)
 
     return recovered
 
 
-def _run_one_extract_node(node: dict, kw: dict, res_path: dict, recovered: dict, out_dir: Path,
+def run_one_extract_node(node: dict, kw: dict, res_path: dict, recovered: dict, out_dir: Path,
                           progress_callback: ProgressCallback = None) -> None:
     """รัน extract 1 node จริง (lsbpp/locomotive/metadata) — อัปเดต res_path/recovered ให้เอง
     kw = kwargs ที่ resolve มาแล้วสำหรับ .extract() (password/private_key_path ถ้าเข้ารหัส)
@@ -655,14 +664,17 @@ def required_resources(extract_config: dict) -> list:
                 result.append((res, hints.get(res, res)))
     return result
 
-def _decrypt_kwargs_from_node(decrypt: dict, secret: dict) -> dict:
+def decrypt_kwargs_from_node(decrypt: dict, secret: dict) -> dict:
     """decrypt info ต่อ node (mode) + secret ที่ผู้รับกรอก → kwargs ของ .extract()"""
     if not decrypt:
         return {}
     if decrypt["mode"] == "symmetric":
         return {"password": secret.get("password")}
     if decrypt["mode"] == "asymmetric":
-        return {"private_key_path": secret.get("private_key_path")}
+        return {
+            "private_key_path": secret.get("private_key_path"),
+            "password": secret.get("password"),
+        }
     return {}
 
 def run_extract_from_config(extract_config: dict, resource_files: dict, secrets: dict = None) -> dict:
@@ -676,8 +688,8 @@ def run_extract_from_config(extract_config: dict, resource_files: dict, secrets:
     res_path = dict(resource_files)   # เริ่มจากไฟล์ที่ผู้รับมี ; recovered:X จะถูกเติมระหว่างแกะ
     recovered = {}
     for node in extract_nodes(extract_config):
-        kw = _decrypt_kwargs_from_node(node.get("decrypt"), secrets.get(node["embed_id"], {}))
-        _run_one_extract_node(node, kw, res_path, recovered, out_dir)
+        kw = decrypt_kwargs_from_node(node.get("decrypt"), secrets.get(node["embed_id"], {}))
+        run_one_extract_node(node, kw, res_path, recovered, out_dir)
 
     return recovered
 
@@ -714,8 +726,8 @@ class ExtractSession:
     def run_node(self, node: dict, secret: dict = None,
                  progress_callback: ProgressCallback = None) -> None:
         """รัน node เดียว (ต้อง ready แล้ว) · secret ใส่เฉพาะ node ที่มี decrypt"""
-        kw = _decrypt_kwargs_from_node(node.get("decrypt"), secret or {})
-        _run_one_extract_node(
+        kw = decrypt_kwargs_from_node(node.get("decrypt"), secret or {})
+        run_one_extract_node(
             node, kw, self.res_path, self.recovered, self.out_dir,
             progress_callback=progress_callback,
         )

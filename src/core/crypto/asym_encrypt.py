@@ -1,226 +1,390 @@
-import os
-from cryptography.hazmat.primitives.asymmetric import rsa, padding
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from cryptography.hazmat.primitives import serialization
+"""RSA hybrid encryption and RSA key serialization helpers.
 
-# RSA Configuration
-RSA_KEY_SIZE = 3072 # 3072 bits
-ENCRYPTED_KEY_LENGTH = RSA_KEY_SIZE // 8  # 3072 bits = 384 bytes
+The encrypted payload layout SIENG2 data::
+
+    RSA-OAEP encrypted AES key | AES-GCM nonce | AES-GCM ciphertext and tag
+
+Public keys are exported as SPKI PEM and private keys as PKCS#8 PEM by
+default. PEM/DER and modern/legacy RSA structures can also be selected for
+compatibility with external tools and libraries such as OpenSSL, OpenSSH,
+Java JCA/JCE, .NET, Node.js, and Go.
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+from cryptography.exceptions import UnsupportedAlgorithm
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+from src.core.crypto.sym_encrypt import (
+    AES_KEY_LENGTH,
+    AES_NONCE_LENGTH,
+    AES_TAG_LENGTH,
+)
+
+
+SUPPORTED_RSA_KEY_SIZES = (2048, 3072, 4096)
+RSA_KEY_SIZE_DEFAULT = 3072
 PUBLIC_EXPONENT = 65537
 
-# Default values for AES-GCM
-AES_SALT_LENGTH = 16          # 128 bits
-AES_NONCE_LENGTH = 12         # 96 bits for AES-GCM
-AES_TAG_LENGTH = 16           # 128 bits authentication tag
-AES_KEY_LENGTH = 32           # 256 bits for AES-256
-    
-class AsymmetricEncryption:
-    def __init__(self):
-        """
-        Asymmetric Encryption using RSA-3072
-        """
-        pass
+DEFAULT_PUBLIC_ENCODING = serialization.Encoding.PEM
+DEFAULT_PUBLIC_FORMAT = serialization.PublicFormat.SubjectPublicKeyInfo
+DEFAULT_PRIVATE_ENCODING = serialization.Encoding.PEM
+DEFAULT_PRIVATE_FORMAT = serialization.PrivateFormat.PKCS8
 
-    def encrypt(self, plaintext: bytes, public_key) -> bytes:
-        """
-        Hybrid Encryption (RSA-3072 + AES-256-GCM)
-        Return: [Encrypted AES Key (384 bytes)] + [Nonce (12 bytes)] + [Ciphertext + Tag]
-        """
-        # 1. Prepare input [Validate & Convert]
-        if not plaintext:
-            raise ValueError("Plaintext cannot be empty")
-        
-        # 2. Generate Master Key and derive sub-keys using HKDF (Session key + PRNG seed)
+SUPPORTED_KEY_ENCODINGS = (
+    serialization.Encoding.PEM,
+    serialization.Encoding.DER,
+)
+SUPPORTED_PUBLIC_FORMATS = (
+    serialization.PublicFormat.SubjectPublicKeyInfo,
+    serialization.PublicFormat.PKCS1,
+)
+SUPPORTED_PRIVATE_FORMATS = (
+    serialization.PrivateFormat.PKCS8,
+    serialization.PrivateFormat.TraditionalOpenSSL,
+)
+
+
+def validate_rsa_key_size(key_size: int) -> None:
+    """Enforce the RSA key-size policy shared by every entry point."""
+    if not isinstance(key_size, int) or isinstance(key_size, bool):
+        raise TypeError("RSA key size must be an integer number of bits.")
+
+    if key_size in SUPPORTED_RSA_KEY_SIZES:
+        return
+
+    if key_size < min(SUPPORTED_RSA_KEY_SIZES):
+        raise ValueError(
+            f"RSA-{key_size} is not supported because RSA keys below 2048 bits "
+            "are unsafe. Use RSA-2048, RSA-3072 (recommended), or RSA-4096."
+        )
+
+    if key_size > max(SUPPORTED_RSA_KEY_SIZES):
+        raise ValueError(
+            f"RSA-{key_size} is not supported. SIENG2 limits RSA keys to 4096 "
+            "bits to control processing time and embedded payload size. Use "
+            "RSA-3072 (recommended) or RSA-4096."
+        )
+
+    raise ValueError(
+        f"RSA-{key_size} is not a supported SIENG2 key size. Use RSA-2048, "
+        "RSA-3072 (recommended), or RSA-4096."
+    )
+
+
+def validate_rsa_public_key(public_key: object) -> rsa.RSAPublicKey:
+    """Return a supported RSA public key or raise a user-facing error."""
+    if not isinstance(public_key, rsa.RSAPublicKey):
+        raise ValueError(
+            "Selected key is not an RSA public key. Use an RSA-2048, "
+            "RSA-3072 (recommended), or RSA-4096 public key."
+        )
+
+    validate_rsa_key_size(public_key.key_size)
+    return public_key
+
+
+def validate_rsa_private_key(private_key: object) -> rsa.RSAPrivateKey:
+    """Return a supported RSA private key or raise a user-facing error."""
+    if not isinstance(private_key, rsa.RSAPrivateKey):
+        raise ValueError(
+            "Selected key is not an RSA private key. Use an RSA-2048, "
+            "RSA-3072 (recommended), or RSA-4096 private key."
+        )
+
+    validate_rsa_key_size(private_key.key_size)
+    return private_key
+
+
+def require_non_empty_bytes(data: object, label: str) -> bytes:
+    if not isinstance(data, bytes):
+        raise TypeError(f"{label} must be bytes.")
+    if not data:
+        raise ValueError(f"{label} cannot be empty.")
+    return data
+
+
+def rsa_oaep_padding() -> padding.OAEP:
+    """Build the RSA-OAEP profile used by the SIENG2 payload format."""
+    return padding.OAEP(
+        mgf=padding.MGF1(algorithm=hashes.SHA256()),
+        algorithm=hashes.SHA256(),
+        label=None,
+    )
+
+
+class AsymmetricEncryption:
+    """Hybrid encryption using RSA-OAEP-SHA256 and AES-256-GCM."""
+
+    def encrypt(self, data: bytes, public_key: rsa.RSAPublicKey) -> bytes:
+        """Encrypt Data With RSA-OAEP-SHA256 + AES-256-GCM: [Encrypted Key + Nonce + Ciphertext + Tag]"""
+        plaintext = require_non_empty_bytes(data, "Data")
+        validated_key = validate_rsa_public_key(public_key)
+
         session_key = os.urandom(AES_KEY_LENGTH)
         nonce = os.urandom(AES_NONCE_LENGTH)
-
-        # 3. Encrypt with AES-256-GCM
-        aesgcm = AESGCM(session_key)
-        ciphertext = aesgcm.encrypt(nonce, plaintext, associated_data=None)
-
-        # 4. Encrypt Session Key with RSA Public Key (Use OAEP Padding)
-        encrypted_session_key = public_key.encrypt(
+        ciphertext = AESGCM(session_key).encrypt(
+            nonce,
+            plaintext,
+            associated_data=None,
+        )
+        encrypted_session_key = validated_key.encrypt(
             session_key,
-            padding.OAEP(
-                mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                algorithm=hashes.SHA256(),
-                label=None
-            )
+            rsa_oaep_padding(),
         )
 
-        # 5. Combine Byte Array
-        encrypted_data = encrypted_session_key + nonce + ciphertext
-        return encrypted_data
+        return encrypted_session_key + nonce + ciphertext
 
-    def decrypt(self, encrypted_data: bytes, private_key) -> bytes:
-        """
-        Hybrid Decryption (RSA-3072 + AES-256-GCM)
-        Return: decrypted plaintext
-        """
-        # Check Minimum Length (Encrypted Key 384 + Nonce 12 + Tag 16 = 412 bytes)
-        min_length = ENCRYPTED_KEY_LENGTH + AES_NONCE_LENGTH + AES_TAG_LENGTH
-        if len(encrypted_data) < min_length:
-            raise ValueError("Data is too short or corrupted")
+    def decrypt(self, encrypted_data: bytes, private_key: rsa.RSAPrivateKey) -> bytes:
+        """Decrypt a payload created by encrypt(): [Encrypted Key + Nonce + Ciphertext + Tag]"""
+        validated_key = validate_rsa_private_key(private_key)
+        payload = require_non_empty_bytes(encrypted_data, "Encrypted data")
 
-        # 1. Split data structure
-        encrypted_session_key = encrypted_data[:ENCRYPTED_KEY_LENGTH]
-        nonce = encrypted_data[ENCRYPTED_KEY_LENGTH : ENCRYPTED_KEY_LENGTH + AES_NONCE_LENGTH]
-        ciphertext = encrypted_data[ENCRYPTED_KEY_LENGTH + AES_NONCE_LENGTH:]
+        encrypted_key_length = validated_key.key_size // 8
+        minimum_length = encrypted_key_length + AES_NONCE_LENGTH + AES_TAG_LENGTH
+        if len(payload) < minimum_length:
+            raise ValueError("Encrypted data is too short or corrupted.")
 
-        # 2. Decrypt Session Key with RSA Private Key
-        session_key = private_key.decrypt(
+        encrypted_session_key = payload[:encrypted_key_length]
+        nonce_end = encrypted_key_length + AES_NONCE_LENGTH
+        nonce = payload[encrypted_key_length:nonce_end]
+        ciphertext = payload[nonce_end:]
+
+        session_key = validated_key.decrypt(
             encrypted_session_key,
-            padding.OAEP(
-                mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                algorithm=hashes.SHA256(),
-                label=None
-            )
+            rsa_oaep_padding(),
         )
-        
-        
-        # 3. Use Session Key from RSA to decrypt with AES-GCM
-        aesgcm = AESGCM(session_key)
-        plaintext = aesgcm.decrypt(nonce, ciphertext, associated_data=None)
+        return AESGCM(session_key).decrypt(
+            nonce,
+            ciphertext,
+            associated_data=None,
+        )
 
-        return plaintext
+    def validate_input(self, data: bytes, public_key: rsa.RSAPublicKey) -> None:
+        """Validate encryption input without changing it."""
+        require_non_empty_bytes(data, "Data")
+        validate_rsa_public_key(public_key)
+
+    def validate_private_key(self, private_key: rsa.RSAPrivateKey) -> None:
+        """Validate the RSA private key used for decryption."""
+        validate_rsa_private_key(private_key)
 
 
-
-# ============================================
-# Public Helper Functions
-# ============================================
-
-def generate_rsa_keypair():
-    """Generate RSA Key Pair 3072-bit"""
+def generate_rsa_keypair(
+    key_size: int = RSA_KEY_SIZE_DEFAULT,
+) -> tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey]:
+    """Generate an RSA key pair; RSA-3072 is the default."""
+    validate_rsa_key_size(key_size)
     private_key = rsa.generate_private_key(
         public_exponent=PUBLIC_EXPONENT,
-        key_size=RSA_KEY_SIZE,
+        key_size=key_size,
     )
-    public_key = private_key.public_key()
-    return private_key, public_key
-
-def get_private_bytes(private_key):
-    """Get private key bytes in DER format"""
-    return private_key.private_bytes(
-        encoding=serialization.Encoding.DER,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption()
-    )
-
-def get_public_bytes(public_key):
-    """Get public key bytes in DER format (เหมาะสำหรับเอาไปทำ Seed)"""
-    return public_key.public_bytes(
-        encoding=serialization.Encoding.DER,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo
-    )
-
-def load_public_key(file_path: str):
-    """Load public key from a file (Supports PEM, OpenSSH, DER)."""
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Public key file not found: {file_path}")
-    
-    with open(file_path, "rb") as key_file:
-        key_data = key_file.read()
-        
-    # Try PEM format
-    try:
-        return serialization.load_pem_public_key(key_data)
-    except ValueError:
-        pass
-        
-    # Try OpenSSH format
-    try:
-        return serialization.load_ssh_public_key(key_data)
-    except ValueError:
-        pass
-        
-    # Try DER format
-    try:
-        return serialization.load_der_public_key(key_data)
-    except ValueError:
-        pass
-        
-    raise ValueError(f"Failed to load public key. Unsupported format or corrupted file: {file_path}")
-
-def load_private_key(file_path: str, password: str = None):
-    """Load private key from a file (Supports PEM, DER with optional string password)."""
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Private key file not found: {file_path}")
-    
-    password_bytes = password.encode('utf-8') if password else None
-
-    with open(file_path, "rb") as key_file:
-        key_data = key_file.read()
-        
-    # Try PEM format
-    try:
-        return serialization.load_pem_private_key(key_data, password=password_bytes)
-    except TypeError as e:
-        if "Password was not given" in str(e):
-            raise ValueError("Private key is encrypted. A password is required.")
-    except ValueError as e:
-        if "Bad decrypt" in str(e) or "Incorrect password" in str(e):
-            raise ValueError("Incorrect private key password.")
-        pass
-        
-    # Try DER format
-    try:
-        return serialization.load_der_private_key(key_data, password=password_bytes)
-    except TypeError as e:
-        if "Password was not given" in str(e):
-            raise ValueError("Private key (DER format) is encrypted. A password is required.")
-    except ValueError as e:
-        if "Bad decrypt" in str(e) or "Incorrect password" in str(e):
-            raise ValueError("Incorrect private key password.")
-        pass
-        
-    raise ValueError(f"Failed to load private key. Unsupported format or corrupted file: {file_path}")
+    return private_key, private_key.public_key()
 
 
+def password_to_bytes(password: str | bytes | None) -> bytes | None:
+    """Normalize a GUI string or caller-supplied bytes password."""
+    if password is None:
+        return None
 
-# --- ตัวอย่างการเรียกใช้งาน ---
-if __name__ == "__main__":
-    hybrid = AsymmetricEncryption()
-    user_private_password = b"Password123"
-    # สมมติว่าผู้รับ(หรือระบบ) สร้างกุญแจเตรียมไว้
-    print("Generating RSA-3072 Keys...")
-    private_key, public_key = generate_rsa_keypair()
-    
-    # ถ้าผู้ใช้มีรหัสผ่านสำหรับกุญแจส่วนตัว
-    if user_private_password:
-        private_bytes = private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.BestAvailableEncryption(user_private_password)
-        )
+    if isinstance(password, str):
+        password_bytes = password.encode("utf-8")
+    elif isinstance(password, bytes):
+        password_bytes = password
     else:
-        private_bytes = private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption()
-        )
-    
-    public_bytes = public_key.public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo
-    )
-    
-    # Save keys to files
-    with open("private_key.pem", "wb") as f:
-        f.write(private_bytes)
-    with open("public_key.pem", "wb") as f:
-        f.write(public_bytes)
-        
-    # ข้อมูลที่ต้องการซ่อน (อาจจะเป็นไฟล์ขนาดใหญ่ก็ได้ เพราะ AES รับไหวสบายๆ)
-    payload = b"Hello"
-    
-    # ฝั่งส่ง: เข้ารหัสข้อมูลด้วย Public Key ของผู้รับ
-    encrypted_payload = hybrid.encrypt(payload, public_key)
-    print(f"\nEncrypted Package Size: {len(encrypted_payload)} bytes")
-    # นำ encrypted_payload ไปโยนเข้าโมดูล LSB-Plus-Plus ของคุณได้เลยครับ!
+        raise TypeError("Private key password must be a string, bytes, or None.")
 
-    # ฝั่งรับ: ถอดรหัสด้วย Private Key ของตัวเอง
-    decrypted_payload = hybrid.decrypt(encrypted_payload, private_key)
-    print(f"Decrypted: {decrypted_payload.decode('utf-8')}")
+    if not password_bytes:
+        raise ValueError(
+            "Private key password cannot be empty. Use None for an unencrypted key."
+        )
+
+    return password_bytes
+
+
+def validate_serialization_choice(
+    encoding: serialization.Encoding,
+    key_format: serialization.PublicFormat | serialization.PrivateFormat,
+    supported_formats: tuple,
+) -> None:
+    if encoding not in SUPPORTED_KEY_ENCODINGS:
+        raise ValueError("RSA keys can only be serialized as PEM or DER.")
+    if key_format not in supported_formats:
+        raise ValueError("Unsupported RSA key serialization format.")
+
+
+def serialize_private_key(
+    private_key: rsa.RSAPrivateKey,
+    password: str | bytes | None = None,
+    *,
+    encoding: serialization.Encoding = DEFAULT_PRIVATE_ENCODING,
+    private_format: serialization.PrivateFormat = DEFAULT_PRIVATE_FORMAT,
+) -> bytes:
+    """Serialize an RSA private key.
+
+    PKCS#8 PEM is the default. TraditionalOpenSSL represents the legacy
+    RSA-specific PKCS#1 structure accepted for external compatibility.
+    """
+    validated_key = validate_rsa_private_key(private_key)
+    validate_serialization_choice(
+        encoding,
+        private_format,
+        SUPPORTED_PRIVATE_FORMATS,
+    )
+    password_bytes = password_to_bytes(password)
+
+    if (
+        encoding == serialization.Encoding.DER
+        and private_format == serialization.PrivateFormat.TraditionalOpenSSL
+        and password_bytes is not None
+    ):
+        raise ValueError("Encrypted PKCS#1 private keys require PEM encoding.")
+
+    encryption = (
+        serialization.NoEncryption()
+        if password_bytes is None
+        else serialization.BestAvailableEncryption(password_bytes)
+    )
+    return validated_key.private_bytes(
+        encoding=encoding,
+        format=private_format,
+        encryption_algorithm=encryption,
+    )
+
+
+def serialize_public_key(
+    public_key: rsa.RSAPublicKey,
+    *,
+    encoding: serialization.Encoding = DEFAULT_PUBLIC_ENCODING,
+    public_format: serialization.PublicFormat = DEFAULT_PUBLIC_FORMAT,
+) -> bytes:
+    """Serialize an RSA public key; SPKI PEM is the default."""
+    validated_key = validate_rsa_public_key(public_key)
+    validate_serialization_choice(
+        encoding,
+        public_format,
+        SUPPORTED_PUBLIC_FORMATS,
+    )
+    return validated_key.public_bytes(
+        encoding=encoding,
+        format=public_format,
+    )
+
+
+def generate_rsa_keypair_bytes(
+    key_size: int = RSA_KEY_SIZE_DEFAULT,
+    password: str | bytes | None = None,
+) -> tuple[bytes, bytes]:
+    """Generate a PKCS#8/SPKI PEM key pair using the recommended defaults."""
+    private_key, public_key = generate_rsa_keypair(key_size)
+    return (
+        serialize_private_key(private_key, password),
+        serialize_public_key(public_key),
+    )
+
+
+def get_private_bytes(private_key: rsa.RSAPrivateKey) -> bytes:
+    """Return canonical unencrypted PKCS#8 DER bytes for internal use."""
+    return serialize_private_key(
+        private_key,
+        encoding=serialization.Encoding.DER,
+        private_format=serialization.PrivateFormat.PKCS8,
+    )
+
+
+def get_public_bytes(public_key: rsa.RSAPublicKey) -> bytes:
+    """Return canonical SPKI DER bytes for a stable steganography seed."""
+    return serialize_public_key(
+        public_key,
+        encoding=serialization.Encoding.DER,
+        public_format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+
+
+def deserialize_public_key(key_data: bytes) -> rsa.RSAPublicKey:
+    """Parse and validate an RSA public key from PEM or DER bytes.
+
+    OpenSSH public key input remains accepted for backward compatibility, but
+    it is not used as the default SIENG2 export format.
+    """
+    data = require_non_empty_bytes(key_data, "Public key data")
+    loaders = (
+        serialization.load_pem_public_key,
+        serialization.load_der_public_key,
+        serialization.load_ssh_public_key,
+    )
+
+    for loader in loaders:
+        try:
+            public_key = loader(data)
+        except (TypeError, ValueError, UnsupportedAlgorithm):
+            continue
+        return validate_rsa_public_key(public_key)
+
+    raise ValueError("Failed to load public key: unsupported format or corrupted data.")
+
+
+def deserialize_private_key(
+    key_data: bytes,
+    password: str | bytes | None = None,
+) -> rsa.RSAPrivateKey:
+    """Parse and validate an RSA private key from PEM or DER bytes."""
+    data = require_non_empty_bytes(key_data, "Private key data")
+    password_bytes = password_to_bytes(password)
+    password_usage_error = False
+
+    for loader in (
+        serialization.load_pem_private_key,
+        serialization.load_der_private_key,
+    ):
+        try:
+            private_key = loader(data, password=password_bytes)
+        except TypeError:
+            password_usage_error = True
+            continue
+        except (ValueError, UnsupportedAlgorithm):
+            continue
+        return validate_rsa_private_key(private_key)
+
+    if password_usage_error:
+        if password_bytes is None:
+            raise ValueError("Private key is encrypted. A password is required.")
+        raise ValueError("Private key is not encrypted. Remove the password.")
+
+    if password_bytes is not None:
+        raise ValueError("Incorrect private key password or corrupted private key.")
+
+    raise ValueError("Failed to load private key: unsupported format or corrupted data.")
+
+
+def read_key_file(file_path: str | os.PathLike[str], key_role: str) -> bytes:
+    path = Path(file_path)
+    if not path.is_file():
+        raise FileNotFoundError(f"{key_role} key file not found: {path}")
+    return path.read_bytes()
+
+
+def load_public_key(file_path: str | os.PathLike[str]) -> rsa.RSAPublicKey:
+    """Load an RSA public key from a PEM, DER, or OpenSSH public-key file."""
+    key_data = read_key_file(file_path, "Public")
+    try:
+        return deserialize_public_key(key_data)
+    except ValueError as error:
+        raise ValueError(f"{error} File: {file_path}") from error
+
+
+def load_private_key(
+    file_path: str | os.PathLike[str],
+    password: str | bytes | None = None,
+) -> rsa.RSAPrivateKey:
+    """Load an RSA private key from a PEM or DER file."""
+    key_data = read_key_file(file_path, "Private")
+    try:
+        return deserialize_private_key(key_data, password)
+    except ValueError as error:
+        raise ValueError(f"{error} File: {file_path}") from error

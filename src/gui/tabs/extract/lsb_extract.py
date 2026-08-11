@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QLabel, QLineEdit
 from src.core.stego.lsb_pp import LSBPP
 from src.gui.components.files_drop import FileDropWidget
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, create_icon_state
+from src.gui.components.key_validation import KeyValidationLabel, inspect_private_key
 from src.gui.components.result_viewers import PayloadResultViewer
 from src.gui.components.toggle_switch import ToggleSwitch
 from src.gui.components.visibility_stack import VisibilityStack
@@ -240,7 +241,13 @@ class LSBExtractTab(QFrame):
         
         asymmetric_layout = QVBoxLayout(asymmetric_mode)
         asymmetric_layout.setContentsMargins(0, 0, 0, 8)
-        key_drop_zone = FileDropWidget("Drop private key here or click to browse", "Private key file (.pem, .der, .ssh)", icon_path= str(ICON_DIR / "file-text-shield.svg"), allowed_extensions=["pem", "der", "ssh"])
+        key_drop_zone = FileDropWidget(
+            "Drop private key here or click to browse",
+            "RSA private key (.pem, .der, .key)",
+            icon_path=str(ICON_DIR / "file-text-shield.svg"),
+            allowed_extensions=[".pem", ".der", ".key"],
+        )
+        self.private_key_drop_zone = key_drop_zone
         key_drop_zone.setMinimumHeight(115)
         key_drop_zone.file_selected.connect(self.on_private_key_selected)
         asymmetric_layout.addWidget(key_drop_zone)
@@ -253,9 +260,13 @@ class LSBExtractTab(QFrame):
         self.key_password_input.setObjectName("formInput")
         self.key_password_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.key_password_input.setPlaceholderText("Enter key password...")
+        self.key_password_input.editingFinished.connect(self.validate_selected_private_key)
         
         asymmetric_layout.addWidget(key_password_label)
         asymmetric_layout.addWidget(self.key_password_input)
+
+        self.private_key_status = KeyValidationLabel()
+        asymmetric_layout.addWidget(self.private_key_status)
         
         return asymmetric_mode
     
@@ -377,6 +388,12 @@ class LSBExtractTab(QFrame):
                 QMessageBox.warning(self, "Validation Error", "Please drop a Private Key file for asymmetric decryption.")
                 return False
 
+            result = self.validate_selected_private_key()
+            if not result.valid:
+                title = "Private Key Password Required" if result.state == "pending" else "Invalid Private Key"
+                QMessageBox.warning(self, title, result.message)
+                return False
+
         return True
     
     # --- Event Handler ---
@@ -389,8 +406,21 @@ class LSBExtractTab(QFrame):
     def on_private_key_selected(self, file_path: str):
         if not file_path:
             self.private_key_path = None
+            self.private_key_status.clear_result()
             return
         self.private_key_path = file_path
+
+        self.validate_selected_private_key()
+
+    def validate_selected_private_key(self):
+        if not self.private_key_path:
+            self.private_key_status.clear_result()
+            return None
+
+        password = self.key_password_input.text() or None
+        result = inspect_private_key(self.private_key_path, password)
+        self.private_key_status.set_result(result)
+        return result
             
     def on_update_progess(self, percent: int, message: str):
         self.status_label.setText(f'Status: {message}')

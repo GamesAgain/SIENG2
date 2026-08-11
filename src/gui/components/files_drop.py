@@ -125,15 +125,15 @@ class FilesDropWidget(QFrame):
         if multi_file is not None and not multi_file:
             max_files = 1
 
-        # Normalize extensions
+        # Keep extension checks consistent for callers using "png" or ".png".
         if isinstance(allowed_extensions, str):
             if allowed_extensions == "*":
                 self.file_exts = ["*"]
             else:
-                self.file_exts = [allowed_extensions.lower()]
+                self.file_exts = [self.normalize_extension(allowed_extensions)]
         else:
             self.file_exts = [
-                ext.lower()
+                self.normalize_extension(ext)
                 for ext in allowed_extensions
             ]
 
@@ -391,10 +391,15 @@ class FilesDropWidget(QFrame):
         if "*" in self.file_exts:
             return True
 
-        return any(
-            file_path.endswith(ext)
-            for ext in self.file_exts
-        )
+        return Path(file_path).suffix.lower() in self.file_exts
+
+    @staticmethod
+    def normalize_extension(extension: str) -> str:
+        if extension == "*":
+            return extension
+
+        extension = extension.lower()
+        return extension if extension.startswith(".") else f".{extension}"
 
     # --- Drop Zone State & Preview ---
     def update_drop_zone_state(self):
