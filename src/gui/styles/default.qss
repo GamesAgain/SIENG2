@@ -788,6 +788,14 @@ QFrame#pipelineCanvas {
     border-radius: 8px;
 }
 
+QScrollArea#pipelineCanvasScroll {
+    background-color: transparent;
+    border: none;
+}
+QWidget#pipelineCanvasContent {
+    background-color: transparent;
+}
+
 QScrollArea#pipelineScroll {
     border: none;
     background-color: transparent;
@@ -796,10 +804,21 @@ QWidget#pipelineScrollContent {
     background-color: transparent;
 }
 
-QLabel#pipelineSummary {
+QLabel#stepConfigUI {
     color: #64748B;
     font-family: 'Courier New', monospace;
     font-size: 10px;
+}
+
+QLabel#pipelineSummary {
+    color: #64748B;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+}
+
+QLabel#pipelineEmpty {
+    color: #64748B;
+    font-size: 12px;
 }
 
 /* Step card (node) — accentColor กำหนดสีขอบซ้าย */
@@ -822,6 +841,98 @@ QLabel#stepCardTitle {
 QLabel#stepCardTitle[accentColor="blue"]   { color: #38BDF8; }
 QLabel#stepCardTitle[accentColor="purple"] { color: #A78BFA; }
 QLabel#stepCardTitle[accentColor="orange"] { color: #F59E0F; }
+
+QLabel#stepCardNumber {
+    color: #CBD5E1;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    background: transparent;
+    border: none;
+}
+
+QLabel#stepCardStatus {
+    background-color: transparent;
+    border-radius: 3px;
+    font-family: 'Courier New', monospace;
+    font-size: 8px;
+    font-weight: 700;
+    padding: 1px 4px;
+}
+QLabel#stepCardStatus[state="setup"] {
+    color: #F59E0F;
+    background-color: rgba(245, 158, 15, 0.08);
+    border: 1px solid rgba(245, 158, 15, 0.65);
+}
+QLabel#stepCardStatus[state="ready"] {
+    color: #34D399;
+    background-color: rgba(52, 211, 153, 0.08);
+    border: 1px solid rgba(52, 211, 153, 0.65);
+}
+QLabel#stepCardStatus[state="blocked"] {
+    color: #F43F5E;
+    background-color: rgba(244, 63, 94, 0.08);
+    border: 1px solid rgba(244, 63, 94, 0.65);
+}
+
+QLabel#prototypeStepCardTitle {
+    font-family: 'Courier New', monospace;
+    font-weight: 700;
+    font-size: 14px;
+    background: transparent;
+    border: none;
+}
+QLabel#prototypeStepCardTitle[accentColor="blue"]   { color: #38BDF8; }
+QLabel#prototypeStepCardTitle[accentColor="purple"] { color: #A78BFA; }
+QLabel#prototypeStepCardTitle[accentColor="orange"] { color: #F59E0F; }
+
+QLabel#prototypeStepConfigTechnique {
+    font-weight: 700;
+    background: transparent;
+    border: none;
+}
+QLabel#prototypeStepConfigTechnique[accentColor="blue"]   { color: #38BDF8; }
+QLabel#prototypeStepConfigTechnique[accentColor="purple"] { color: #A78BFA; }
+QLabel#prototypeStepConfigTechnique[accentColor="orange"] { color: #F59E0F; }
+
+QFrame#prototypeStepConfigContent {
+    background-color: #1E1E1E;
+    border: 1px solid #343434;
+    border-radius: 8px;
+}
+
+QLabel#prototypeStepCardNumber {
+    color: #CBD5E1;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    background: transparent;
+    border: none;
+}
+
+QLabel#prototypeStepCardStatus {
+    background-color: transparent;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 5px;
+}
+QLabel#prototypeStepCardStatus[state="setup"] {
+    color: #F59E0F;
+    background-color: rgba(245, 158, 15, 0.08);
+    border: 1px solid rgba(245, 158, 15, 0.65);
+}
+QLabel#prototypeStepCardStatus[state="ready"] {
+    color: #34D399;
+    background-color: rgba(52, 211, 153, 0.08);
+    border: 1px solid rgba(52, 211, 153, 0.65);
+}
+QLabel#prototypeStepCardStatus[state="blocked"] {
+    color: #F43F5E;
+    background-color: rgba(244, 63, 94, 0.08);
+    border: 1px solid rgba(244, 63, 94, 0.65);
+}
 
 QLabel#stepCardSub {
     color: #94A3B8;
@@ -846,6 +957,16 @@ QPushButton#stepCloseBtn {
 }
 QPushButton#stepCloseBtn:hover {
     background-color: #ff5577;
+}
+
+QPushButton#prototypeStepCloseBtn {
+    background-color: #F43F5E;
+    border: 2px solid #1E1E1E;
+    border-radius: 12px;
+    padding: 0;
+}
+QPushButton#prototypeStepCloseBtn:hover {
+    background-color: #FF5577;
 }
 
 /* ปุ่มวงกลมเส้นประ "เพิ่ม step" */
