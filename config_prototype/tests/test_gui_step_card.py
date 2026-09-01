@@ -22,13 +22,18 @@ from config_prototype.gui.components.step_config_shell import (
     StepConfigShellDialog,
     StepConfigShellPanel,
 )
-from config_prototype.gui.components.technique_forms import LSBEmbedInputs
+from config_prototype.gui.components.technique_forms import (
+    LSBEmbedInputs,
+    LSBInputsDraft,
+)
+from config_prototype.gui.components.technique_forms import lsb_embed_inputs
 from config_prototype.gui.pages.sub_pages.embed.configurable_page import (
     CANVAS_MARGIN,
     EmbedConfigurablePage,
     MAX_VISIBLE_FLOW_HEIGHT,
     PipelineStepDraft,
 )
+from src.gui.components.key_validation import KeyValidationResult
 
 
 def _app() -> QApplication:
@@ -95,6 +100,7 @@ def test_pipeline_step_drafts_have_unique_stable_keys_and_defaults() -> None:
         "Hide data in PNG or MP3 metadata",
     ]
     assert all(step.guidenote == "" for step in page.pipeline_steps)
+    assert all(step.technique_inputs is None for step in page.pipeline_steps)
 
     locomotive = page.pipeline_steps[1]
     locomotive.description = "Hide contract across three covers"
@@ -403,7 +409,7 @@ def test_inline_technique_forms_keep_unimplemented_placeholders() -> None:
 
 def test_popup_save_persists_draft_and_rerenders_step_card() -> None:
     app, page = _page()
-    _add_steps(page, app, ["lsbpp", "locomotive"])
+    _add_steps(page, app, ["locomotive"])
 
     def edit_and_save() -> None:
         dialog = page.active_step_dialog
@@ -478,7 +484,7 @@ def test_inline_save_persists_and_cancel_discards_edits() -> None:
 
 def test_saved_values_reopen_across_popup_and_inline_variants() -> None:
     app, page = _page()
-    _add_steps(page, app, ["lsbpp"])
+    _add_steps(page, app, ["locomotive"])
 
     def save_popup() -> None:
         dialog = page.active_step_dialog
@@ -498,6 +504,173 @@ def test_saved_values_reopen_across_popup_and_inline_variants() -> None:
     assert panel.shell.guidenote() == "Receiver hint"
     panel.cancel_button.click()
     _process_events(app)
+
+
+def _configure_valid_lsb_form(
+    form: LSBEmbedInputs,
+    cover_path: Path,
+    *,
+    payload: str = "Project Phoenix launch code",
+    password: str = "correct horse battery staple",
+) -> None:
+    form.cover_file_path = str(cover_path)
+    form.payload_text_area.setPlainText(payload)
+    form.encrypt_toggle_switch.setChecked(True)
+    form.btn_symmetric.setChecked(True)
+    form.encrypt_stack.setCurrentIndex(0)
+    form.password_input.setText(password)
+    form.confirm_input.setText(password)
+
+
+def test_lsb_inline_save_persists_inputs_and_updates_step_card(tmp_path) -> None:
+    cover_path = tmp_path / "carrier.png"
+    cover_path.write_bytes(b"prototype cover")
+    app, page = _page()
+    _add_steps(page, app, ["lsbpp"])
+    page.set_config_variant("inline")
+    page.open_step_config_inline(0)
+
+    panel = page.active_step_panel
+    assert isinstance(panel, StepConfigShellPanel)
+    form = panel.shell.content_widget
+    assert isinstance(form, LSBEmbedInputs)
+    _configure_valid_lsb_form(form, cover_path)
+    panel.save_button.click()
+    _process_events(app)
+
+    draft = page.pipeline_steps[0].technique_inputs
+    assert isinstance(draft, LSBInputsDraft)
+    assert draft.cover_path == str(cover_path)
+    assert draft.payload_text == "Project Phoenix launch code"
+    assert draft.encryption_enabled is True
+    assert draft.encryption_mode == "password"
+    assert draft.password == "correct horse battery staple"
+    assert draft.public_key_path is None
+
+    card = page.step_cards[0]
+    assert card.status == "ready"
+    assert card.summary_text("cover") == "carrier.png"
+    assert card.summary_text("payload") == "Text (27 B)"
+    assert card.summary_text("output") == "PNG ×1"
+    assert card.summary_text("encryption") == "Password"
+    assert page.active_step_panel is None
+
+
+def test_lsb_saved_inputs_reopen_and_cancel_does_not_mutate_draft(
+    tmp_path,
+) -> None:
+    cover_path = tmp_path / "saved-cover.png"
+    cover_path.write_bytes(b"prototype cover")
+    app, page = _page()
+    _add_steps(page, app, ["lsbpp"])
+    page.set_config_variant("inline")
+    page.open_step_config_inline(0)
+
+    first_panel = page.active_step_panel
+    assert isinstance(first_panel, StepConfigShellPanel)
+    first_form = first_panel.shell.content_widget
+    assert isinstance(first_form, LSBEmbedInputs)
+    _configure_valid_lsb_form(first_form, cover_path, payload="Saved payload")
+    first_panel.save_button.click()
+    _process_events(app)
+
+    saved_draft = page.pipeline_steps[0].technique_inputs
+    assert isinstance(saved_draft, LSBInputsDraft)
+
+    page.open_step_config_inline(0)
+    reopened_panel = page.active_step_panel
+    assert isinstance(reopened_panel, StepConfigShellPanel)
+    reopened_form = reopened_panel.shell.content_widget
+    assert isinstance(reopened_form, LSBEmbedInputs)
+    assert reopened_form.cover_file_path == str(cover_path)
+    assert reopened_form.payload_text_area.toPlainText() == "Saved payload"
+    assert reopened_form.password_input.text() == saved_draft.password
+
+    reopened_form.payload_text_area.setPlainText("Discarded payload")
+    reopened_form.password_input.setText("discarded password")
+    reopened_panel.cancel_button.click()
+    _process_events(app)
+
+    assert page.pipeline_steps[0].technique_inputs == saved_draft
+    assert page.step_cards[0].summary_text("payload") == "Text (13 B)"
+
+
+def test_lsb_validation_covers_required_inputs_and_encryption_modes(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    app = _app()
+    form = LSBEmbedInputs()
+    warnings: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        lambda _parent, title, message: warnings.append((title, message)),
+    )
+
+    assert form.validate_draft() is False
+
+    cover_path = tmp_path / "validation-cover.png"
+    cover_path.write_bytes(b"prototype cover")
+    form.cover_file_path = str(cover_path)
+    assert form.validate_draft() is False
+
+    form.payload_text_area.setPlainText("Secret")
+    assert form.validate_draft() is False
+
+    form.password_input.setText("one")
+    form.confirm_input.setText("two")
+    assert form.validate_draft() is False
+
+    form.encrypt_toggle_switch.setChecked(False)
+    assert form.validate_draft() is True
+
+    form.encrypt_toggle_switch.setChecked(True)
+    form.btn_asymmetric.setChecked(True)
+    form.encrypt_stack.setCurrentIndex(1)
+    assert form.validate_draft() is False
+
+    form.public_key_path = str(tmp_path / "invalid.pem")
+    monkeypatch.setattr(
+        lsb_embed_inputs,
+        "inspect_public_key",
+        lambda _path: KeyValidationResult("error", "Invalid test key"),
+    )
+    assert form.validate_draft() is False
+
+    assert [message for _title, message in warnings] == [
+        "Please select an available cover image file.",
+        "Please enter a secret message or drop a text file.",
+        "Please enter a password for encryption.",
+        "Passwords do not match. Please confirm your passphrase.",
+        "Please select a public key for encryption.",
+        "Invalid test key",
+    ]
+
+
+def test_lsb_invalid_save_keeps_original_draft_and_panel_open(
+    monkeypatch,
+) -> None:
+    app, page = _page()
+    _add_steps(page, app, ["lsbpp"])
+    page.set_config_variant("inline")
+    page.open_step_config_inline(0)
+    panel = page.active_step_panel
+    assert isinstance(panel, StepConfigShellPanel)
+    form = panel.shell.content_widget
+    assert isinstance(form, LSBEmbedInputs)
+    monkeypatch.setattr(QMessageBox, "warning", lambda *_args: None)
+
+    panel.shell.description_edit.setText("Must not be saved")
+    form.payload_text_area.setPlainText("Payload without a cover")
+    panel.save_button.click()
+    _process_events(app)
+
+    step = page.pipeline_steps[0]
+    assert step.description == "Embed text in PNG"
+    assert step.technique_inputs is None
+    assert page.active_step_panel is panel
+    assert page.step_cards[0].status == "setup"
 
 
 def test_save_uses_stable_key_after_step_renumber() -> None:

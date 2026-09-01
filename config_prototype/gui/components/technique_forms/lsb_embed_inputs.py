@@ -1,6 +1,9 @@
+from dataclasses import dataclass, field
+from pathlib import Path
+
 from PyQt6.QtWidgets import (
-    QButtonGroup, QFrame, QHBoxLayout, QLabel, QLineEdit, 
-    QPlainTextEdit, QPushButton, QScrollArea, 
+    QButtonGroup, QFrame, QHBoxLayout, QLabel, QLineEdit,
+    QMessageBox, QPlainTextEdit, QPushButton, QScrollArea,
     QTabWidget, QVBoxLayout, QWidget)
 
 from PyQt6.QtCore import QSize, Qt
@@ -22,6 +25,18 @@ COLOR_CHECKED_SYM = "#a78bfa"
 COLOR_CHECKED_ASYM = "#34D399"
 CAPACITY_WARNING_RATIO = 0.90  # ใช้ไป > 90% ของ max capacity แล้ว ให้เตือนสีเหลือง
 
+
+@dataclass
+class LSBInputsDraft:
+    "LSB++ inputs draft for saving/loading state of the form."
+    cover_path: str | None = None
+    payload_text: str = ""
+    encryption_enabled: bool = True
+    encryption_mode: str = "password"
+    password: str = field(default="", repr=False)
+    public_key_path: str | None = None
+
+
 class LSBEmbedInputs(QFrame):
     """Host LSB++ inputs without depending on a page or shell variant."""
 
@@ -36,15 +51,13 @@ class LSBEmbedInputs(QFrame):
         self.key_registry = key_registry
         
         # Cover & Payload
-        self.cover_file_path = None
-        self.payload_text = ""
-        self.payload_file_path = None
-        self.capacity_bits = None  # ผล analyze ภาพ (Sobel+entropy) แคชไว้เพราะหนัก ไม่คำนวณซ้ำทุกครั้งที่พิมพ์/สลับโหมด
+        self.cover_file_path: str | None = None
+        self.payload_file_path: str | None = None
+        self.capacity_bits: int | None = None  # ผล analyze ภาพ (Sobel+entropy) แคชไว้เพราะหนัก ไม่คำนวณซ้ำทุกครั้งที่พิมพ์/สลับโหมด
         self.isCalculating = False
         
         # Encryption
-        self.password = ""
-        self.public_key_path = None
+        self.public_key_path: str | None = None
         
         self.build_ui()
         
@@ -355,6 +368,127 @@ class LSBEmbedInputs(QFrame):
         asymmetric_layout.addWidget(self.public_key_status)
 
         return asymmetric_mode
+
+    # --- Draft API ---
+    def load_draft(self, draft: LSBInputsDraft) -> None:
+        self.cover_file_path = None
+        self.public_key_path = None
+        self.capacity_bits = None
+        self.isCalculating = False
+
+        # Payload
+        self.payload_text_area.setPlainText(draft.payload_text)
+
+        # Encryption
+        self.encrypt_toggle_switch.setChecked(draft.encryption_enabled)
+
+        if draft.encryption_mode == "public_key":
+            self.btn_asymmetric.setChecked(True)
+            self.encrypt_stack.setCurrentIndex(1)
+        else:
+            self.btn_symmetric.setChecked(True)
+            self.encrypt_stack.setCurrentIndex(0)
+
+        self.password_input.setText(draft.password)
+        self.confirm_input.setText(draft.password)
+
+        # Public Key
+        public_key_path = draft.public_key_path
+
+        if public_key_path and Path(public_key_path).is_file():
+            self.public_key_drop_zone.add_files([public_key_path])
+        else:
+            self.public_key_drop_zone.clear_all()
+
+        # Cover
+        cover_path = draft.cover_path
+
+        if cover_path and Path(cover_path).is_file():
+            self.cover_drop_zone.add_files([cover_path])
+        else:
+            self.cover_drop_zone.clear_all()
+
+        # ถ้ามี Cover และ worker กำลังทำงาน จะขึ้น Calculating...
+        # ถ้าไม่มี Cover จะแสดงเฉพาะขนาด Payload
+        self.update_capacity_label()
+
+    def validate_draft(self) -> bool:
+        cover_path = self.cover_file_path
+        if not cover_path or not Path(cover_path).is_file():
+            return self.show_validation_warning(
+                "Please select an available cover image file."
+            )
+
+        if not self.payload_text_area.toPlainText().strip():
+            return self.show_validation_warning(
+                "Please enter a secret message or drop a text file."
+            )
+
+        if not self.encrypt_toggle_switch.isChecked():
+            return True
+
+        if self.btn_symmetric.isChecked():
+            password = self.password_input.text()
+            if not password:
+                self.password_input.setFocus()
+                return self.show_validation_warning(
+                    "Please enter a password for encryption."
+                )
+            if password != self.confirm_input.text():
+                self.confirm_input.setFocus()
+                return self.show_validation_warning(
+                    "Passwords do not match. Please confirm your passphrase."
+                )
+            return True
+
+        if self.btn_asymmetric.isChecked():
+            if not self.public_key_path:
+                return self.show_validation_warning(
+                    "Please select a public key for encryption."
+                )
+
+            result = inspect_public_key(self.public_key_path)
+            self.public_key_status.set_result(result)
+            if not result.valid:
+                return self.show_validation_warning(
+                    result.message,
+                    title="Invalid Public Key",
+                )
+            return True
+
+        return self.show_validation_warning(
+            "Please select an encryption mode."
+        )
+
+    def export_draft(self) -> LSBInputsDraft:
+        encryption_enabled = self.encrypt_toggle_switch.isChecked()
+        encryption_mode = (
+            "public_key" if self.btn_asymmetric.isChecked() else "password"
+        )
+        return LSBInputsDraft(
+            cover_path=self.cover_file_path,
+            payload_text=self.payload_text_area.toPlainText(),
+            encryption_enabled=encryption_enabled,
+            encryption_mode=encryption_mode,
+            password=(
+                self.password_input.text() if encryption_enabled and encryption_mode == "password"
+                else ""
+            ),
+            public_key_path=(
+                self.public_key_path
+                if encryption_enabled and encryption_mode == "public_key"
+                else None
+            ),
+        )
+
+    def show_validation_warning(
+        self,
+        message: str,
+        *,
+        title: str = "Validation Error",
+    ) -> bool:
+        QMessageBox.warning(self, title, message)
+        return False
     
     
     # --- Event Handler ---
@@ -415,7 +549,7 @@ class LSBEmbedInputs(QFrame):
             overhead_bytes = estimate_overhead_bytes(password, public_key_path)
             max_bytes = get_max_message_bytes(self.capacity_bits, password, public_key_path)
         except Exception:
-            # เช่น public key ไฟล์เสีย/อ่านไม่ได้ — โชว์แค่ขนาดข้อความ ไม่ให้ label พังเงียบๆ
+            # เช่น public key ไฟล์เสีย/อ่านไม่ได้ จะโชว์แค่ขนาดข้อความ ไม่ให้ label พังเงียบๆ
             self.capacity_label.setText(f"Size: {text_size} / Invalid Key")
             self.capacity_label.setToolTip("Could not read the public key to estimate capacity.")
             self.set_capacity_state("warning")
@@ -440,7 +574,7 @@ class LSBEmbedInputs(QFrame):
         )
 
     def set_capacity_state(self, state: str):
-        """state: 'normal' | 'warning' | 'danger' — ผูกกับ QSS ผ่าน property (ดู default.qss)"""
+        """state: 'normal' | 'warning' | 'danger' ผูกกับ QSS ผ่าน property (ดู default.qss)"""
         self.capacity_label.setProperty("capacityState", state)
         self.capacity_label.style().unpolish(self.capacity_label)
         self.capacity_label.style().polish(self.capacity_label)

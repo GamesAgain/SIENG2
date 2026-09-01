@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
 )
 
 from config_prototype.gui.paths import ICON_DIR
-from src.gui.components.gui_utils import create_icon_pixmap
+from src.gui.components.gui_utils import create_icon_pixmap, truncate_text_middle
 
 
 CARD_WIDTH = 300
@@ -66,6 +66,7 @@ class StepCard(QWidget):
         self.description = (
             self.meta["description"] if description is None else description
         )
+        self.summary_labels: dict[str, QLabel] = {}
 
         self.setFixedSize(CARD_WIDTH, CARD_HEIGHT)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -110,6 +111,7 @@ class StepCard(QWidget):
         card_layout.addLayout(header)
 
         description_label = QLabel(self.description)
+        description_label.setToolTip(self.description)
         description_label.setObjectName("stepCardSub")
         card_layout.addWidget(description_label)
 
@@ -132,20 +134,12 @@ class StepCard(QWidget):
         self.close_button.setObjectName("prototypeStepCloseBtn")
         self.close_button.setFixedSize(CLOSE_BUTTON_SIZE, CLOSE_BUTTON_SIZE)
         self.close_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.close_button.setIcon(
-            QIcon(
-                create_icon_pixmap(
-                    ICON_DIR / "x.svg",
-                    color_hex="#FFFFFF",
-                    size=CLOSE_ICON_SIZE,
-                )
-            )
-        )
+        self.close_button.setIcon(QIcon(create_icon_pixmap(ICON_DIR / "x.svg",color_hex="#FFFFFF",size=CLOSE_ICON_SIZE,)))
         self.close_button.setToolTip(f"Remove Step {self.step_number}")
         self.close_button.setAccessibleName(f"Remove Step {self.step_number}")
         self.close_button.move(
-            CARD_WIDTH - CLOSE_BUTTON_SIZE - CLOSE_BUTTON_MARGIN,
-            CLOSE_BUTTON_MARGIN,
+            CARD_WIDTH - CLOSE_BUTTON_SIZE - CLOSE_BUTTON_MARGIN, # x position
+            CLOSE_BUTTON_MARGIN, # y position
         )
         self.close_button.clicked.connect(self.remove_requested.emit)
         self.close_button.hide()
@@ -182,8 +176,32 @@ class StepCard(QWidget):
         self.status_label.style().polish(self.status_label)
         self.status_label.update()
 
-    @staticmethod
-    def create_row(field_name: str, placeholder: str) -> QWidget:
+    def set_summary(
+        self,
+        *,
+        cover: str,
+        payload: str,
+        output: str,
+        encryption: str,
+    ) -> None:
+        values = {
+            "cover": cover,
+            "payload": payload,
+            "output": output,
+            "encryption": encryption,
+        }
+        for field_name, value in values.items():
+            label = self.summary_labels[field_name]
+            label.setToolTip(value)
+            if (field_name == "cover"):
+                value = truncate_text_middle(value, max_length=32)
+            label.setText(value)
+            
+
+    def summary_text(self, field_name: str) -> str:
+        return self.summary_labels[field_name.lower()].text()
+
+    def create_row(self, field_name: str, placeholder: str) -> QWidget:
         row = QWidget()
         row_layout = QHBoxLayout(row)
         row_layout.setContentsMargins(0, 0, 0, 0)
@@ -195,6 +213,7 @@ class StepCard(QWidget):
 
         value_label = QLabel(placeholder)
         value_label.setObjectName("stepCardSub")
+        self.summary_labels[field_name.lower()] = value_label
 
         row_layout.addWidget(field_label)
         row_layout.addWidget(value_label, 1)

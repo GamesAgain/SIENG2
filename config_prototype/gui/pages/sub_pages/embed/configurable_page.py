@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+from functools import partial
+from pathlib import Path
 
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QIcon
@@ -17,13 +19,21 @@ from config_prototype.gui.components.step_card import (
 from config_prototype.gui.components.technique_form_factory import (
     create_technique_form,
 )
+from config_prototype.gui.components.technique_forms import (
+    LSBEmbedInputs,
+    LSBInputsDraft,
+)
 from config_prototype.gui.components.step_config_shell import (
     StepConfigShellDialog,
     StepConfigShellPanel,
 )
 from config_prototype.gui.paths import ICON_DIR
 from src.gui.components.flow_layout import FlowLayout
-from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap
+from src.gui.components.gui_utils import (
+    add_shadow_effect,
+    create_icon_pixmap,
+    format_file_size,
+)
 
 ICON_SIZE = 16
 CHIP_ICON_SIZE = 12
@@ -41,6 +51,7 @@ class PipelineStepDraft:
     technique: str
     description: str
     guidenote: str = ""
+    technique_inputs: LSBInputsDraft | None = None
 
 
 class EmbedConfigurablePage(QFrame):
@@ -312,6 +323,7 @@ class EmbedConfigurablePage(QFrame):
         step_key: str,
         description: str,
         guidenote: str,
+        technique_form: QWidget | None = None,
     ) -> bool:
         step = self.step_draft_for_key(step_key)
         if step is None:
@@ -326,9 +338,28 @@ class EmbedConfigurablePage(QFrame):
             )
             return False
 
+        technique_inputs = step.technique_inputs
+        if isinstance(technique_form, LSBEmbedInputs):
+            if not technique_form.validate_draft():
+                return False
+            technique_inputs = technique_form.export_draft()
+
         step.description = description
         step.guidenote = guidenote.strip()
+        step.technique_inputs = technique_inputs
         return True
+
+    def create_step_technique_form(
+        self,
+        step: PipelineStepDraft,
+    ) -> QWidget | None:
+        form = create_technique_form(step.technique)
+        if (
+            isinstance(form, LSBEmbedInputs)
+            and isinstance(step.technique_inputs, LSBInputsDraft)
+        ):
+            form.load_draft(step.technique_inputs)
+        return form
 
     def on_step_card_clicked(self, index: int) -> None:
         if not 0 <= index < len(self.pipeline_steps):
@@ -348,7 +379,7 @@ class EmbedConfigurablePage(QFrame):
         self.close_active_step_config()
         step = self.pipeline_steps[index]
         meta = TECHNIQUE_DISPLAY[step.technique]
-        technique_form = create_technique_form(step.technique)
+        technique_form = self.create_step_technique_form(step)
         dialog = StepConfigShellDialog(
             step_number=index + 1,
             technique_label=meta["label"],
@@ -356,8 +387,10 @@ class EmbedConfigurablePage(QFrame):
             accent=meta["accent"],
             guidenote=step.guidenote,
             content_widget=technique_form,
-            save_callback=lambda description, guidenote, step_key=step.key: (
-                self.save_step_draft(step_key, description, guidenote)
+            save_callback=partial(
+                self.save_step_draft,
+                step.key,
+                technique_form=technique_form,
             ),
             parent=self.window(),
         )
@@ -381,7 +414,7 @@ class EmbedConfigurablePage(QFrame):
         self.close_active_step_config()
         step = self.pipeline_steps[index]
         meta = TECHNIQUE_DISPLAY[step.technique]
-        technique_form = create_technique_form(step.technique)
+        technique_form = self.create_step_technique_form(step)
         panel = StepConfigShellPanel(
             step_number=index + 1,
             technique_label=meta["label"],
@@ -389,8 +422,10 @@ class EmbedConfigurablePage(QFrame):
             accent=meta["accent"],
             guidenote=step.guidenote,
             content_widget=technique_form,
-            save_callback=lambda description, guidenote, step_key=step.key: (
-                self.save_step_draft(step_key, description, guidenote)
+            save_callback=partial(
+                self.save_step_draft,
+                step.key,
+                technique_form=technique_form,
             ),
         )
         panel.saved.connect(self.on_inline_step_saved)
@@ -455,6 +490,7 @@ class EmbedConfigurablePage(QFrame):
             step_card.clicked.connect(
                 lambda index=step_number - 1: self.on_step_card_clicked(index)
             )
+            self.apply_step_draft_to_card(step_card, step)
             self.step_cards.append(step_card)
             self.flow_layout.addWidget(step_card)
 
@@ -465,6 +501,32 @@ class EmbedConfigurablePage(QFrame):
             self.canvas_scroll.verticalScrollBar().setValue(0)
 
         self.refresh_canvas_height()
+
+    @staticmethod
+    def apply_step_draft_to_card(
+        step_card: StepCard,
+        step: PipelineStepDraft,
+    ) -> None:
+        draft = step.technique_inputs
+        if step.technique != "lsbpp" or not isinstance(draft, LSBInputsDraft):
+            return
+
+        if not draft.encryption_enabled:
+            encryption = "None"
+        elif draft.encryption_mode == "public_key":
+            encryption = "Public Key"
+        else:
+            encryption = "Password"
+
+        step_card.set_summary(
+            cover=Path(draft.cover_path).name if draft.cover_path else "Not selected",
+            payload=(
+                f"Text ({format_file_size(len(draft.payload_text.encode('utf-8')))})"
+            ),
+            output="PNG ×1",
+            encryption=encryption,
+        )
+        step_card.set_status("ready", "LSB++ inputs are configured")
 
     def refresh_canvas_height(self):
         self._update_canvas_height()
