@@ -33,7 +33,9 @@ from config_prototype.gui.pages.sub_pages.embed.configurable_page import (
     MAX_VISIBLE_FLOW_HEIGHT,
     PipelineStepDraft,
 )
+from config_prototype.main import PrototypeWindow
 from src.gui.components.key_validation import KeyValidationResult
+from src.gui.services.key_registry import KeyRegistry
 
 
 def _app() -> QApplication:
@@ -49,9 +51,11 @@ def _process_events(app: QApplication) -> None:
         app.processEvents()
 
 
-def _page() -> tuple[QApplication, EmbedConfigurablePage]:
+def _page(
+    key_registry: KeyRegistry | None = None,
+) -> tuple[QApplication, EmbedConfigurablePage]:
     app = _app()
-    page = EmbedConfigurablePage()
+    page = EmbedConfigurablePage(key_registry=key_registry)
     page.resize(1100, 720)
     page.show()
     _process_events(app)
@@ -380,6 +384,37 @@ def test_lsbpp_popup_uses_real_technique_form() -> None:
 
     assert isinstance(observed["content"], LSBEmbedInputs)
     assert observed["placeholder"] is None
+
+
+def test_prototype_window_injects_key_registry_into_page(tmp_path) -> None:
+    app = _app()
+    registry = KeyRegistry(tmp_path / "keys.json")
+    window = PrototypeWindow(key_registry=registry)
+
+    assert window.key_registry is registry
+    assert window.page.key_registry is registry
+
+    window.close()
+    _process_events(app)
+
+
+def test_lsb_form_receives_page_key_registry(tmp_path) -> None:
+    registry = KeyRegistry(tmp_path / "keys.json")
+    app, page = _page(key_registry=registry)
+    _add_steps(page, app, ["lsbpp"])
+    page.set_config_variant("inline")
+    page.open_step_config_inline(0)
+
+    panel = page.active_step_panel
+    assert isinstance(panel, StepConfigShellPanel)
+    form = panel.shell.content_widget
+    assert isinstance(form, LSBEmbedInputs)
+    assert form.key_registry is registry
+    assert form.public_key_source.registry is registry
+    assert form.public_key_source.choose_button.isEnabled()
+
+    page.close_active_step_config()
+    _process_events(app)
 
 
 def test_inline_technique_forms_keep_unimplemented_placeholders() -> None:

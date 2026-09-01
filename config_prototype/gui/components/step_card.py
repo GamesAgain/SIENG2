@@ -196,7 +196,6 @@ class StepCard(QWidget):
             if (field_name == "cover"):
                 value = truncate_text_middle(value, max_length=32)
             label.setText(value)
-            
 
     def summary_text(self, field_name: str) -> str:
         return self.summary_labels[field_name.lower()].text()

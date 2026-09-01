@@ -16,9 +16,6 @@ from config_prototype.gui.components.step_card import (
     StepCard,
     make_arrow,
 )
-from config_prototype.gui.components.technique_form_factory import (
-    create_technique_form,
-)
 from config_prototype.gui.components.technique_forms import (
     LSBEmbedInputs,
     LSBInputsDraft,
@@ -34,6 +31,7 @@ from src.gui.components.gui_utils import (
     create_icon_pixmap,
     format_file_size,
 )
+from src.gui.services.key_registry import KeyRegistry
 
 ICON_SIZE = 16
 CHIP_ICON_SIZE = 12
@@ -56,9 +54,14 @@ class PipelineStepDraft:
 
 class EmbedConfigurablePage(QFrame):
 
-    def __init__(self):
-        super().__init__()
+    def __init__(
+        self,
+        key_registry: KeyRegistry | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
 
+        self.key_registry = key_registry
         self.pipeline_steps: list[PipelineStepDraft] = []
         self._next_step_key = 1
         self.step_cards: list[StepCard] = []
@@ -353,13 +356,16 @@ class EmbedConfigurablePage(QFrame):
         self,
         step: PipelineStepDraft,
     ) -> QWidget | None:
-        form = create_technique_form(step.technique)
-        if (
-            isinstance(form, LSBEmbedInputs)
-            and isinstance(step.technique_inputs, LSBInputsDraft)
-        ):
-            form.load_draft(step.technique_inputs)
-        return form
+        if step.technique == "lsbpp":
+            form = LSBEmbedInputs(key_registry=self.key_registry)
+            if isinstance(step.technique_inputs, LSBInputsDraft):
+                form.load_draft(step.technique_inputs)
+            return form
+
+        if step.technique in {"locomotive", "metadata"}:
+            return None
+
+        raise ValueError(f"Unsupported technique: {step.technique}")
 
     def on_step_card_clicked(self, index: int) -> None:
         if not 0 <= index < len(self.pipeline_steps):

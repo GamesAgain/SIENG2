@@ -12,6 +12,7 @@ from config_prototype.gui.pages.sub_pages.embed.configurable_page import (
     EmbedConfigurablePage,
 )
 from config_prototype.gui.paths import STYLE_PATH
+from src.gui.services.key_registry import KeyRegistry
 
 
 DEFAULT_FONT = QFont("Segoe UI", 10)
@@ -28,19 +29,24 @@ def apply_stylesheet(app: QApplication, style_path: Path = STYLE_PATH) -> None:
 class PrototypeWindow(QMainWindow):
     """Host the page without starting the complete SIENG2 application."""
 
-    def __init__(self) -> None:
+    def __init__(self, key_registry: KeyRegistry | None = None) -> None:
         super().__init__()
+        self.key_registry = (
+            key_registry if key_registry is not None else KeyRegistry()
+        )
         self.setWindowTitle("SIENG2 - Configurable Pipeline Prototype")
         self.resize(1100, 720)
 
-        page = EmbedConfigurablePage()
-        page.setObjectName("rootWidget")
-        self.setCentralWidget(page)
+        self.page = EmbedConfigurablePage(key_registry=self.key_registry)
+        self.page.setObjectName("rootWidget")
+        self.setCentralWidget(self.page)
 
 
 def main() -> int:
     app = QApplication(sys.argv)
-    app.setApplicationName("SIENG2 Configurable Pipeline Prototype")
+    app.setOrganizationName("SIENG2")
+    app.setApplicationName("SIENG2")
+    app.setApplicationDisplayName("SIENG2 Configurable Pipeline Prototype")
 
     palette = app.palette()
     palette.setColor(QPalette.ColorRole.WindowText, QColor("#94A3B8"))
