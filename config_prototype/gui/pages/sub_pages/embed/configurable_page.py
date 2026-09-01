@@ -14,6 +14,9 @@ from config_prototype.gui.components.step_card import (
     StepCard,
     make_arrow,
 )
+from config_prototype.gui.components.technique_form_factory import (
+    create_technique_form,
+)
 from config_prototype.gui.components.step_config_shell import (
     StepConfigShellDialog,
     StepConfigShellPanel,
@@ -345,12 +348,14 @@ class EmbedConfigurablePage(QFrame):
         self.close_active_step_config()
         step = self.pipeline_steps[index]
         meta = TECHNIQUE_DISPLAY[step.technique]
+        technique_form = create_technique_form(step.technique)
         dialog = StepConfigShellDialog(
             step_number=index + 1,
             technique_label=meta["label"],
             description=step.description,
             accent=meta["accent"],
             guidenote=step.guidenote,
+            content_widget=technique_form,
             save_callback=lambda description, guidenote, step_key=step.key: (
                 self.save_step_draft(step_key, description, guidenote)
             ),
@@ -376,12 +381,14 @@ class EmbedConfigurablePage(QFrame):
         self.close_active_step_config()
         step = self.pipeline_steps[index]
         meta = TECHNIQUE_DISPLAY[step.technique]
+        technique_form = create_technique_form(step.technique)
         panel = StepConfigShellPanel(
             step_number=index + 1,
             technique_label=meta["label"],
             description=step.description,
             accent=meta["accent"],
             guidenote=step.guidenote,
+            content_widget=technique_form,
             save_callback=lambda description, guidenote, step_key=step.key: (
                 self.save_step_draft(step_key, description, guidenote)
             ),

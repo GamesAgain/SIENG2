@@ -17,9 +17,12 @@ from config_prototype.gui.components.step_card import (
     StepCard,
 )
 from config_prototype.gui.components.step_config_shell import (
+    STEP_CONFIG_MIN_HEIGHT,
+    STEP_CONFIG_MIN_WIDTH,
     StepConfigShellDialog,
     StepConfigShellPanel,
 )
+from config_prototype.gui.components.technique_forms import LSBEmbedInputs
 from config_prototype.gui.pages.sub_pages.embed.configurable_page import (
     CANVAS_MARGIN,
     EmbedConfigurablePage,
@@ -335,6 +338,67 @@ def test_step_config_shell_accepts_future_technique_content_widget() -> None:
     assert dialog.shell.content_widget is content
     assert dialog.shell.placeholder_label is None
     assert content.parent() is dialog.shell.content_frame
+    assert dialog.minimumWidth() == STEP_CONFIG_MIN_WIDTH
+    assert dialog.minimumHeight() == STEP_CONFIG_MIN_HEIGHT
+
+
+def test_inline_step_config_uses_dialog_height_without_fixed_width() -> None:
+    app = _app()
+    panel = StepConfigShellPanel(
+        step_number=1,
+        technique_label="LSB++",
+        description="Embed text in PNG",
+        accent="blue",
+    )
+    panel.show()
+    _process_events(app)
+
+    assert panel.minimumWidth() < STEP_CONFIG_MIN_WIDTH
+    assert panel.minimumHeight() == STEP_CONFIG_MIN_HEIGHT
+
+
+def test_lsbpp_popup_uses_real_technique_form() -> None:
+    app, page = _page()
+    _add_steps(page, app, ["lsbpp"])
+    observed = {}
+
+    def inspect_and_close_dialog() -> None:
+        dialog = page.active_step_dialog
+        assert isinstance(dialog, StepConfigShellDialog)
+        observed["content"] = dialog.shell.content_widget
+        observed["placeholder"] = dialog.shell.placeholder_label
+        dialog.cancel_button.click()
+
+    QTimer.singleShot(0, inspect_and_close_dialog)
+    page.open_step_config_popup(0)
+
+    assert isinstance(observed["content"], LSBEmbedInputs)
+    assert observed["placeholder"] is None
+
+
+def test_inline_technique_forms_keep_unimplemented_placeholders() -> None:
+    app, page = _page()
+    _add_steps(page, app, ["lsbpp", "locomotive", "metadata"])
+    page.set_config_variant("inline")
+
+    page.open_step_config_inline(0)
+    lsb_panel = page.active_step_panel
+    assert isinstance(lsb_panel, StepConfigShellPanel)
+    assert isinstance(lsb_panel.shell.content_widget, LSBEmbedInputs)
+    assert lsb_panel.shell.placeholder_label is None
+    assert lsb_panel.shell.content_widget.cover_drop_zone.parent() is not None
+    page.close_active_step_config()
+
+    for index in (1, 2):
+        page.open_step_config_inline(index)
+        placeholder_panel = page.active_step_panel
+        assert isinstance(placeholder_panel, StepConfigShellPanel)
+        assert placeholder_panel.shell.content_widget is None
+        assert placeholder_panel.shell.placeholder_label is not None
+        assert placeholder_panel.shell.placeholder_label.text() == (
+            "Technique configuration form will appear here."
+        )
+        page.close_active_step_config()
 
 
 def test_popup_save_persists_draft_and_rerenders_step_card() -> None:

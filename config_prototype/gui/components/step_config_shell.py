@@ -13,6 +13,10 @@ from PyQt6.QtWidgets import (
 )
 
 
+STEP_CONFIG_MIN_WIDTH = 1100
+STEP_CONFIG_MIN_HEIGHT = 650
+
+
 class StepConfigHeader(QFrame):
     """Editable description and receiver note shared by both shell variants."""
 
@@ -190,7 +194,10 @@ class StepConfigShellDialog(QDialog):
         self.setObjectName("stepConfigShellDialog")
         self.setWindowTitle(f"Configure Step {step_number} - {technique_label}")
         self.setModal(True)
-        self.setMinimumSize(900, 600)
+        self.setMinimumSize(
+            STEP_CONFIG_MIN_WIDTH,
+            STEP_CONFIG_MIN_HEIGHT,
+        )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -241,6 +248,7 @@ class StepConfigShellPanel(QFrame):
         self.step_number = step_number
         self.technique_label_text = technique_label
         self.setObjectName("card")
+        self.setMinimumHeight(STEP_CONFIG_MIN_HEIGHT)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
