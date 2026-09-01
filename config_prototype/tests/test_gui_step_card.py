@@ -25,6 +25,8 @@ from config_prototype.gui.components.step_config_shell import (
 from config_prototype.gui.components.technique_forms import (
     LSBEmbedInputs,
     LSBInputsDraft,
+    LocomotiveEmbedInputs,
+    LocomotiveInputsDraft,
 )
 from config_prototype.gui.components.technique_forms import lsb_embed_inputs
 from config_prototype.gui.pages.sub_pages.embed.configurable_page import (
@@ -34,6 +36,10 @@ from config_prototype.gui.pages.sub_pages.embed.configurable_page import (
     PipelineStepDraft,
 )
 from config_prototype.main import PrototypeWindow
+from src.core.crypto.key_management import (
+    generate_and_save_keypair,
+    inspect_public_key_file,
+)
 from src.gui.components.key_validation import KeyValidationResult
 from src.gui.services.key_registry import KeyRegistry
 
@@ -417,7 +423,7 @@ def test_lsb_form_receives_page_key_registry(tmp_path) -> None:
     _process_events(app)
 
 
-def test_inline_technique_forms_keep_unimplemented_placeholders() -> None:
+def test_inline_technique_forms_keep_metadata_placeholder() -> None:
     app, page = _page()
     _add_steps(page, app, ["lsbpp", "locomotive", "metadata"])
     page.set_config_variant("inline")
@@ -430,21 +436,30 @@ def test_inline_technique_forms_keep_unimplemented_placeholders() -> None:
     assert lsb_panel.shell.content_widget.cover_drop_zone.parent() is not None
     page.close_active_step_config()
 
-    for index in (1, 2):
-        page.open_step_config_inline(index)
-        placeholder_panel = page.active_step_panel
-        assert isinstance(placeholder_panel, StepConfigShellPanel)
-        assert placeholder_panel.shell.content_widget is None
-        assert placeholder_panel.shell.placeholder_label is not None
-        assert placeholder_panel.shell.placeholder_label.text() == (
-            "Technique configuration form will appear here."
-        )
-        page.close_active_step_config()
+    page.open_step_config_inline(1)
+    locomotive_panel = page.active_step_panel
+    assert isinstance(locomotive_panel, StepConfigShellPanel)
+    assert isinstance(
+        locomotive_panel.shell.content_widget,
+        LocomotiveEmbedInputs,
+    )
+    assert locomotive_panel.shell.placeholder_label is None
+    page.close_active_step_config()
+
+    page.open_step_config_inline(2)
+    placeholder_panel = page.active_step_panel
+    assert isinstance(placeholder_panel, StepConfigShellPanel)
+    assert placeholder_panel.shell.content_widget is None
+    assert placeholder_panel.shell.placeholder_label is not None
+    assert placeholder_panel.shell.placeholder_label.text() == (
+        "Technique configuration form will appear here."
+    )
+    page.close_active_step_config()
 
 
 def test_popup_save_persists_draft_and_rerenders_step_card() -> None:
     app, page = _page()
-    _add_steps(page, app, ["locomotive"])
+    _add_steps(page, app, ["metadata"])
 
     def edit_and_save() -> None:
         dialog = page.active_step_dialog
@@ -487,7 +502,7 @@ def test_popup_cancel_discards_edited_draft() -> None:
 
 def test_inline_save_persists_and_cancel_discards_edits() -> None:
     app, page = _page()
-    _add_steps(page, app, ["locomotive"])
+    _add_steps(page, app, ["metadata"])
     page.set_config_variant("inline")
     page.open_step_config_inline(0)
 
@@ -519,7 +534,7 @@ def test_inline_save_persists_and_cancel_discards_edits() -> None:
 
 def test_saved_values_reopen_across_popup_and_inline_variants() -> None:
     app, page = _page()
-    _add_steps(page, app, ["locomotive"])
+    _add_steps(page, app, ["metadata"])
 
     def save_popup() -> None:
         dialog = page.active_step_dialog
@@ -591,6 +606,143 @@ def test_lsb_inline_save_persists_inputs_and_updates_step_card(tmp_path) -> None
     assert page.active_step_panel is None
 
 
+def test_lsb_popup_save_persists_inputs_and_updates_step_card(tmp_path) -> None:
+    cover_path = tmp_path / "popup-carrier.png"
+    cover_path.write_bytes(b"prototype cover")
+    app, page = _page()
+    _add_steps(page, app, ["lsbpp"])
+
+    def configure_and_save_popup() -> None:
+        dialog = page.active_step_dialog
+        assert isinstance(dialog, StepConfigShellDialog)
+        form = dialog.shell.content_widget
+        assert isinstance(form, LSBEmbedInputs)
+        _configure_valid_lsb_form(
+            form,
+            cover_path,
+            payload="Popup payload",
+            password="popup passphrase",
+        )
+        dialog.shell.description_edit.setText("Save LSB through popup")
+        dialog.shell.guidenote_edit.setText("Popup receiver hint")
+        dialog.save_button.click()
+
+    QTimer.singleShot(0, configure_and_save_popup)
+    page.open_step_config_popup(0)
+
+    draft = page.pipeline_steps[0].technique_inputs
+    assert isinstance(draft, LSBInputsDraft)
+    assert draft.cover_path == str(cover_path)
+    assert draft.payload_text == "Popup payload"
+    assert draft.encryption_mode == "password"
+    assert draft.password == "popup passphrase"
+    assert page.pipeline_steps[0].description == "Save LSB through popup"
+    assert page.pipeline_steps[0].guidenote == "Popup receiver hint"
+    assert page.step_cards[0].status == "ready"
+    assert page.step_cards[0].summary_text("encryption") == "Password"
+    assert page.active_step_dialog is None
+
+
+def test_lsb_no_encryption_save_reopens_without_secrets(tmp_path) -> None:
+    cover_path = tmp_path / "plain-carrier.png"
+    cover_path.write_bytes(b"prototype cover")
+    app, page = _page()
+    _add_steps(page, app, ["lsbpp"])
+    page.set_config_variant("inline")
+    page.open_step_config_inline(0)
+
+    panel = page.active_step_panel
+    assert isinstance(panel, StepConfigShellPanel)
+    form = panel.shell.content_widget
+    assert isinstance(form, LSBEmbedInputs)
+    form.cover_file_path = str(cover_path)
+    form.payload_text_area.setPlainText("Plain payload")
+    form.password_input.setText("must not persist")
+    form.confirm_input.setText("must not persist")
+    form.encrypt_toggle_switch.setChecked(False)
+    panel.save_button.click()
+    _process_events(app)
+
+    draft = page.pipeline_steps[0].technique_inputs
+    assert isinstance(draft, LSBInputsDraft)
+    assert draft.encryption_enabled is False
+    assert draft.password == ""
+    assert draft.public_key_path is None
+    assert page.step_cards[0].status == "ready"
+    assert page.step_cards[0].summary_text("encryption") == "None"
+
+    page.open_step_config_inline(0)
+    reopened_panel = page.active_step_panel
+    assert isinstance(reopened_panel, StepConfigShellPanel)
+    reopened_form = reopened_panel.shell.content_widget
+    assert isinstance(reopened_form, LSBEmbedInputs)
+    assert reopened_form.encrypt_toggle_switch.isChecked() is False
+    assert reopened_form.password_input.text() == ""
+    assert reopened_form.confirm_input.text() == ""
+    assert reopened_form.public_key_path is None
+    reopened_panel.cancel_button.click()
+    _process_events(app)
+
+
+def test_lsb_public_key_save_reopens_valid_registry_key(tmp_path) -> None:
+    cover_path = tmp_path / "public-key-carrier.png"
+    cover_path.write_bytes(b"prototype cover")
+    _private_path, public_path = generate_and_save_keypair(
+        tmp_path,
+        "lsb_public_key_roundtrip",
+        key_size=2048,
+    )
+    registry = KeyRegistry(tmp_path / "keys.json")
+    public_record = registry.add(
+        "LSB receiver public key",
+        inspect_public_key_file(public_path),
+    )
+    app, page = _page(key_registry=registry)
+    _add_steps(page, app, ["lsbpp"])
+    page.set_config_variant("inline")
+    page.open_step_config_inline(0)
+
+    panel = page.active_step_panel
+    assert isinstance(panel, StepConfigShellPanel)
+    form = panel.shell.content_widget
+    assert isinstance(form, LSBEmbedInputs)
+    form.cover_file_path = str(cover_path)
+    form.payload_text_area.setPlainText("Public key payload")
+    form.btn_asymmetric.setChecked(True)
+    form.encrypt_stack.setCurrentIndex(1)
+    form.public_key_source.select_path(public_record.path)
+    panel.save_button.click()
+    _process_events(app)
+
+    draft = page.pipeline_steps[0].technique_inputs
+    assert isinstance(draft, LSBInputsDraft)
+    assert draft.encryption_enabled is True
+    assert draft.encryption_mode == "public_key"
+    assert draft.password == ""
+    assert draft.public_key_path == public_record.path
+    assert page.step_cards[0].status == "ready"
+    assert page.step_cards[0].summary_text("encryption") == "Public Key"
+
+    page.open_step_config_inline(0)
+    reopened_panel = page.active_step_panel
+    assert isinstance(reopened_panel, StepConfigShellPanel)
+    reopened_form = reopened_panel.shell.content_widget
+    assert isinstance(reopened_form, LSBEmbedInputs)
+    assert reopened_form.key_registry is registry
+    assert reopened_form.btn_asymmetric.isChecked()
+    symmetric_mode = reopened_form.findChild(QWidget, "symmetricMode")
+    asymmetric_mode = reopened_form.findChild(QWidget, "asymmetricMode")
+    assert symmetric_mode is not None and not symmetric_mode.isVisible()
+    assert asymmetric_mode is not None and asymmetric_mode.isVisible()
+    assert reopened_form.public_key_path == public_record.path
+    assert reopened_form.public_key_drop_zone.selected_files == [
+        public_record.path
+    ]
+    assert reopened_form.password_input.text() == ""
+    reopened_panel.cancel_button.click()
+    _process_events(app)
+
+
 def test_lsb_saved_inputs_reopen_and_cancel_does_not_mutate_draft(
     tmp_path,
 ) -> None:
@@ -628,6 +780,242 @@ def test_lsb_saved_inputs_reopen_and_cancel_does_not_mutate_draft(
 
     assert page.pipeline_steps[0].technique_inputs == saved_draft
     assert page.step_cards[0].summary_text("payload") == "Text (13 B)"
+
+
+def _configure_valid_locomotive_file_form(
+    form: LocomotiveEmbedInputs,
+    cover_paths: list[Path],
+    payload_paths: list[Path],
+    *,
+    password: str = "locomotive passphrase",
+) -> None:
+    form.cover_drop_zone.add_files([str(path) for path in cover_paths])
+    form.payload_tabs.setCurrentIndex(0)
+    form.payload_file_drop_zone.add_files(
+        [str(path) for path in payload_paths]
+    )
+    form.encrypt_toggle_switch.setChecked(True)
+    form.btn_symmetric.setChecked(True)
+    form.encrypt_stack.setCurrentIndex(0)
+    form.password_input.setText(password)
+    form.confirm_input.setText(password)
+
+
+def test_locomotive_inline_save_reopens_and_updates_step_card(tmp_path) -> None:
+    cover_paths = [tmp_path / "cover-1.png", tmp_path / "cover-2.png"]
+    for cover_path in cover_paths:
+        cover_path.write_bytes(b"prototype cover")
+    payload_paths = [tmp_path / "one.bin", tmp_path / "two.txt"]
+    payload_paths[0].write_bytes(b"a" * 1024)
+    payload_paths[1].write_bytes(b"b" * 512)
+
+    app, page = _page()
+    _add_steps(page, app, ["locomotive"])
+    assert page.step_cards[0].status == "setup"
+
+    page.set_config_variant("inline")
+    page.open_step_config_inline(0)
+    panel = page.active_step_panel
+    assert isinstance(panel, StepConfigShellPanel)
+    form = panel.shell.content_widget
+    assert isinstance(form, LocomotiveEmbedInputs)
+    _configure_valid_locomotive_file_form(form, cover_paths, payload_paths)
+    panel.shell.description_edit.setText("Bundle two files across two covers")
+    panel.shell.guidenote_edit.setText("Attach both PNG carriers")
+    panel.save_button.click()
+    _process_events(app)
+
+    draft = page.pipeline_steps[0].technique_inputs
+    assert isinstance(draft, LocomotiveInputsDraft)
+    assert draft.cover_paths == [str(path) for path in cover_paths]
+    assert draft.payload_mode == "files"
+    assert draft.payload_paths == [str(path) for path in payload_paths]
+    assert draft.payload_text == ""
+    assert draft.encryption_mode == "password"
+    assert draft.password == "locomotive passphrase"
+    assert draft.public_key_path is None
+
+    card = page.step_cards[0]
+    assert card.status == "ready"
+    assert card.summary_text("cover") == "PNG ×2"
+    assert card.summary_text("payload") == "Files ×2 (1.50 KB)"
+    assert card.summary_text("output") == "PNG ×2"
+    assert card.summary_text("encryption") == "Password"
+    assert card.summary_tooltip("cover") == (
+        "Cover PNGs (2):\n"
+        "1. cover-1.png\n"
+        "2. cover-2.png"
+    )
+    assert card.summary_tooltip("payload") == (
+        "Payload files (2):\n"
+        "1. one.bin — 1.00 KB\n"
+        "2. two.txt — 512 B\n"
+        "Total: 1.50 KB"
+    )
+
+    saved_draft = draft
+    page.open_step_config_inline(0)
+    reopened_panel = page.active_step_panel
+    assert isinstance(reopened_panel, StepConfigShellPanel)
+    reopened_form = reopened_panel.shell.content_widget
+    assert isinstance(reopened_form, LocomotiveEmbedInputs)
+    assert reopened_form.cover_drop_zone.selected_files == [
+        str(path) for path in cover_paths
+    ]
+    assert reopened_form.payload_file_drop_zone.selected_files == [
+        str(path) for path in payload_paths
+    ]
+    assert reopened_form.password_input.text() == "locomotive passphrase"
+
+    reopened_form.payload_file_drop_zone.clear_all()
+    reopened_form.payload_tabs.setCurrentIndex(1)
+    reopened_form.payload_text_area.setPlainText("Discarded text")
+    reopened_panel.cancel_button.click()
+    _process_events(app)
+
+    assert page.pipeline_steps[0].technique_inputs == saved_draft
+    assert page.step_cards[0].summary_text("payload") == (
+        "Files ×2 (1.50 KB)"
+    )
+
+
+def test_locomotive_popup_text_no_encryption_persists_across_shells(
+    tmp_path,
+) -> None:
+    cover_path = tmp_path / "single-cover.png"
+    cover_path.write_bytes(b"prototype cover")
+    app, page = _page()
+    _add_steps(page, app, ["locomotive"])
+
+    def configure_and_save_popup() -> None:
+        dialog = page.active_step_dialog
+        assert isinstance(dialog, StepConfigShellDialog)
+        form = dialog.shell.content_widget
+        assert isinstance(form, LocomotiveEmbedInputs)
+        form.cover_drop_zone.add_files([str(cover_path)])
+        form.payload_tabs.setCurrentIndex(1)
+        form.payload_text_area.setPlainText("Secret timetable")
+        form.password_input.setText("must not persist")
+        form.confirm_input.setText("must not persist")
+        form.encrypt_toggle_switch.setChecked(False)
+        dialog.shell.description_edit.setText("Hide a timetable in one PNG")
+        dialog.save_button.click()
+
+    QTimer.singleShot(0, configure_and_save_popup)
+    page.open_step_config_popup(0)
+
+    draft = page.pipeline_steps[0].technique_inputs
+    assert isinstance(draft, LocomotiveInputsDraft)
+    assert draft.cover_paths == [str(cover_path)]
+    assert draft.payload_mode == "text"
+    assert draft.payload_paths == []
+    assert draft.payload_text == "Secret timetable"
+    assert draft.encryption_enabled is False
+    assert draft.password == ""
+    assert draft.public_key_path is None
+
+    card = page.step_cards[0]
+    assert card.status == "ready"
+    assert card.summary_text("cover") == "single-cover.png"
+    assert card.summary_text("payload") == "Text (16 B)"
+    assert card.summary_text("output") == "PNG ×1"
+    assert card.summary_text("encryption") == "None"
+
+    page.set_config_variant("inline")
+    page.open_step_config_inline(0)
+    panel = page.active_step_panel
+    assert isinstance(panel, StepConfigShellPanel)
+    form = panel.shell.content_widget
+    assert isinstance(form, LocomotiveEmbedInputs)
+    assert form.payload_tabs.currentIndex() == 1
+    assert form.payload_text_area.toPlainText() == "Secret timetable"
+    assert form.encrypt_toggle_switch.isChecked() is False
+    assert form.password_input.text() == ""
+    assert form.btn_symmetric.isEnabled() is False
+    assert form.btn_asymmetric.isEnabled() is False
+    panel.cancel_button.click()
+    _process_events(app)
+
+
+def test_locomotive_public_key_roundtrip_uses_page_registry(tmp_path) -> None:
+    cover_path = tmp_path / "public-cover.png"
+    cover_path.write_bytes(b"prototype cover")
+    payload_path = tmp_path / "public-payload.bin"
+    payload_path.write_bytes(b"payload")
+    _private_path, public_path = generate_and_save_keypair(
+        tmp_path,
+        "locomotive_public_key_roundtrip",
+        key_size=2048,
+    )
+    registry = KeyRegistry(tmp_path / "keys.json")
+    public_record = registry.add(
+        "Locomotive receiver public key",
+        inspect_public_key_file(public_path),
+    )
+
+    app, page = _page(key_registry=registry)
+    _add_steps(page, app, ["locomotive"])
+    page.set_config_variant("inline")
+    page.open_step_config_inline(0)
+    panel = page.active_step_panel
+    assert isinstance(panel, StepConfigShellPanel)
+    form = panel.shell.content_widget
+    assert isinstance(form, LocomotiveEmbedInputs)
+    assert form.key_registry is registry
+    _configure_valid_locomotive_file_form(
+        form,
+        [cover_path],
+        [payload_path],
+    )
+    form.btn_asymmetric.setChecked(True)
+    form.encrypt_stack.setCurrentIndex(1)
+    form.public_key_source.select_path(public_record.path)
+    panel.save_button.click()
+    _process_events(app)
+
+    draft = page.pipeline_steps[0].technique_inputs
+    assert isinstance(draft, LocomotiveInputsDraft)
+    assert draft.encryption_mode == "public_key"
+    assert draft.password == ""
+    assert draft.public_key_path == public_record.path
+    assert page.step_cards[0].summary_text("encryption") == "Public Key"
+
+    page.open_step_config_inline(0)
+    reopened_panel = page.active_step_panel
+    assert isinstance(reopened_panel, StepConfigShellPanel)
+    reopened_form = reopened_panel.shell.content_widget
+    assert isinstance(reopened_form, LocomotiveEmbedInputs)
+    assert reopened_form.key_registry is registry
+    assert reopened_form.btn_asymmetric.isChecked()
+    assert reopened_form.public_key_path == public_record.path
+    assert reopened_form.public_key_drop_zone.selected_files == [
+        public_record.path
+    ]
+    reopened_panel.cancel_button.click()
+    _process_events(app)
+
+
+def test_locomotive_invalid_save_stays_setup_and_keeps_panel_open(
+    monkeypatch,
+) -> None:
+    app, page = _page()
+    _add_steps(page, app, ["locomotive"])
+    page.set_config_variant("inline")
+    page.open_step_config_inline(0)
+    panel = page.active_step_panel
+    assert isinstance(panel, StepConfigShellPanel)
+    assert isinstance(panel.shell.content_widget, LocomotiveEmbedInputs)
+    monkeypatch.setattr(QMessageBox, "warning", lambda *_args: None)
+
+    panel.shell.description_edit.setText("Must not be committed")
+    panel.save_button.click()
+    _process_events(app)
+
+    step = page.pipeline_steps[0]
+    assert step.description == "Embed files in PNG"
+    assert step.technique_inputs is None
+    assert page.active_step_panel is panel
+    assert page.step_cards[0].status == "setup"
 
 
 def test_lsb_validation_covers_required_inputs_and_encryption_modes(

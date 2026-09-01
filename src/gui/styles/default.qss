@@ -169,6 +169,14 @@
     color: #34D399;
 }
 
+/* Prototype forms mark inactive encryption choices explicitly. */
+#encryptOptionBtn[encryptionActive="false"],
+#encryptOptionBtn:checked[encryptionActive="false"] {
+    background-color: transparent;
+    border: 1px solid transparent;
+    color: #64748B;
+}
+
 /* --- Linked Step Toggle (Manual Upload / Linked from Step) --- */
 /* โผล่เฉพาะ cover-file card ตอนเปิดผ่าน Configurable Pipeline เท่านั้น */
 #linkedStepToggleContainer {

@@ -19,6 +19,8 @@ from config_prototype.gui.components.step_card import (
 from config_prototype.gui.components.technique_forms import (
     LSBEmbedInputs,
     LSBInputsDraft,
+    LocomotiveEmbedInputs,
+    LocomotiveInputsDraft,
 )
 from config_prototype.gui.components.step_config_shell import (
     StepConfigShellDialog,
@@ -49,7 +51,7 @@ class PipelineStepDraft:
     technique: str
     description: str
     guidenote: str = ""
-    technique_inputs: LSBInputsDraft | None = None
+    technique_inputs: LSBInputsDraft | LocomotiveInputsDraft | None = None
 
 
 class EmbedConfigurablePage(QFrame):
@@ -346,6 +348,10 @@ class EmbedConfigurablePage(QFrame):
             if not technique_form.validate_draft():
                 return False
             technique_inputs = technique_form.export_draft()
+        elif isinstance(technique_form, LocomotiveEmbedInputs):
+            if not technique_form.validate_draft():
+                return False
+            technique_inputs = technique_form.export_draft()
 
         step.description = description
         step.guidenote = guidenote.strip()
@@ -362,7 +368,13 @@ class EmbedConfigurablePage(QFrame):
                 form.load_draft(step.technique_inputs)
             return form
 
-        if step.technique in {"locomotive", "metadata"}:
+        if step.technique == "locomotive":
+            form = LocomotiveEmbedInputs(key_registry=self.key_registry)
+            if isinstance(step.technique_inputs, LocomotiveInputsDraft):
+                form.load_draft(step.technique_inputs)
+            return form
+
+        if step.technique == "metadata":
             return None
 
         raise ValueError(f"Unsupported technique: {step.technique}")
@@ -514,15 +526,28 @@ class EmbedConfigurablePage(QFrame):
         step: PipelineStepDraft,
     ) -> None:
         draft = step.technique_inputs
-        if step.technique != "lsbpp" or not isinstance(draft, LSBInputsDraft):
+        if step.technique == "lsbpp" and isinstance(draft, LSBInputsDraft):
+            EmbedConfigurablePage.apply_lsb_draft_to_card(step_card, draft)
             return
 
-        if not draft.encryption_enabled:
-            encryption = "None"
-        elif draft.encryption_mode == "public_key":
-            encryption = "Public Key"
-        else:
-            encryption = "Password"
+        if step.technique == "locomotive" and isinstance(
+            draft,
+            LocomotiveInputsDraft,
+        ):
+            EmbedConfigurablePage.apply_locomotive_draft_to_card(
+                step_card,
+                draft,
+            )
+
+    @staticmethod
+    def apply_lsb_draft_to_card(
+        step_card: StepCard,
+        draft: LSBInputsDraft,
+    ) -> None:
+        encryption = EmbedConfigurablePage.encryption_summary(
+            draft.encryption_enabled,
+            draft.encryption_mode,
+        )
 
         step_card.set_summary(
             cover=Path(draft.cover_path).name if draft.cover_path else "Not selected",
@@ -533,6 +558,83 @@ class EmbedConfigurablePage(QFrame):
             encryption=encryption,
         )
         step_card.set_status("ready", "LSB++ inputs are configured")
+
+    @staticmethod
+    def apply_locomotive_draft_to_card(
+        step_card: StepCard,
+        draft: LocomotiveInputsDraft,
+    ) -> None:
+        cover_count = len(draft.cover_paths)
+        cover = (
+            Path(draft.cover_paths[0]).name
+            if cover_count == 1
+            else f"PNG ×{cover_count}"
+        )
+
+        if draft.payload_mode == "text":
+            payload_size = len(draft.payload_text.encode("utf-8"))
+            payload = f"Text ({format_file_size(payload_size)})"
+        else:
+            payload_size = sum(
+                Path(path).stat().st_size
+                for path in draft.payload_paths
+                if Path(path).is_file()
+            )
+            payload = (
+                f"Files ×{len(draft.payload_paths)} "
+                f"({format_file_size(payload_size)})"
+            )
+
+        step_card.set_summary(
+            cover=cover,
+            payload=payload,
+            output=f"PNG ×{cover_count}",
+            encryption=EmbedConfigurablePage.encryption_summary(
+                draft.encryption_enabled,
+                draft.encryption_mode,
+            ),
+        )
+
+        if cover_count > 1:
+            cover_lines = [f"Cover PNGs ({cover_count}):"]
+            cover_lines.extend(
+                f"{index}. {Path(path).name}"
+                for index, path in enumerate(draft.cover_paths, start=1)
+            )
+            step_card.set_summary_tooltip(
+                "cover",
+                "\n".join(cover_lines),
+            )
+
+        if draft.payload_mode == "files":
+            payload_lines = [
+                f"Payload files ({len(draft.payload_paths)}):"
+            ]
+            for index, path in enumerate(draft.payload_paths, start=1):
+                file_path = Path(path)
+                file_size = (
+                    format_file_size(file_path.stat().st_size)
+                    if file_path.is_file()
+                    else "Unavailable"
+                )
+                payload_lines.append(
+                    f"{index}. {file_path.name} — {file_size}"
+                )
+            payload_lines.append(f"Total: {format_file_size(payload_size)}")
+            step_card.set_summary_tooltip(
+                "payload",
+                "\n".join(payload_lines),
+            )
+
+        step_card.set_status("ready", "Locomotive inputs are configured")
+
+    @staticmethod
+    def encryption_summary(enabled: bool, mode: str) -> str:
+        if not enabled:
+            return "None"
+        if mode == "public_key":
+            return "Public Key"
+        return "Password"
 
     def refresh_canvas_height(self):
         self._update_canvas_height()

@@ -200,6 +200,15 @@ class StepCard(QWidget):
     def summary_text(self, field_name: str) -> str:
         return self.summary_labels[field_name.lower()].text()
 
+    def set_summary_tooltip(self, field_name: str, tooltip: str) -> None:
+        field_name = field_name.lower()
+        if field_name not in self.summary_labels:
+            raise ValueError(f"Unsupported summary field: {field_name}")
+        self.summary_labels[field_name].setToolTip(tooltip)
+
+    def summary_tooltip(self, field_name: str) -> str:
+        return self.summary_labels[field_name.lower()].toolTip()
+
     def create_row(self, field_name: str, placeholder: str) -> QWidget:
         row = QWidget()
         row_layout = QHBoxLayout(row)
