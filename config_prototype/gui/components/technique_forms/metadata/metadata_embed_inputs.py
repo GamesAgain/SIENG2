@@ -14,6 +14,9 @@ from PyQt6.QtWidgets import (
 )
 
 from config_prototype.gui.paths import ICON_DIR
+from config_prototype.gui.components.technique_forms.metadata.png_metadata_form import (
+    PNGMetadataForm,
+)
 from src.gui.components.file_info_bar import FileInfoBar
 from src.gui.components.files_drop import FileDropWidget
 from src.gui.components.gui_utils import (
@@ -94,9 +97,8 @@ class MetadataEmbedInputs(QFrame):
         self.empty_state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty_state_label.setWordWrap(True)
 
-        self.png_state_widget = self.build_media_state(
-            "PNG target selected. PNG text metadata fields will appear here."
-        )
+        self.png_form = PNGMetadataForm()
+        self.png_state_widget = self.png_form
         self.mp3_state_widget = self.build_media_state(
             "MP3 target selected. MP3 text tags and APIC fields will appear here."
         )
@@ -281,11 +283,17 @@ class MetadataEmbedInputs(QFrame):
             self._syncing_cover = False
 
         self._draft = loaded_draft
+        self.png_form.clear_all()
+        if isinstance(loaded_draft.payload, PNGMetadataDraft):
+            self.png_form.load_draft(loaded_draft.payload)
         self.update_cover_media_state()
 
     def export_draft(self) -> MetadataInputsDraft:
         """Return a detached copy of the current form state."""
-        return deepcopy(self._draft)
+        exported_draft = deepcopy(self._draft)
+        if self._cover_media_type == "png":
+            exported_draft.payload = self.png_form.export_draft()
+        return exported_draft
 
     def validate_draft(self) -> bool:
         """Validate Metadata draft."""
@@ -307,22 +315,23 @@ class MetadataEmbedInputs(QFrame):
                 "Metadata supports PNG and MP3 target files only."
             )
 
+        if suffix == ".png":
+            png_draft = self.png_form.export_draft()
+            if (
+                not png_draft.entries
+                and self._draft.payload is not None
+                and not isinstance(self._draft.payload, PNGMetadataDraft)
+            ):
+                return self.show_validation_warning(
+                    "The metadata payload does not match the PNG target file."
+                )
+            return self.png_form.validate_draft()
+
         payload = self._draft.payload
         if payload is None:
             return self.show_validation_warning(
                 "Please add at least one metadata field."
             )
-
-        if suffix == ".png":
-            if not isinstance(payload, PNGMetadataDraft):
-                return self.show_validation_warning(
-                    "The metadata payload does not match the PNG target file."
-                )
-            if not payload.entries:
-                return self.show_validation_warning(
-                    "Please add at least one PNG metadata field."
-                )
-            return True
 
         if not isinstance(payload, MP3MetadataDraft):
             return self.show_validation_warning(

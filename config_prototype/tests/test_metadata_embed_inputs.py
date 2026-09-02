@@ -237,6 +237,11 @@ def test_load_draft_restores_available_cover_widget_and_media_state(
     assert form.cover_file_stack.currentWidget() is form.selected_cover_widget
     assert form.file_info_bar.file_info_name.text() == cover.name
     assert form.content_stack.currentWidget() is form.png_state_widget
+    assert form.png_state_widget is form.png_form
+    assert form.png_form.standard_fields["Title"].is_empty()
+    assert len(form.png_form.custom_rows) == 1
+    assert form.png_form.custom_rows[0].get_keyword() == "Secret"
+    assert form.png_form.custom_rows[0].get_value() == "TEST"
     assert form.export_draft() == source
 
     source.cover_path = "changed.png"
@@ -377,7 +382,7 @@ def test_baseline_validation_reports_missing_and_mismatched_inputs(
         ),
         (
             MetadataInputsDraft(cover_path=str(png_cover)),
-            "Please add at least one metadata field.",
+            "Please add at least one PNG metadata value.",
         ),
         (
             MetadataInputsDraft(
@@ -398,7 +403,7 @@ def test_baseline_validation_reports_missing_and_mismatched_inputs(
                 cover_path=str(png_cover),
                 payload=PNGMetadataDraft(),
             ),
-            "Please add at least one PNG metadata field.",
+            "Please add at least one PNG metadata value.",
         ),
         (
             MetadataInputsDraft(
@@ -453,3 +458,50 @@ def test_baseline_validation_accepts_structural_png_and_mp3_drafts(
     for draft in valid_drafts:
         form.load_draft(draft)
         assert form.validate_draft()
+
+
+def test_png_host_exports_live_form_controls_without_mutating_saved_state(
+    tmp_path,
+) -> None:
+    _app()
+    cover = tmp_path / "carrier.png"
+    cover.write_bytes(b"prototype png")
+    form = MetadataEmbedInputs()
+    form.cover_drop_zone.add_files([str(cover)])
+    form.png_form.standard_fields["Title"].set_value("Hidden title")
+    form.png_form.add_custom_row("Project Code", "S2")
+
+    exported = form.export_draft()
+
+    assert exported == MetadataInputsDraft(
+        cover_path=str(cover),
+        payload=PNGMetadataDraft(
+            entries={
+                "Title": "Hidden title",
+                "Project Code": "S2",
+            }
+        ),
+    )
+    assert form._draft.payload is None
+
+
+def test_png_host_validation_uses_live_png_form(monkeypatch, tmp_path) -> None:
+    _app()
+    cover = tmp_path / "carrier.png"
+    cover.write_bytes(b"prototype png")
+    warnings: list[str] = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        lambda _parent, _title, message: warnings.append(message),
+    )
+    form = MetadataEmbedInputs()
+    form.cover_drop_zone.add_files([str(cover)])
+
+    assert not form.validate_draft()
+    assert warnings == ["Please add at least one PNG metadata value."]
+
+    warnings.clear()
+    form.png_form.standard_fields["Description"].set_value("Hidden")
+    assert form.validate_draft()
+    assert warnings == []

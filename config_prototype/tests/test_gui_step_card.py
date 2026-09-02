@@ -28,6 +28,9 @@ from config_prototype.gui.components.technique_forms import (
     LocomotiveEmbedInputs,
     LocomotiveInputsDraft,
     MetadataEmbedInputs,
+    MetadataInputsDraft,
+    MP3MetadataDraft,
+    PNGMetadataDraft,
 )
 from config_prototype.gui.components.technique_forms import lsb_embed_inputs
 from config_prototype.gui.pages.sub_pages.embed.configurable_page import (
@@ -486,13 +489,181 @@ def test_popup_shell_displays_metadata_host() -> None:
     assert page.active_step_dialog is None
 
 
-def test_popup_save_persists_draft_and_rerenders_step_card() -> None:
+def _configure_valid_metadata_png_form(
+    form: MetadataEmbedInputs,
+    cover_path: Path,
+    *,
+    title: str = "Hidden title",
+) -> None:
+    form.cover_drop_zone.add_files([str(cover_path)])
+    form.png_form.standard_fields["Title"].set_value(title)
+
+
+def test_metadata_png_inline_save_persists_and_reopens_draft(
+    tmp_path,
+) -> None:
+    cover = tmp_path / "carrier.png"
+    cover.write_bytes(b"prototype png")
+    app, page = _page()
+    _add_steps(page, app, ["metadata"])
+    page.set_config_variant("inline")
+    page.open_step_config_inline(0)
+
+    panel = page.active_step_panel
+    assert isinstance(panel, StepConfigShellPanel)
+    form = panel.shell.content_widget
+    assert isinstance(form, MetadataEmbedInputs)
+    _configure_valid_metadata_png_form(form, cover)
+    form.png_form.add_custom_row("Project Code", "S2")
+    panel.save_button.click()
+    _process_events(app)
+
+    saved_draft = page.pipeline_steps[0].technique_inputs
+    assert saved_draft == MetadataInputsDraft(
+        cover_path=str(cover),
+        payload=PNGMetadataDraft(
+            entries={
+                "Title": "Hidden title",
+                "Project Code": "S2",
+            }
+        ),
+    )
+    assert page.active_step_panel is None
+    card = page.step_cards[0]
+    assert card.status == "ready"
+    assert card.status_label.toolTip() == (
+        "PNG metadata inputs are configured"
+    )
+    assert card.summary_text("cover") == "carrier.png"
+    assert card.summary_text("payload") == "Text fields ×2"
+    assert card.summary_text("output") == "PNG ×1"
+    assert card.summary_text("encryption") == "None"
+    assert card.summary_tooltip("payload") == (
+        "PNG metadata fields (2):\n1. Title\n2. Project Code"
+    )
+    assert "Hidden title" not in card.summary_tooltip("payload")
+
+    page.open_step_config_inline(0)
+    reopened_panel = page.active_step_panel
+    assert isinstance(reopened_panel, StepConfigShellPanel)
+    reopened_form = reopened_panel.shell.content_widget
+    assert isinstance(reopened_form, MetadataEmbedInputs)
+    assert reopened_form.cover_drop_zone.get_selected_files() == [
+        str(cover)
+    ]
+    assert reopened_form.content_stack.currentWidget() is (
+        reopened_form.png_form
+    )
+    assert (
+        reopened_form.png_form.standard_fields["Title"].get_value()
+        == "Hidden title"
+    )
+    assert len(reopened_form.png_form.custom_rows) == 1
+    assert (
+        reopened_form.png_form.custom_rows[0].get_keyword()
+        == "Project Code"
+    )
+    assert reopened_form.png_form.custom_rows[0].get_value() == "S2"
+    reopened_panel.cancel_button.click()
+    _process_events(app)
+
+    assert page.pipeline_steps[0].technique_inputs == saved_draft
+
+
+def test_metadata_png_popup_save_persists_draft(tmp_path) -> None:
+    cover = tmp_path / "carrier.png"
+    cover.write_bytes(b"prototype png")
+    app, page = _page()
+    _add_steps(page, app, ["metadata"])
+
+    def configure_and_save_popup() -> None:
+        dialog = page.active_step_dialog
+        assert isinstance(dialog, StepConfigShellDialog)
+        form = dialog.shell.content_widget
+        assert isinstance(form, MetadataEmbedInputs)
+        form.cover_drop_zone.add_files([str(cover)])
+        form.png_form.standard_fields["Author"].set_value("Alice")
+        dialog.save_button.click()
+
+    QTimer.singleShot(0, configure_and_save_popup)
+    page.open_step_config_popup(0)
+    _process_events(app)
+
+    assert page.pipeline_steps[0].technique_inputs == MetadataInputsDraft(
+        cover_path=str(cover),
+        payload=PNGMetadataDraft(entries={"Author": "Alice"}),
+    )
+    assert page.active_step_dialog is None
+    card = page.step_cards[0]
+    assert card.status == "ready"
+    assert card.summary_text("cover") == "carrier.png"
+    assert card.summary_text("payload") == "Text fields ×1"
+    assert card.summary_text("output") == "PNG ×1"
+    assert card.summary_text("encryption") == "None"
+    assert card.summary_tooltip("payload") == (
+        "PNG metadata fields (1):\n1. Author"
+    )
+
+
+def test_metadata_png_invalid_save_keeps_panel_open_and_draft_unchanged(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    cover = tmp_path / "carrier.png"
+    cover.write_bytes(b"prototype png")
+    app, page = _page()
+    _add_steps(page, app, ["metadata"])
+    page.set_config_variant("inline")
+    page.open_step_config_inline(0)
+    panel = page.active_step_panel
+    assert isinstance(panel, StepConfigShellPanel)
+    form = panel.shell.content_widget
+    assert isinstance(form, MetadataEmbedInputs)
+    form.cover_drop_zone.add_files([str(cover)])
+    monkeypatch.setattr(QMessageBox, "warning", lambda *_args: None)
+
+    panel.save_button.click()
+    _process_events(app)
+
+    assert page.pipeline_steps[0].technique_inputs is None
+    assert page.active_step_panel is panel
+    assert page.step_cards[0].status == "setup"
+
+
+def test_incomplete_or_mp3_metadata_draft_does_not_mark_card_ready() -> None:
+    app, page = _page()
+    _add_steps(page, app, ["metadata"])
+    step = page.pipeline_steps[0]
+
+    step.technique_inputs = MetadataInputsDraft(
+        cover_path="carrier.png",
+        payload=PNGMetadataDraft(),
+    )
+    page.render_step_cards()
+    _process_events(app)
+    assert page.step_cards[0].status == "setup"
+
+    step.technique_inputs = MetadataInputsDraft(
+        cover_path="carrier.mp3",
+        payload=MP3MetadataDraft(frames={"TIT2": "Hidden"}),
+    )
+    page.render_step_cards()
+    _process_events(app)
+    assert page.step_cards[0].status == "setup"
+
+
+def test_popup_save_persists_draft_and_rerenders_step_card(tmp_path) -> None:
+    cover = tmp_path / "description-cover.png"
+    cover.write_bytes(b"prototype png")
     app, page = _page()
     _add_steps(page, app, ["metadata"])
 
     def edit_and_save() -> None:
         dialog = page.active_step_dialog
         assert isinstance(dialog, StepConfigShellDialog)
+        form = dialog.shell.content_widget
+        assert isinstance(form, MetadataEmbedInputs)
+        _configure_valid_metadata_png_form(form, cover)
         dialog.shell.description_edit.setText("Hide the release note")
         dialog.shell.guidenote_edit.setText("  Extract this step last  ")
         dialog.save_button.click()
@@ -529,7 +700,9 @@ def test_popup_cancel_discards_edited_draft() -> None:
     assert original.guidenote == ""
 
 
-def test_inline_save_persists_and_cancel_discards_edits() -> None:
+def test_inline_save_persists_and_cancel_discards_edits(tmp_path) -> None:
+    cover = tmp_path / "inline-description-cover.png"
+    cover.write_bytes(b"prototype png")
     app, page = _page()
     _add_steps(page, app, ["metadata"])
     page.set_config_variant("inline")
@@ -537,6 +710,9 @@ def test_inline_save_persists_and_cancel_discards_edits() -> None:
 
     panel = page.active_step_panel
     assert isinstance(panel, StepConfigShellPanel)
+    form = panel.shell.content_widget
+    assert isinstance(form, MetadataEmbedInputs)
+    _configure_valid_metadata_png_form(form, cover)
     panel.shell.description_edit.setText("Bundle three payload files")
     panel.shell.guidenote_edit.setText("Provide all carrier images")
     panel.save_button.click()
@@ -561,13 +737,20 @@ def test_inline_save_persists_and_cancel_discards_edits() -> None:
     assert step.guidenote == "Provide all carrier images"
 
 
-def test_saved_values_reopen_across_popup_and_inline_variants() -> None:
+def test_saved_values_reopen_across_popup_and_inline_variants(
+    tmp_path,
+) -> None:
+    cover = tmp_path / "variant-cover.png"
+    cover.write_bytes(b"prototype png")
     app, page = _page()
     _add_steps(page, app, ["metadata"])
 
     def save_popup() -> None:
         dialog = page.active_step_dialog
         assert isinstance(dialog, StepConfigShellDialog)
+        form = dialog.shell.content_widget
+        assert isinstance(form, MetadataEmbedInputs)
+        _configure_valid_metadata_png_form(form, cover)
         dialog.shell.description_edit.setText("Persist between shell variants")
         dialog.shell.guidenote_edit.setText("Receiver hint")
         dialog.save_button.click()

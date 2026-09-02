@@ -8,6 +8,13 @@ from config_prototype.gui.components.technique_forms.metadata.metadata_embed_inp
     MP3MetadataDraft,
     PNGMetadataDraft,
 )
+from config_prototype.gui.components.technique_forms.metadata.png_metadata_fields import (
+    PNGCustomRow,
+    PNGStandardField,
+)
+from config_prototype.gui.components.technique_forms.metadata.png_metadata_form import (
+    PNGMetadataForm,
+)
 
 __all__ = [
     "ApicImageDraft",
@@ -15,5 +22,8 @@ __all__ = [
     "MetadataInputsDraft",
     "MetadataPayloadDraft",
     "MP3MetadataDraft",
+    "PNGCustomRow",
     "PNGMetadataDraft",
+    "PNGMetadataForm",
+    "PNGStandardField",
 ]

@@ -22,6 +22,8 @@ from config_prototype.gui.components.technique_forms import (
     LocomotiveEmbedInputs,
     LocomotiveInputsDraft,
     MetadataEmbedInputs,
+    MetadataInputsDraft,
+    PNGMetadataDraft,
 )
 from config_prototype.gui.components.step_config_shell import (
     StepConfigShellDialog,
@@ -52,7 +54,12 @@ class PipelineStepDraft:
     technique: str
     description: str
     guidenote: str = ""
-    technique_inputs: LSBInputsDraft | LocomotiveInputsDraft | None = None
+    technique_inputs: (
+        LSBInputsDraft
+        | LocomotiveInputsDraft
+        | MetadataInputsDraft
+        | None
+    ) = None
 
 
 class EmbedConfigurablePage(QFrame):
@@ -353,6 +360,10 @@ class EmbedConfigurablePage(QFrame):
             if not technique_form.validate_draft():
                 return False
             technique_inputs = technique_form.export_draft()
+        elif isinstance(technique_form, MetadataEmbedInputs):
+            if not technique_form.validate_draft():
+                return False
+            technique_inputs = technique_form.export_draft()
 
         step.description = description
         step.guidenote = guidenote.strip()
@@ -376,7 +387,10 @@ class EmbedConfigurablePage(QFrame):
             return form
 
         if step.technique == "metadata":
-            return MetadataEmbedInputs()
+            form = MetadataEmbedInputs()
+            if isinstance(step.technique_inputs, MetadataInputsDraft):
+                form.load_draft(step.technique_inputs)
+            return form
 
         raise ValueError(f"Unsupported technique: {step.technique}")
 
@@ -539,6 +553,17 @@ class EmbedConfigurablePage(QFrame):
                 step_card,
                 draft,
             )
+            return
+
+        if (
+            step.technique == "metadata"
+            and isinstance(draft, MetadataInputsDraft)
+            and isinstance(draft.payload, PNGMetadataDraft)
+        ):
+            EmbedConfigurablePage.apply_metadata_png_draft_to_card(
+                step_card,
+                draft,
+            )
 
     @staticmethod
     def apply_lsb_draft_to_card(
@@ -628,6 +653,47 @@ class EmbedConfigurablePage(QFrame):
             )
 
         step_card.set_status("ready", "Locomotive inputs are configured")
+
+    @staticmethod
+    def apply_metadata_png_draft_to_card(
+        step_card: StepCard,
+        draft: MetadataInputsDraft,
+    ) -> None:
+        payload = draft.payload
+        if not isinstance(payload, PNGMetadataDraft):
+            return
+        if (
+            not draft.cover_path
+            or Path(draft.cover_path).suffix.lower() != ".png"
+            or not payload.entries
+        ):
+            return
+
+        entry_count = len(payload.entries)
+        step_card.set_summary(
+            cover=(
+                Path(draft.cover_path).name
+                if draft.cover_path
+                else "Not selected"
+            ),
+            payload=f"Text fields ×{entry_count}",
+            output="PNG ×1",
+            encryption="None",
+        )
+
+        key_lines = [f"PNG metadata fields ({entry_count}):"]
+        key_lines.extend(
+            f"{index}. {keyword}"
+            for index, keyword in enumerate(payload.entries, start=1)
+        )
+        step_card.set_summary_tooltip(
+            "payload",
+            "\n".join(key_lines),
+        )
+        step_card.set_status(
+            "ready",
+            "PNG metadata inputs are configured",
+        )
 
     @staticmethod
     def encryption_summary(enabled: bool, mode: str) -> str:
