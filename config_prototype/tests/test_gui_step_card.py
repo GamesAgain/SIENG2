@@ -27,6 +27,7 @@ from config_prototype.gui.components.technique_forms import (
     LSBInputsDraft,
     LocomotiveEmbedInputs,
     LocomotiveInputsDraft,
+    MetadataEmbedInputs,
 )
 from config_prototype.gui.components.technique_forms import lsb_embed_inputs
 from config_prototype.gui.pages.sub_pages.embed.configurable_page import (
@@ -301,10 +302,8 @@ def test_inline_variant_reuses_shell_and_cancel_resets_active_step() -> None:
     assert panel.technique_label_text == "Metadata"
     assert panel.shell.description() == "Hide data in PNG or MP3 metadata"
     assert panel.shell.guidenote() == ""
-    assert panel.shell.placeholder_label is not None
-    assert panel.shell.placeholder_label.text() == (
-        "Technique configuration form will appear here."
-    )
+    assert isinstance(panel.shell.content_widget, MetadataEmbedInputs)
+    assert panel.shell.placeholder_label is None
     assert page.inline_slot.count() == 1
 
     panel.cancel_button.click()
@@ -423,7 +422,7 @@ def test_lsb_form_receives_page_key_registry(tmp_path) -> None:
     _process_events(app)
 
 
-def test_inline_technique_forms_keep_metadata_placeholder() -> None:
+def test_inline_shell_displays_each_technique_form() -> None:
     app, page = _page()
     _add_steps(page, app, ["lsbpp", "locomotive", "metadata"])
     page.set_config_variant("inline")
@@ -447,14 +446,44 @@ def test_inline_technique_forms_keep_metadata_placeholder() -> None:
     page.close_active_step_config()
 
     page.open_step_config_inline(2)
-    placeholder_panel = page.active_step_panel
-    assert isinstance(placeholder_panel, StepConfigShellPanel)
-    assert placeholder_panel.shell.content_widget is None
-    assert placeholder_panel.shell.placeholder_label is not None
-    assert placeholder_panel.shell.placeholder_label.text() == (
-        "Technique configuration form will appear here."
+    metadata_panel = page.active_step_panel
+    assert isinstance(metadata_panel, StepConfigShellPanel)
+    metadata_form = metadata_panel.shell.content_widget
+    assert isinstance(metadata_form, MetadataEmbedInputs)
+    assert metadata_panel.shell.placeholder_label is None
+    assert metadata_form.cover_drop_zone.parent() is not None
+    assert metadata_form.content_stack.currentWidget() is (
+        metadata_form.empty_state_label
     )
     page.close_active_step_config()
+
+
+def test_popup_shell_displays_metadata_host() -> None:
+    app, page = _page()
+    _add_steps(page, app, ["metadata"])
+    observed: dict[str, object] = {}
+
+    def inspect_and_close_popup() -> None:
+        dialog = page.active_step_dialog
+        assert isinstance(dialog, StepConfigShellDialog)
+        form = dialog.shell.content_widget
+        assert isinstance(form, MetadataEmbedInputs)
+        observed["form"] = form
+        observed["placeholder"] = dialog.shell.placeholder_label
+        observed["cover_parented"] = form.cover_drop_zone.parent() is not None
+        observed["state"] = form.content_stack.currentWidget()
+        observed["empty_state"] = form.empty_state_label
+        dialog.cancel_button.click()
+
+    QTimer.singleShot(0, inspect_and_close_popup)
+    page.open_step_config_popup(0)
+    _process_events(app)
+
+    assert isinstance(observed["form"], MetadataEmbedInputs)
+    assert observed["placeholder"] is None
+    assert observed["cover_parented"] is True
+    assert observed["state"] is observed["empty_state"]
+    assert page.active_step_dialog is None
 
 
 def test_popup_save_persists_draft_and_rerenders_step_card() -> None:

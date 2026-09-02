@@ -21,6 +21,7 @@ from config_prototype.gui.components.technique_forms import (
     LSBInputsDraft,
     LocomotiveEmbedInputs,
     LocomotiveInputsDraft,
+    MetadataEmbedInputs,
 )
 from config_prototype.gui.components.step_config_shell import (
     StepConfigShellDialog,
@@ -375,7 +376,7 @@ class EmbedConfigurablePage(QFrame):
             return form
 
         if step.technique == "metadata":
-            return None
+            return MetadataEmbedInputs()
 
         raise ValueError(f"Unsupported technique: {step.technique}")
 

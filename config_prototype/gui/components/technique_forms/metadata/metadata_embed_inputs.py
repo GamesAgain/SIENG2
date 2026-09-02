@@ -1,0 +1,344 @@
+from copy import deepcopy
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
+
+from config_prototype.gui.paths import ICON_DIR
+from src.gui.components.file_info_bar import FileInfoBar
+from src.gui.components.files_drop import FileDropWidget
+from src.gui.components.gui_utils import (
+    add_shadow_effect,
+    create_icon_pixmap,
+    format_file_size,
+    truncate_text_middle,
+)
+from src.gui.tabs.metadata_shared import get_file_display_info
+
+
+@dataclass
+class ApicImageDraft:
+    """One manually selected image to store in an MP3 APIC frame."""
+
+    image_path: str
+    picture_type: int = 3
+    description: str = ""
+
+
+@dataclass
+class PNGMetadataDraft:
+    """Text Chunk metadata configured for a PNG pipeline step."""
+
+    entries: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class MP3MetadataDraft:
+    """ID3 text frames and manual APIC images for an MP3 pipeline step."""
+
+    frames: dict[str, object] = field(default_factory=dict)
+    apic_images: list[ApicImageDraft] = field(default_factory=list)
+
+
+MetadataPayloadDraft = PNGMetadataDraft | MP3MetadataDraft
+
+
+@dataclass
+class MetadataInputsDraft:
+    """Saved manual inputs for one Metadata pipeline step."""
+
+    cover_path: str | None = None
+    payload: MetadataPayloadDraft | None = None
+
+
+class MetadataEmbedInputs(QFrame):
+    """Host Metadata inputs without depending on a page or shell variant."""
+
+    COVER_DROP_STATE_INDEX = 0
+    COVER_SELECTED_STATE_INDEX = 1
+    EMPTY_STATE_INDEX = 0
+    PNG_STATE_INDEX = 1
+    MP3_STATE_INDEX = 2
+
+    def __init__(
+        self,
+        *,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+
+        self._draft = MetadataInputsDraft()
+        self._cover_media_type: str | None = None
+        self._syncing_cover = False
+        self.build_ui()
+
+    def build_ui(self) -> None:
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(12)
+
+        self.content_stack = QStackedWidget()
+        self.empty_state_label = QLabel(
+            "Select a PNG or MP3 target file to configure metadata."
+        )
+        self.empty_state_label.setObjectName("pipelineEmpty")
+        self.empty_state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_state_label.setWordWrap(True)
+
+        self.png_state_widget = self.build_media_state(
+            "PNG target selected. PNG text metadata fields will appear here."
+        )
+        self.mp3_state_widget = self.build_media_state(
+            "MP3 target selected. MP3 text tags and APIC fields will appear here."
+        )
+
+        self.content_stack.addWidget(self.empty_state_label)
+        self.content_stack.addWidget(self.png_state_widget)
+        self.content_stack.addWidget(self.mp3_state_widget)
+
+        self.cover_file_stack = QStackedWidget()
+        self.cover_card = self.build_cover_card()
+        self.selected_cover_widget = self.build_selected_cover_widget()
+        self.cover_file_stack.addWidget(self.cover_card)
+        self.cover_file_stack.addWidget(self.selected_cover_widget)
+        main_layout.addWidget(self.cover_file_stack, 1)
+
+    @staticmethod
+    def build_media_state(message: str) -> QFrame:
+        """Build a host page that Stage 3 can replace with a media editor."""
+        state = QFrame()
+        state_layout = QVBoxLayout(state)
+        state_layout.setContentsMargins(0, 0, 0, 0)
+
+        label = QLabel(message)
+        label.setObjectName("pipelineEmpty")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setWordWrap(True)
+        state_layout.addWidget(label)
+        return state
+
+    def build_cover_card(self) -> QFrame:
+        """Build the manual PNG/MP3 target selector."""
+        card = QFrame()
+        card.setObjectName("card")
+        add_shadow_effect(card)
+
+        card_layout = QVBoxLayout(card)
+
+        title_container = QFrame()
+        title_container.setObjectName("titleContainer")
+        title_layout = QHBoxLayout(title_container)
+
+        title_icon = QLabel()
+        title_icon.setPixmap(
+            create_icon_pixmap(ICON_DIR / "photo-video.svg", size=16)
+        )
+        title_label = QLabel("Target File (PNG, MP3)")
+        title_label.setObjectName("cardTitle")
+
+        title_layout.addWidget(title_icon)
+        title_layout.addWidget(title_label)
+        title_layout.addStretch()
+
+        self.cover_drop_zone = FileDropWidget(
+            "Drop PNG or MP3 file here or click to browse",
+            "Supports PNG and MP3 formats only",
+            icon_path=str(ICON_DIR / "upload.svg"),
+            allowed_extensions=[".png", ".mp3"],
+        )
+        self.cover_drop_zone.file_selected.connect(
+            self.on_cover_file_selected
+        )
+
+        card_layout.addWidget(title_container)
+        card_layout.addWidget(self.cover_drop_zone, 1)
+        return card
+
+    def build_selected_cover_widget(self) -> QWidget:
+        """Build the compact selected-file view used before media editors."""
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+
+        self.file_info_bar = FileInfoBar()
+        self.file_info_bar.change_file_requested.connect(
+            self.on_change_cover_requested
+        )
+        layout.addWidget(self.file_info_bar)
+        layout.addWidget(self.content_stack, 1)
+        return container
+
+    def on_cover_file_selected(self, file_path: str) -> None:
+        """Keep the manual cover selection in the form draft."""
+        if self._syncing_cover:
+            return
+
+        self._draft.cover_path = file_path or None
+        self.update_cover_media_state()
+
+    def clear_cover(self) -> None:
+        """Clear the manual cover through the drop widget lifecycle."""
+        self.cover_drop_zone.clear_file()
+
+    def on_change_cover_requested(self) -> None:
+        """Return to the manual drop state and clear only the cover."""
+        self.clear_cover()
+
+    @property
+    def cover_media_type(self) -> str | None:
+        return self._cover_media_type
+
+    @staticmethod
+    def detect_cover_media(file_path: str | None) -> str | None:
+        """Return the supported media type for an available manual cover."""
+        if not file_path:
+            return None
+
+        cover = Path(file_path)
+        if not cover.is_file():
+            return None
+
+        suffix = cover.suffix.lower()
+        if suffix == ".png":
+            return "png"
+        if suffix == ".mp3":
+            return "mp3"
+        return None
+
+    def update_cover_media_state(self) -> None:
+        """Synchronize the cover selector, file bar, and media host page."""
+        self._cover_media_type = self.detect_cover_media(
+            self._draft.cover_path
+        )
+        state_index = {
+            "png": self.PNG_STATE_INDEX,
+            "mp3": self.MP3_STATE_INDEX,
+        }.get(self._cover_media_type, self.EMPTY_STATE_INDEX)
+        self.content_stack.setCurrentIndex(state_index)
+
+        if self._cover_media_type is None:
+            self.cover_file_stack.setCurrentIndex(
+                self.COVER_DROP_STATE_INDEX
+            )
+            return
+
+        self.file_info_bar.update_info(self.cover_display_info())
+        self.cover_file_stack.setCurrentIndex(
+            self.COVER_SELECTED_STATE_INDEX
+        )
+
+    def cover_display_info(self) -> dict:
+        """Return FileInfoBar data, including a safe unreadable-file state."""
+        cover_path = self._draft.cover_path
+        if cover_path is None:
+            raise ValueError("A cover file is required for display info.")
+
+        try:
+            return get_file_display_info(cover_path)
+        except Exception:
+            cover = Path(cover_path)
+            media_label = (self._cover_media_type or cover.suffix[1:]).upper()
+            icon_name = (
+                "photo.svg"
+                if self._cover_media_type == "png"
+                else "file-music.svg"
+            )
+            return {
+                "path": cover_path,
+                "icon": str(ICON_DIR / icon_name),
+                "name": truncate_text_middle(cover.name, 110),
+                "detail": (
+                    f"{format_file_size(cover.stat().st_size)} - "
+                    "Unable to read media details"
+                ),
+                "badges": [
+                    (media_label, "blue"),
+                    ("Unreadable details", "red"),
+                ],
+            }
+
+    def load_draft(self, draft: MetadataInputsDraft) -> None:
+        """Replace the form state with a detached copy of ``draft``."""
+        loaded_draft = deepcopy(draft)
+        cover_path = loaded_draft.cover_path
+
+        self._syncing_cover = True
+        try:
+            self.cover_drop_zone.clear_all()
+            if self.detect_cover_media(cover_path) is not None:
+                self.cover_drop_zone.add_files([cover_path])
+        finally:
+            self._syncing_cover = False
+
+        self._draft = loaded_draft
+        self.update_cover_media_state()
+
+    def export_draft(self) -> MetadataInputsDraft:
+        """Return a detached copy of the current form state."""
+        return deepcopy(self._draft)
+
+    def validate_draft(self) -> bool:
+        """Validate Metadata draft."""
+        cover_path = self._draft.cover_path
+        if not cover_path:
+            return self.show_validation_warning(
+                "Please select a target PNG or MP3 file."
+            )
+
+        cover = Path(cover_path)
+        if not cover.is_file():
+            return self.show_validation_warning(
+                "The selected target file is unavailable."
+            )
+
+        suffix = cover.suffix.lower()
+        if suffix not in {".png", ".mp3"}:
+            return self.show_validation_warning(
+                "Metadata supports PNG and MP3 target files only."
+            )
+
+        payload = self._draft.payload
+        if payload is None:
+            return self.show_validation_warning(
+                "Please add at least one metadata field."
+            )
+
+        if suffix == ".png":
+            if not isinstance(payload, PNGMetadataDraft):
+                return self.show_validation_warning(
+                    "The metadata payload does not match the PNG target file."
+                )
+            if not payload.entries:
+                return self.show_validation_warning(
+                    "Please add at least one PNG metadata field."
+                )
+            return True
+
+        if not isinstance(payload, MP3MetadataDraft):
+            return self.show_validation_warning(
+                "The metadata payload does not match the MP3 target file."
+            )
+        if not payload.frames and not payload.apic_images:
+            return self.show_validation_warning(
+                "Please add at least one MP3 text frame or APIC image."
+            )
+        return True
+
+    def show_validation_warning(
+        self,
+        message: str,
+        *,
+        title: str = "Validation Error",
+    ) -> bool:
+        QMessageBox.warning(self, title, message)
+        return False
