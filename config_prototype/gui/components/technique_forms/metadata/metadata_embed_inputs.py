@@ -14,6 +14,16 @@ from PyQt6.QtWidgets import (
 )
 
 from config_prototype.gui.paths import ICON_DIR
+from config_prototype.gui.components.technique_forms.metadata.mp3_apic_drafts import (
+    ApicImageDraft,
+    apic_draft_structure_error,
+)
+from config_prototype.gui.components.technique_forms.metadata.mp3_frame_drafts import (
+    MP3FrameDraft,
+)
+from config_prototype.gui.components.technique_forms.metadata.mp3_metadata_form import (
+    MP3MetadataForm,
+)
 from config_prototype.gui.components.technique_forms.metadata.png_metadata_form import (
     PNGMetadataForm,
 )
@@ -27,16 +37,6 @@ from src.gui.components.gui_utils import (
 )
 from src.gui.tabs.metadata_shared import get_file_display_info
 
-
-@dataclass
-class ApicImageDraft:
-    """One manually selected image to store in an MP3 APIC frame."""
-
-    image_path: str
-    picture_type: int = 3
-    description: str = ""
-
-
 @dataclass
 class PNGMetadataDraft:
     """Text Chunk metadata configured for a PNG pipeline step."""
@@ -46,9 +46,13 @@ class PNGMetadataDraft:
 
 @dataclass
 class MP3MetadataDraft:
-    """ID3 text frames and manual APIC images for an MP3 pipeline step."""
+    """User-configured ID3 frames and APIC images for an MP3 step.
 
-    frames: dict[str, object] = field(default_factory=dict)
+    Existing raw frames belong to the cover file and are intentionally not
+    copied into this payload draft.
+    """
+
+    frames: list[MP3FrameDraft] = field(default_factory=list)
     apic_images: list[ApicImageDraft] = field(default_factory=list)
 
 
@@ -99,9 +103,10 @@ class MetadataEmbedInputs(QFrame):
 
         self.png_form = PNGMetadataForm()
         self.png_state_widget = self.png_form
-        self.mp3_state_widget = self.build_media_state(
-            "MP3 target selected. MP3 text tags and APIC fields will appear here."
-        )
+        self.mp3_metadata_form = MP3MetadataForm()
+        self.mp3_form = self.mp3_metadata_form.text_frames_form
+        self.mp3_apic_form = self.mp3_metadata_form.apic_images_form
+        self.mp3_state_widget = self.mp3_metadata_form
 
         self.content_stack.addWidget(self.empty_state_label)
         self.content_stack.addWidget(self.png_state_widget)
@@ -113,20 +118,6 @@ class MetadataEmbedInputs(QFrame):
         self.cover_file_stack.addWidget(self.cover_card)
         self.cover_file_stack.addWidget(self.selected_cover_widget)
         main_layout.addWidget(self.cover_file_stack, 1)
-
-    @staticmethod
-    def build_media_state(message: str) -> QFrame:
-        """Build a host page that Stage 3 can replace with a media editor."""
-        state = QFrame()
-        state_layout = QVBoxLayout(state)
-        state_layout.setContentsMargins(0, 0, 0, 0)
-
-        label = QLabel(message)
-        label.setObjectName("pipelineEmpty")
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label.setWordWrap(True)
-        state_layout.addWidget(label)
-        return state
 
     def build_cover_card(self) -> QFrame:
         """Build the manual PNG/MP3 target selector."""
@@ -272,6 +263,17 @@ class MetadataEmbedInputs(QFrame):
     def load_draft(self, draft: MetadataInputsDraft) -> None:
         """Replace the form state with a detached copy of ``draft``."""
         loaded_draft = deepcopy(draft)
+        if isinstance(loaded_draft.payload, MP3MetadataDraft):
+            structure_error = self.mp3_form.draft_structure_error(
+                loaded_draft.payload.frames
+            )
+            if structure_error is not None:
+                raise ValueError(structure_error)
+            structure_error = apic_draft_structure_error(
+                loaded_draft.payload.apic_images
+            )
+            if structure_error is not None:
+                raise ValueError(structure_error)
         cover_path = loaded_draft.cover_path
 
         self._syncing_cover = True
@@ -284,8 +286,14 @@ class MetadataEmbedInputs(QFrame):
 
         self._draft = loaded_draft
         self.png_form.clear_all()
+        mp3_frames: list[MP3FrameDraft] = []
+        apic_images: list[ApicImageDraft] = []
         if isinstance(loaded_draft.payload, PNGMetadataDraft):
             self.png_form.load_draft(loaded_draft.payload)
+        elif isinstance(loaded_draft.payload, MP3MetadataDraft):
+            mp3_frames = loaded_draft.payload.frames
+            apic_images = loaded_draft.payload.apic_images
+        self.mp3_metadata_form.load_draft(mp3_frames, apic_images)
         self.update_cover_media_state()
 
     def export_draft(self) -> MetadataInputsDraft:
@@ -293,6 +301,11 @@ class MetadataEmbedInputs(QFrame):
         exported_draft = deepcopy(self._draft)
         if self._cover_media_type == "png":
             exported_draft.payload = self.png_form.export_draft()
+        elif self._cover_media_type == "mp3":
+            exported_draft.payload = MP3MetadataDraft(
+                frames=self.mp3_metadata_form.export_text_frames(),
+                apic_images=self.mp3_metadata_form.export_apic_images(),
+            )
         return exported_draft
 
     def validate_draft(self) -> bool:
@@ -327,17 +340,24 @@ class MetadataEmbedInputs(QFrame):
                 )
             return self.png_form.validate_draft()
 
+        frames = self.mp3_form.export_draft()
+        apic_images = self.mp3_apic_form.export_draft()
         payload = self._draft.payload
-        if payload is None:
-            return self.show_validation_warning(
-                "Please add at least one metadata field."
-            )
-
-        if not isinstance(payload, MP3MetadataDraft):
+        if (
+            not frames
+            and not apic_images
+            and payload is not None
+            and not isinstance(payload, MP3MetadataDraft)
+        ):
             return self.show_validation_warning(
                 "The metadata payload does not match the MP3 target file."
             )
-        if not payload.frames and not payload.apic_images:
+        if not self.mp3_form.validate_draft():
+            return False
+
+        if apic_images and not self.mp3_apic_form.validate_draft():
+            return False
+        if not frames and not apic_images:
             return self.show_validation_warning(
                 "Please add at least one MP3 text frame or APIC image."
             )

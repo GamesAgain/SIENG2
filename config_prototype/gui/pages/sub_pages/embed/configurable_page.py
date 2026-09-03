@@ -17,12 +17,16 @@ from config_prototype.gui.components.step_card import (
     make_arrow,
 )
 from config_prototype.gui.components.technique_forms import (
+    ApicImageDraft,
     LSBEmbedInputs,
     LSBInputsDraft,
     LocomotiveEmbedInputs,
     LocomotiveInputsDraft,
     MetadataEmbedInputs,
     MetadataInputsDraft,
+    MP3ComplexFrameDraft,
+    MP3MetadataDraft,
+    MP3SimpleFrameDraft,
     PNGMetadataDraft,
 )
 from config_prototype.gui.components.step_config_shell import (
@@ -30,6 +34,7 @@ from config_prototype.gui.components.step_config_shell import (
     StepConfigShellPanel,
 )
 from config_prototype.gui.paths import ICON_DIR
+from src.core.stego.metadata_handlers.mp3_handler import APIC_TYPES, FRAME_INFO
 from src.gui.components.flow_layout import FlowLayout
 from src.gui.components.gui_utils import (
     add_shadow_effect,
@@ -558,12 +563,17 @@ class EmbedConfigurablePage(QFrame):
         if (
             step.technique == "metadata"
             and isinstance(draft, MetadataInputsDraft)
-            and isinstance(draft.payload, PNGMetadataDraft)
         ):
-            EmbedConfigurablePage.apply_metadata_png_draft_to_card(
-                step_card,
-                draft,
-            )
+            if isinstance(draft.payload, PNGMetadataDraft):
+                EmbedConfigurablePage.apply_metadata_png_draft_to_card(
+                    step_card,
+                    draft,
+                )
+            elif isinstance(draft.payload, MP3MetadataDraft):
+                EmbedConfigurablePage.apply_metadata_mp3_draft_to_card(
+                    step_card,
+                    draft,
+                )
 
     @staticmethod
     def apply_lsb_draft_to_card(
@@ -693,6 +703,107 @@ class EmbedConfigurablePage(QFrame):
         step_card.set_status(
             "ready",
             "PNG metadata inputs are configured",
+        )
+
+    @staticmethod
+    def apply_metadata_mp3_draft_to_card(
+        step_card: StepCard,
+        draft: MetadataInputsDraft,
+    ) -> None:
+        payload = draft.payload
+        if not isinstance(payload, MP3MetadataDraft):
+            return
+        if (
+            not draft.cover_path
+            or Path(draft.cover_path).suffix.lower() != ".mp3"
+        ):
+            return
+
+        frame_count = 0
+        frame_lines: list[str] = []
+        seen_frame_ids: set[str] = set()
+        for frame in payload.frames:
+            frame_id = frame.frame_id
+            frame_info = FRAME_INFO.get(frame_id)
+            if frame_info is None or frame_id in seen_frame_ids:
+                return
+            seen_frame_ids.add(frame_id)
+
+            if isinstance(frame, MP3SimpleFrameDraft):
+                if not frame.value.strip():
+                    return
+                instance_count = 1
+            elif isinstance(frame, MP3ComplexFrameDraft):
+                if not frame.instances:
+                    return
+                if any(
+                    not ((instance.text or "").strip())
+                    and not ((instance.url or "").strip())
+                    for instance in frame.instances
+                ):
+                    return
+                instance_count = len(frame.instances)
+            else:
+                return
+
+            frame_count += instance_count
+            count_suffix = (
+                f" ×{instance_count}" if instance_count > 1 else ""
+            )
+            frame_lines.append(
+                f"{len(frame_lines) + 1}. {frame_id}{count_suffix} - "
+                f"{frame_info[0]}"
+            )
+
+        apic_lines: list[str] = []
+        for image in payload.apic_images:
+            if (
+                not isinstance(image, ApicImageDraft)
+                or not image.image_path.strip()
+                or image.picture_type not in APIC_TYPES
+            ):
+                return
+            apic_lines.append(
+                f"{len(apic_lines) + 1}. {Path(image.image_path).name} - "
+                f"{APIC_TYPES[image.picture_type]}"
+            )
+
+        apic_count = len(apic_lines)
+        if frame_count == 0 and apic_count == 0:
+            return
+
+        if frame_count and apic_count:
+            payload_summary = f"Text ×{frame_count} + APIC ×{apic_count}"
+            tooltip_lines = [
+                "MP3 metadata payload:",
+                f"Text frames ({frame_count}):",
+                *frame_lines,
+                f"APIC images ({apic_count}):",
+                *apic_lines,
+            ]
+            status_tooltip = "MP3 text-frame and APIC inputs are configured"
+        elif frame_count:
+            payload_summary = f"Text frames ×{frame_count}"
+            tooltip_lines = [f"MP3 text frames ({frame_count}):", *frame_lines]
+            status_tooltip = "MP3 text-frame inputs are configured"
+        else:
+            payload_summary = f"APIC images ×{apic_count}"
+            tooltip_lines = [f"MP3 APIC images ({apic_count}):", *apic_lines]
+            status_tooltip = "MP3 APIC inputs are configured"
+
+        step_card.set_summary(
+            cover=Path(draft.cover_path).name,
+            payload=payload_summary,
+            output="MP3 ×1",
+            encryption="None",
+        )
+        step_card.set_summary_tooltip(
+            "payload",
+            "\n".join(tooltip_lines),
+        )
+        step_card.set_status(
+            "ready",
+            status_tooltip,
         )
 
     @staticmethod

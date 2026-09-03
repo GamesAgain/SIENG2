@@ -6,7 +6,7 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QEvent, QPoint, QPointF, QSize, Qt, QTimer
-from PyQt6.QtGui import QEnterEvent
+from PyQt6.QtGui import QColor, QEnterEvent, QImage
 from PyQt6.QtTest import QSignalSpy, QTest
 from PyQt6.QtWidgets import QApplication, QLabel, QMessageBox, QPushButton, QWidget
 
@@ -23,14 +23,21 @@ from config_prototype.gui.components.step_config_shell import (
     StepConfigShellPanel,
 )
 from config_prototype.gui.components.technique_forms import (
+    ApicImageDraft,
     LSBEmbedInputs,
     LSBInputsDraft,
     LocomotiveEmbedInputs,
     LocomotiveInputsDraft,
     MetadataEmbedInputs,
     MetadataInputsDraft,
+    MP3ComplexFrameDraft,
+    MP3ComplexFrameInstanceDraft,
     MP3MetadataDraft,
+    MP3SimpleFrameDraft,
     PNGMetadataDraft,
+)
+from config_prototype.gui.components.technique_forms.metadata import (
+    MP3TextFramesForm,
 )
 from config_prototype.gui.components.technique_forms import lsb_embed_inputs
 from config_prototype.gui.pages.sub_pages.embed.configurable_page import (
@@ -59,6 +66,12 @@ def _app() -> QApplication:
 def _process_events(app: QApplication) -> None:
     for _ in range(4):
         app.processEvents()
+
+
+def _write_png(path: Path, color: str = "#F59E0F") -> None:
+    image = QImage(32, 24, QImage.Format.Format_ARGB32)
+    image.fill(QColor(color))
+    assert image.save(str(path), "PNG")
 
 
 def _page(
@@ -499,6 +512,17 @@ def _configure_valid_metadata_png_form(
     form.png_form.standard_fields["Title"].set_value(title)
 
 
+def _configure_valid_metadata_mp3_form(
+    form: MetadataEmbedInputs,
+    cover_path: Path,
+    *,
+    title: str = "Hidden title",
+) -> None:
+    form.cover_drop_zone.add_files([str(cover_path)])
+    assert isinstance(form.mp3_form, MP3TextFramesForm)
+    form.mp3_form.standard_fields["TIT2"].set_value(title)
+
+
 def test_metadata_png_inline_save_persists_and_reopens_draft(
     tmp_path,
 ) -> None:
@@ -570,6 +594,91 @@ def test_metadata_png_inline_save_persists_and_reopens_draft(
     assert page.pipeline_steps[0].technique_inputs == saved_draft
 
 
+def test_metadata_mp3_inline_save_persists_and_reopens_text_frames(
+    tmp_path,
+) -> None:
+    cover = tmp_path / "carrier.mp3"
+    cover.write_bytes(b"prototype mp3")
+    app, page = _page()
+    _add_steps(page, app, ["metadata"])
+    page.set_config_variant("inline")
+    page.open_step_config_inline(0)
+
+    panel = page.active_step_panel
+    assert isinstance(panel, StepConfigShellPanel)
+    form = panel.shell.content_widget
+    assert isinstance(form, MetadataEmbedInputs)
+    _configure_valid_metadata_mp3_form(form, cover)
+    assert form.content_stack.currentWidget() is form.mp3_state_widget
+    user_text = form.mp3_form.add_other_frame("TXXX")
+    user_text.rows[0].set_value("desc", "Secret")
+    user_text.rows[0].set_value("text", "TEST")
+    panel.save_button.click()
+    _process_events(app)
+
+    saved_draft = page.pipeline_steps[0].technique_inputs
+    assert saved_draft == MetadataInputsDraft(
+        cover_path=str(cover),
+        payload=MP3MetadataDraft(
+            frames=[
+                MP3SimpleFrameDraft("TIT2", "Hidden title"),
+                MP3ComplexFrameDraft(
+                    "TXXX",
+                    [
+                        MP3ComplexFrameInstanceDraft(
+                            desc="Secret",
+                            text="TEST",
+                        )
+                    ],
+                ),
+            ]
+        ),
+    )
+    assert page.active_step_panel is None
+    card = page.step_cards[0]
+    assert card.status == "ready"
+    assert card.status_label.toolTip() == (
+        "MP3 text-frame inputs are configured"
+    )
+    assert card.summary_text("cover") == "carrier.mp3"
+    assert card.summary_text("payload") == "Text frames ×2"
+    assert card.summary_text("output") == "MP3 ×1"
+    assert card.summary_text("encryption") == "None"
+    assert card.summary_tooltip("payload") == (
+        "MP3 text frames (2):\n"
+        "1. TIT2 - Title\n"
+        "2. TXXX - User Text"
+    )
+    assert "Hidden title" not in card.summary_tooltip("payload")
+    assert "TEST" not in card.summary_tooltip("payload")
+
+    page.open_step_config_inline(0)
+    reopened_panel = page.active_step_panel
+    assert isinstance(reopened_panel, StepConfigShellPanel)
+    reopened_form = reopened_panel.shell.content_widget
+    assert isinstance(reopened_form, MetadataEmbedInputs)
+    assert reopened_form.content_stack.currentWidget() is (
+        reopened_form.mp3_state_widget
+    )
+    assert (
+        reopened_form.mp3_form.standard_fields["TIT2"].get_value()
+        == "Hidden title"
+    )
+    assert [
+        field.frame_id for field in reopened_form.mp3_form.other_fields
+    ] == ["TXXX"]
+    assert (
+        reopened_form.mp3_form.other_fields[0]
+        .rows[0]
+        .get_value("text")
+        == "TEST"
+    )
+    reopened_panel.cancel_button.click()
+    _process_events(app)
+
+    assert page.pipeline_steps[0].technique_inputs == saved_draft
+
+
 def test_metadata_png_popup_save_persists_draft(tmp_path) -> None:
     cover = tmp_path / "carrier.png"
     cover.write_bytes(b"prototype png")
@@ -605,6 +714,330 @@ def test_metadata_png_popup_save_persists_draft(tmp_path) -> None:
     )
 
 
+def test_metadata_mp3_popup_save_persists_text_frame_draft(tmp_path) -> None:
+    cover = tmp_path / "carrier.mp3"
+    cover.write_bytes(b"prototype mp3")
+    app, page = _page()
+    _add_steps(page, app, ["metadata"])
+
+    def configure_and_save_popup() -> None:
+        dialog = page.active_step_dialog
+        assert isinstance(dialog, StepConfigShellDialog)
+        form = dialog.shell.content_widget
+        assert isinstance(form, MetadataEmbedInputs)
+        _configure_valid_metadata_mp3_form(
+            form,
+            cover,
+            title="Popup MP3 title",
+        )
+        assert form.content_stack.currentWidget() is form.mp3_state_widget
+        dialog.save_button.click()
+
+    QTimer.singleShot(0, configure_and_save_popup)
+    page.open_step_config_popup(0)
+    _process_events(app)
+
+    assert page.pipeline_steps[0].technique_inputs == MetadataInputsDraft(
+        cover_path=str(cover),
+        payload=MP3MetadataDraft(
+            frames=[
+                MP3SimpleFrameDraft("TIT2", "Popup MP3 title")
+            ]
+        ),
+    )
+    assert page.active_step_dialog is None
+    card = page.step_cards[0]
+    assert card.status == "ready"
+    assert card.summary_text("cover") == "carrier.mp3"
+    assert card.summary_text("payload") == "Text frames ×1"
+    assert card.summary_text("output") == "MP3 ×1"
+    assert card.summary_text("encryption") == "None"
+    assert card.summary_tooltip("payload") == (
+        "MP3 text frames (1):\n1. TIT2 - Title"
+    )
+
+
+def test_metadata_mp3_inline_save_persists_apic_draft(tmp_path) -> None:
+    cover = tmp_path / "carrier.mp3"
+    image_path = tmp_path / "front.png"
+    cover.write_bytes(b"prototype mp3")
+    _write_png(image_path)
+    app, page = _page()
+    _add_steps(page, app, ["metadata"])
+    page.set_config_variant("inline")
+    page.open_step_config_inline(0)
+
+    panel = page.active_step_panel
+    assert isinstance(panel, StepConfigShellPanel)
+    form = panel.shell.content_widget
+    assert isinstance(form, MetadataEmbedInputs)
+    form.cover_drop_zone.add_files([str(cover)])
+    form.mp3_metadata_form.tabs.setCurrentIndex(1)
+    form.mp3_apic_form.image_drop_zone.add_files([str(image_path)])
+    form.mp3_apic_form.description_input.setText("Front artwork")
+    assert form.mp3_apic_form.confirm_add_image()
+    panel.save_button.click()
+    _process_events(app)
+
+    saved_draft = page.pipeline_steps[0].technique_inputs
+    assert saved_draft == MetadataInputsDraft(
+        cover_path=str(cover),
+        payload=MP3MetadataDraft(
+            apic_images=[
+                ApicImageDraft(
+                    image_path=str(image_path),
+                    picture_type=3,
+                    description="Front artwork",
+                )
+            ]
+        ),
+    )
+    assert page.active_step_panel is None
+    card = page.step_cards[0]
+    assert card.status == "ready"
+    assert card.status_label.toolTip() == "MP3 APIC inputs are configured"
+    assert card.summary_text("cover") == "carrier.mp3"
+    assert card.summary_text("payload") == "APIC images ×1"
+    assert card.summary_text("output") == "MP3 ×1"
+    assert card.summary_text("encryption") == "None"
+    assert card.summary_tooltip("payload") == (
+        "MP3 APIC images (1):\n1. front.png - Cover (front)"
+    )
+    assert "Front artwork" not in card.summary_tooltip("payload")
+
+    page.open_step_config_inline(0)
+    reopened_panel = page.active_step_panel
+    assert isinstance(reopened_panel, StepConfigShellPanel)
+    reopened_form = reopened_panel.shell.content_widget
+    assert isinstance(reopened_form, MetadataEmbedInputs)
+    assert reopened_form.mp3_metadata_form.tabs.currentIndex() == 1
+    assert reopened_form.mp3_apic_form.export_draft() == (
+        saved_draft.payload.apic_images
+    )
+    assert len(reopened_form.mp3_apic_form.cards) == 1
+    reopened_panel.cancel_button.click()
+    _process_events(app)
+
+    assert page.pipeline_steps[0].technique_inputs == saved_draft
+
+
+def test_metadata_mp3_popup_save_persists_apic_only_draft(tmp_path) -> None:
+    cover = tmp_path / "popup-carrier.mp3"
+    image_path = tmp_path / "popup-front.png"
+    cover.write_bytes(b"prototype mp3")
+    _write_png(image_path)
+    app, page = _page()
+    _add_steps(page, app, ["metadata"])
+
+    def configure_and_save_popup() -> None:
+        dialog = page.active_step_dialog
+        assert isinstance(dialog, StepConfigShellDialog)
+        form = dialog.shell.content_widget
+        assert isinstance(form, MetadataEmbedInputs)
+        form.cover_drop_zone.add_files([str(cover)])
+        form.mp3_metadata_form.tabs.setCurrentIndex(1)
+        form.mp3_apic_form.image_drop_zone.add_files([str(image_path)])
+        form.mp3_apic_form.description_input.setText("Popup artwork")
+        assert form.mp3_apic_form.confirm_add_image()
+        dialog.save_button.click()
+
+    QTimer.singleShot(0, configure_and_save_popup)
+    page.open_step_config_popup(0)
+    _process_events(app)
+
+    assert page.pipeline_steps[0].technique_inputs == MetadataInputsDraft(
+        cover_path=str(cover),
+        payload=MP3MetadataDraft(
+            apic_images=[
+                ApicImageDraft(
+                    image_path=str(image_path),
+                    picture_type=3,
+                    description="Popup artwork",
+                )
+            ]
+        ),
+    )
+    assert page.active_step_dialog is None
+    card = page.step_cards[0]
+    assert card.status == "ready"
+    assert card.summary_text("payload") == "APIC images ×1"
+    assert card.summary_tooltip("payload") == (
+        "MP3 APIC images (1):\n1. popup-front.png - Cover (front)"
+    )
+
+    page.set_config_variant("inline")
+    page.open_step_config_inline(0)
+    panel = page.active_step_panel
+    assert isinstance(panel, StepConfigShellPanel)
+    reopened_form = panel.shell.content_widget
+    assert isinstance(reopened_form, MetadataEmbedInputs)
+    assert reopened_form.mp3_metadata_form.tabs.currentIndex() == 1
+    assert reopened_form.mp3_apic_form.export_draft() == [
+        ApicImageDraft(
+            image_path=str(image_path),
+            picture_type=3,
+            description="Popup artwork",
+        )
+    ]
+    panel.cancel_button.click()
+    _process_events(app)
+
+
+def test_metadata_mp3_text_and_apic_summary_is_ready(tmp_path) -> None:
+    cover = tmp_path / "carrier.mp3"
+    front_image = tmp_path / "front.png"
+    back_image = tmp_path / "back.png"
+    cover.write_bytes(b"prototype mp3")
+    _write_png(front_image)
+    _write_png(back_image, "#A78BFA")
+    app, page = _page()
+    _add_steps(page, app, ["metadata"])
+    page.pipeline_steps[0].technique_inputs = MetadataInputsDraft(
+        cover_path=str(cover),
+        payload=MP3MetadataDraft(
+            frames=[
+                MP3SimpleFrameDraft("TIT2", "Private title"),
+                MP3ComplexFrameDraft(
+                    "COMM",
+                    [
+                        MP3ComplexFrameInstanceDraft(
+                            lang="eng",
+                            text="First secret",
+                        ),
+                        MP3ComplexFrameInstanceDraft(
+                            lang="tha",
+                            text="Second secret",
+                        ),
+                    ],
+                ),
+            ],
+            apic_images=[
+                ApicImageDraft(str(front_image), 3, "Front artwork"),
+                ApicImageDraft(str(back_image), 4, "Back artwork"),
+            ],
+        ),
+    )
+
+    page.render_step_cards()
+    _process_events(app)
+
+    card = page.step_cards[0]
+    assert card.status == "ready"
+    assert card.status_label.toolTip() == (
+        "MP3 text-frame and APIC inputs are configured"
+    )
+    assert card.summary_text("cover") == "carrier.mp3"
+    assert card.summary_text("payload") == "Text ×3 + APIC ×2"
+    assert card.summary_text("output") == "MP3 ×1"
+    assert card.summary_text("encryption") == "None"
+    assert card.summary_tooltip("payload") == (
+        "MP3 metadata payload:\n"
+        "Text frames (3):\n"
+        "1. TIT2 - Title\n"
+        "2. COMM ×2 - Comment\n"
+        "APIC images (2):\n"
+        "1. front.png - Cover (front)\n"
+        "2. back.png - Cover (back)"
+    )
+    tooltip = card.summary_tooltip("payload")
+    assert "Private title" not in tooltip
+    assert "First secret" not in tooltip
+    assert "Second secret" not in tooltip
+    assert "Front artwork" not in tooltip
+    assert "Back artwork" not in tooltip
+
+
+def test_metadata_mp3_text_and_apic_reopen_cancel_change_and_remove(
+    tmp_path,
+) -> None:
+    cover = tmp_path / "workflow-carrier.mp3"
+    first_image = tmp_path / "first-front.png"
+    replacement_image = tmp_path / "replacement-front.png"
+    cover.write_bytes(b"prototype mp3")
+    _write_png(first_image)
+    _write_png(replacement_image, "#A78BFA")
+    app, page = _page()
+    _add_steps(page, app, ["metadata"])
+    page.set_config_variant("inline")
+    page.open_step_config_inline(0)
+
+    panel = page.active_step_panel
+    assert isinstance(panel, StepConfigShellPanel)
+    form = panel.shell.content_widget
+    assert isinstance(form, MetadataEmbedInputs)
+    _configure_valid_metadata_mp3_form(form, cover, title="Original title")
+    form.mp3_apic_form.image_drop_zone.add_files([str(first_image)])
+    form.mp3_apic_form.description_input.setText("Front artwork")
+    assert form.mp3_apic_form.confirm_add_image()
+    panel.save_button.click()
+    _process_events(app)
+
+    original_draft = page.pipeline_steps[0].technique_inputs
+    assert isinstance(original_draft, MetadataInputsDraft)
+    assert page.step_cards[0].summary_text("payload") == "Text ×1 + APIC ×1"
+
+    page.open_step_config_inline(0)
+    panel = page.active_step_panel
+    assert isinstance(panel, StepConfigShellPanel)
+    form = panel.shell.content_widget
+    assert isinstance(form, MetadataEmbedInputs)
+    form.mp3_form.standard_fields["TIT2"].set_value("Discarded title")
+    assert form.mp3_apic_form.replace_image(
+        form.mp3_apic_form.cards[0],
+        str(replacement_image),
+    )
+    panel.cancel_button.click()
+    _process_events(app)
+
+    assert page.pipeline_steps[0].technique_inputs == original_draft
+    assert "first-front.png" in page.step_cards[0].summary_tooltip("payload")
+
+    page.open_step_config_inline(0)
+    panel = page.active_step_panel
+    assert isinstance(panel, StepConfigShellPanel)
+    form = panel.shell.content_widget
+    assert isinstance(form, MetadataEmbedInputs)
+    assert form.mp3_apic_form.replace_image(
+        form.mp3_apic_form.cards[0],
+        str(replacement_image),
+    )
+    panel.save_button.click()
+    _process_events(app)
+
+    changed_draft = page.pipeline_steps[0].technique_inputs
+    assert isinstance(changed_draft, MetadataInputsDraft)
+    assert isinstance(changed_draft.payload, MP3MetadataDraft)
+    assert changed_draft.payload.apic_images[0].image_path == str(
+        replacement_image
+    )
+    assert "replacement-front.png" in page.step_cards[0].summary_tooltip(
+        "payload"
+    )
+
+    page.open_step_config_inline(0)
+    panel = page.active_step_panel
+    assert isinstance(panel, StepConfigShellPanel)
+    form = panel.shell.content_widget
+    assert isinstance(form, MetadataEmbedInputs)
+    form.mp3_apic_form.remove_image(form.mp3_apic_form.cards[0])
+    panel.save_button.click()
+    _process_events(app)
+
+    final_draft = page.pipeline_steps[0].technique_inputs
+    assert isinstance(final_draft, MetadataInputsDraft)
+    assert isinstance(final_draft.payload, MP3MetadataDraft)
+    assert final_draft.payload.frames == [
+        MP3SimpleFrameDraft("TIT2", "Original title")
+    ]
+    assert final_draft.payload.apic_images == []
+    card = page.step_cards[0]
+    assert card.status == "ready"
+    assert card.summary_text("payload") == "Text frames ×1"
+    assert card.summary_tooltip("payload") == (
+        "MP3 text frames (1):\n1. TIT2 - Title"
+    )
+
+
 def test_metadata_png_invalid_save_keeps_panel_open_and_draft_unchanged(
     tmp_path,
     monkeypatch,
@@ -630,7 +1063,33 @@ def test_metadata_png_invalid_save_keeps_panel_open_and_draft_unchanged(
     assert page.step_cards[0].status == "setup"
 
 
-def test_incomplete_or_mp3_metadata_draft_does_not_mark_card_ready() -> None:
+def test_metadata_mp3_invalid_save_keeps_panel_open_and_card_in_setup(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    cover = tmp_path / "carrier.mp3"
+    cover.write_bytes(b"prototype mp3")
+    app, page = _page()
+    _add_steps(page, app, ["metadata"])
+    page.set_config_variant("inline")
+    page.open_step_config_inline(0)
+    panel = page.active_step_panel
+    assert isinstance(panel, StepConfigShellPanel)
+    form = panel.shell.content_widget
+    assert isinstance(form, MetadataEmbedInputs)
+    form.cover_drop_zone.add_files([str(cover)])
+    form.mp3_form.add_other_frame("TXXX")
+    monkeypatch.setattr(QMessageBox, "warning", lambda *_args: None)
+
+    panel.save_button.click()
+    _process_events(app)
+
+    assert page.pipeline_steps[0].technique_inputs is None
+    assert page.active_step_panel is panel
+    assert page.step_cards[0].status == "setup"
+
+
+def test_incomplete_metadata_draft_does_not_mark_card_ready() -> None:
     app, page = _page()
     _add_steps(page, app, ["metadata"])
     step = page.pipeline_steps[0]
@@ -645,11 +1104,70 @@ def test_incomplete_or_mp3_metadata_draft_does_not_mark_card_ready() -> None:
 
     step.technique_inputs = MetadataInputsDraft(
         cover_path="carrier.mp3",
-        payload=MP3MetadataDraft(frames={"TIT2": "Hidden"}),
+        payload=MP3MetadataDraft(),
     )
     page.render_step_cards()
     _process_events(app)
     assert page.step_cards[0].status == "setup"
+
+
+def test_complete_mp3_metadata_draft_marks_card_ready() -> None:
+    app, page = _page()
+    _add_steps(page, app, ["metadata"])
+    step = page.pipeline_steps[0]
+    step.technique_inputs = MetadataInputsDraft(
+        cover_path="carrier.mp3",
+        payload=MP3MetadataDraft(
+            frames=[MP3SimpleFrameDraft("TIT2", "Hidden")]
+        ),
+    )
+    page.render_step_cards()
+    _process_events(app)
+    assert page.step_cards[0].status == "ready"
+
+
+def test_mp3_card_counts_complex_instances_without_exposing_values() -> None:
+    app, page = _page()
+    _add_steps(page, app, ["metadata"])
+    step = page.pipeline_steps[0]
+    step.technique_inputs = MetadataInputsDraft(
+        cover_path="carrier.mp3",
+        payload=MP3MetadataDraft(
+            frames=[
+                MP3SimpleFrameDraft("TIT2", "Private title"),
+                MP3ComplexFrameDraft(
+                    "COMM",
+                    [
+                        MP3ComplexFrameInstanceDraft(
+                            lang="eng",
+                            desc="First",
+                            text="First secret",
+                        ),
+                        MP3ComplexFrameInstanceDraft(
+                            lang="tha",
+                            desc="Second",
+                            text="Second secret",
+                        ),
+                    ],
+                ),
+            ]
+        ),
+    )
+
+    page.render_step_cards()
+    _process_events(app)
+
+    card = page.step_cards[0]
+    assert card.status == "ready"
+    assert card.summary_text("payload") == "Text frames ×3"
+    assert card.summary_tooltip("payload") == (
+        "MP3 text frames (3):\n"
+        "1. TIT2 - Title\n"
+        "2. COMM ×2 - Comment"
+    )
+    assert "Private title" not in card.summary_tooltip("payload")
+    assert "First secret" not in card.summary_tooltip("payload")
+    assert "Second secret" not in card.summary_tooltip("payload")
 
 
 def test_popup_save_persists_draft_and_rerenders_step_card(tmp_path) -> None:

@@ -391,6 +391,7 @@ QLabel#cardTitle {
     font-size: 12px;
     font-weight: 600;
     letter-spacing: 0.5px;
+    color: #CBD5E1;
 }
 
 
@@ -428,6 +429,7 @@ QFrame#fileDropZone[hasFile="true"]:hover {
 QLabel#mainLabel {
     font-size: 12px;
     font-weight: 600;
+    color: #CBD5E1;
 }
 
 QLabel#subLabel {
@@ -573,6 +575,18 @@ QFrame#GuideBox, QFrame#disabledMode {
 QScrollArea#fileListScroll {
     border: none;
     background-color: transparent;
+}
+
+QScrollArea#mp3MetadataScroll,
+QWidget#mp3MetadataViewport {
+    border: none;
+    background-color: #1E1E1E;
+}
+
+QFrame#mp3TextFramesForm,
+QFrame#mp3ApicImagesForm {
+    border: none;
+    background-color: #1E1E1E;
 }
 QWidget#fileListContainer {
     background-color: transparent;
