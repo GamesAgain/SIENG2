@@ -519,8 +519,8 @@ def _configure_valid_metadata_mp3_form(
     title: str = "Hidden title",
 ) -> None:
     form.cover_drop_zone.add_files([str(cover_path)])
-    assert isinstance(form.mp3_form, MP3TextFramesForm)
-    form.mp3_form.standard_fields["TIT2"].set_value(title)
+    assert isinstance(form.mp3_form.text_frames_form, MP3TextFramesForm)
+    form.mp3_form.text_frames_form.standard_fields["TIT2"].set_value(title)
 
 
 def test_metadata_png_inline_save_persists_and_reopens_draft(
@@ -609,8 +609,8 @@ def test_metadata_mp3_inline_save_persists_and_reopens_text_frames(
     form = panel.shell.content_widget
     assert isinstance(form, MetadataEmbedInputs)
     _configure_valid_metadata_mp3_form(form, cover)
-    assert form.content_stack.currentWidget() is form.mp3_state_widget
-    user_text = form.mp3_form.add_other_frame("TXXX")
+    assert form.content_stack.currentWidget() is form.mp3_form
+    user_text = form.mp3_form.text_frames_form.add_other_frame("TXXX")
     user_text.rows[0].set_value("desc", "Secret")
     user_text.rows[0].set_value("text", "TEST")
     panel.save_button.click()
@@ -658,17 +658,17 @@ def test_metadata_mp3_inline_save_persists_and_reopens_text_frames(
     reopened_form = reopened_panel.shell.content_widget
     assert isinstance(reopened_form, MetadataEmbedInputs)
     assert reopened_form.content_stack.currentWidget() is (
-        reopened_form.mp3_state_widget
+        reopened_form.mp3_form
     )
     assert (
-        reopened_form.mp3_form.standard_fields["TIT2"].get_value()
+        reopened_form.mp3_form.text_frames_form.standard_fields["TIT2"].get_value()
         == "Hidden title"
     )
     assert [
-        field.frame_id for field in reopened_form.mp3_form.other_fields
+        field.frame_id for field in reopened_form.mp3_form.text_frames_form.other_fields
     ] == ["TXXX"]
     assert (
-        reopened_form.mp3_form.other_fields[0]
+        reopened_form.mp3_form.text_frames_form.other_fields[0]
         .rows[0]
         .get_value("text")
         == "TEST"
@@ -730,7 +730,7 @@ def test_metadata_mp3_popup_save_persists_text_frame_draft(tmp_path) -> None:
             cover,
             title="Popup MP3 title",
         )
-        assert form.content_stack.currentWidget() is form.mp3_state_widget
+        assert form.content_stack.currentWidget() is form.mp3_form
         dialog.save_button.click()
 
     QTimer.singleShot(0, configure_and_save_popup)
@@ -772,10 +772,10 @@ def test_metadata_mp3_inline_save_persists_apic_draft(tmp_path) -> None:
     form = panel.shell.content_widget
     assert isinstance(form, MetadataEmbedInputs)
     form.cover_drop_zone.add_files([str(cover)])
-    form.mp3_metadata_form.tabs.setCurrentIndex(1)
-    form.mp3_apic_form.image_drop_zone.add_files([str(image_path)])
-    form.mp3_apic_form.description_input.setText("Front artwork")
-    assert form.mp3_apic_form.confirm_add_image()
+    form.mp3_form.tabs.setCurrentIndex(1)
+    form.mp3_form.apic_images_form.image_drop_zone.add_files([str(image_path)])
+    form.mp3_form.apic_images_form.description_input.setText("Front artwork")
+    assert form.mp3_form.apic_images_form.confirm_add_image()
     panel.save_button.click()
     _process_events(app)
 
@@ -810,11 +810,11 @@ def test_metadata_mp3_inline_save_persists_apic_draft(tmp_path) -> None:
     assert isinstance(reopened_panel, StepConfigShellPanel)
     reopened_form = reopened_panel.shell.content_widget
     assert isinstance(reopened_form, MetadataEmbedInputs)
-    assert reopened_form.mp3_metadata_form.tabs.currentIndex() == 1
-    assert reopened_form.mp3_apic_form.export_draft() == (
+    assert reopened_form.mp3_form.tabs.currentIndex() == 1
+    assert reopened_form.mp3_form.apic_images_form.export_draft() == (
         saved_draft.payload.apic_images
     )
-    assert len(reopened_form.mp3_apic_form.cards) == 1
+    assert len(reopened_form.mp3_form.apic_images_form.cards) == 1
     reopened_panel.cancel_button.click()
     _process_events(app)
 
@@ -835,10 +835,10 @@ def test_metadata_mp3_popup_save_persists_apic_only_draft(tmp_path) -> None:
         form = dialog.shell.content_widget
         assert isinstance(form, MetadataEmbedInputs)
         form.cover_drop_zone.add_files([str(cover)])
-        form.mp3_metadata_form.tabs.setCurrentIndex(1)
-        form.mp3_apic_form.image_drop_zone.add_files([str(image_path)])
-        form.mp3_apic_form.description_input.setText("Popup artwork")
-        assert form.mp3_apic_form.confirm_add_image()
+        form.mp3_form.tabs.setCurrentIndex(1)
+        form.mp3_form.apic_images_form.image_drop_zone.add_files([str(image_path)])
+        form.mp3_form.apic_images_form.description_input.setText("Popup artwork")
+        assert form.mp3_form.apic_images_form.confirm_add_image()
         dialog.save_button.click()
 
     QTimer.singleShot(0, configure_and_save_popup)
@@ -871,8 +871,8 @@ def test_metadata_mp3_popup_save_persists_apic_only_draft(tmp_path) -> None:
     assert isinstance(panel, StepConfigShellPanel)
     reopened_form = panel.shell.content_widget
     assert isinstance(reopened_form, MetadataEmbedInputs)
-    assert reopened_form.mp3_metadata_form.tabs.currentIndex() == 1
-    assert reopened_form.mp3_apic_form.export_draft() == [
+    assert reopened_form.mp3_form.tabs.currentIndex() == 1
+    assert reopened_form.mp3_form.apic_images_form.export_draft() == [
         ApicImageDraft(
             image_path=str(image_path),
             picture_type=3,
@@ -966,9 +966,9 @@ def test_metadata_mp3_text_and_apic_reopen_cancel_change_and_remove(
     form = panel.shell.content_widget
     assert isinstance(form, MetadataEmbedInputs)
     _configure_valid_metadata_mp3_form(form, cover, title="Original title")
-    form.mp3_apic_form.image_drop_zone.add_files([str(first_image)])
-    form.mp3_apic_form.description_input.setText("Front artwork")
-    assert form.mp3_apic_form.confirm_add_image()
+    form.mp3_form.apic_images_form.image_drop_zone.add_files([str(first_image)])
+    form.mp3_form.apic_images_form.description_input.setText("Front artwork")
+    assert form.mp3_form.apic_images_form.confirm_add_image()
     panel.save_button.click()
     _process_events(app)
 
@@ -981,9 +981,9 @@ def test_metadata_mp3_text_and_apic_reopen_cancel_change_and_remove(
     assert isinstance(panel, StepConfigShellPanel)
     form = panel.shell.content_widget
     assert isinstance(form, MetadataEmbedInputs)
-    form.mp3_form.standard_fields["TIT2"].set_value("Discarded title")
-    assert form.mp3_apic_form.replace_image(
-        form.mp3_apic_form.cards[0],
+    form.mp3_form.text_frames_form.standard_fields["TIT2"].set_value("Discarded title")
+    assert form.mp3_form.apic_images_form.replace_image(
+        form.mp3_form.apic_images_form.cards[0],
         str(replacement_image),
     )
     panel.cancel_button.click()
@@ -997,8 +997,8 @@ def test_metadata_mp3_text_and_apic_reopen_cancel_change_and_remove(
     assert isinstance(panel, StepConfigShellPanel)
     form = panel.shell.content_widget
     assert isinstance(form, MetadataEmbedInputs)
-    assert form.mp3_apic_form.replace_image(
-        form.mp3_apic_form.cards[0],
+    assert form.mp3_form.apic_images_form.replace_image(
+        form.mp3_form.apic_images_form.cards[0],
         str(replacement_image),
     )
     panel.save_button.click()
@@ -1019,7 +1019,7 @@ def test_metadata_mp3_text_and_apic_reopen_cancel_change_and_remove(
     assert isinstance(panel, StepConfigShellPanel)
     form = panel.shell.content_widget
     assert isinstance(form, MetadataEmbedInputs)
-    form.mp3_apic_form.remove_image(form.mp3_apic_form.cards[0])
+    form.mp3_form.apic_images_form.remove_image(form.mp3_form.apic_images_form.cards[0])
     panel.save_button.click()
     _process_events(app)
 
@@ -1078,7 +1078,7 @@ def test_metadata_mp3_invalid_save_keeps_panel_open_and_card_in_setup(
     form = panel.shell.content_widget
     assert isinstance(form, MetadataEmbedInputs)
     form.cover_drop_zone.add_files([str(cover)])
-    form.mp3_form.add_other_frame("TXXX")
+    form.mp3_form.text_frames_form.add_other_frame("TXXX")
     monkeypatch.setattr(QMessageBox, "warning", lambda *_args: None)
 
     panel.save_button.click()

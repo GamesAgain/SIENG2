@@ -11,14 +11,17 @@ from PyQt6.QtGui import QColor, QImage
 from PyQt6.QtWidgets import QApplication, QMessageBox, QWidget
 
 from config_prototype.gui.components import technique_forms
-from config_prototype.gui.components.technique_forms.metadata import (
-    ApicImageDraft,
+from config_prototype.gui.components.technique_forms.metadata_embed_inputs import (
     MetadataEmbedInputs,
     MetadataInputsDraft,
     MetadataPayloadDraft,
+)
+from config_prototype.gui.components.technique_forms.metadata import (
+    ApicImageDraft,
     MP3ComplexFrameDraft,
     MP3ComplexFrameInstanceDraft,
     MP3MetadataDraft,
+    MP3MetadataForm,
     MP3SimpleFrameDraft,
     MP3TextFramesForm,
     PNGMetadataDraft,
@@ -144,10 +147,8 @@ def test_metadata_host_starts_with_an_empty_draft_and_view() -> None:
     assert form.content_stack.currentWidget() is form.empty_state_label
     assert form.content_stack.currentIndex() == form.EMPTY_STATE_INDEX
     assert form.cover_media_type is None
-    assert isinstance(form.mp3_form, MP3TextFramesForm)
-    assert form.mp3_form is form.mp3_metadata_form.text_frames_form
-    assert form.mp3_apic_form is form.mp3_metadata_form.apic_images_form
-    assert form.mp3_state_widget is form.mp3_metadata_form
+    assert isinstance(form.mp3_form, MP3MetadataForm)
+    assert isinstance(form.mp3_form.text_frames_form, MP3TextFramesForm)
     assert form.empty_state_label.objectName() == "pipelineEmpty"
     assert form.empty_state_label.wordWrap()
     assert form.cover_card.objectName() == "card"
@@ -177,7 +178,7 @@ def test_manual_cover_select_replace_and_clear_updates_the_draft(
     assert form.cover_media_type == "png"
     assert form.cover_file_stack.currentWidget() is form.selected_cover_widget
     assert form.file_info_bar.file_info_name.text() == png_cover.name
-    assert form.content_stack.currentWidget() is form.png_state_widget
+    assert form.content_stack.currentWidget() is form.png_form
 
     form.cover_drop_zone.add_files([str(mp3_cover)])
 
@@ -187,7 +188,7 @@ def test_manual_cover_select_replace_and_clear_updates_the_draft(
     assert form.cover_media_type == "mp3"
     assert form.cover_file_stack.currentWidget() is form.selected_cover_widget
     assert form.file_info_bar.file_info_name.text() == mp3_cover.name
-    assert form.content_stack.currentWidget() is form.mp3_state_widget
+    assert form.content_stack.currentWidget() is form.mp3_form
 
     form.clear_cover()
 
@@ -268,8 +269,8 @@ def test_load_draft_restores_available_cover_widget_and_media_state(
     assert form.cover_media_type == "png"
     assert form.cover_file_stack.currentWidget() is form.selected_cover_widget
     assert form.file_info_bar.file_info_name.text() == cover.name
-    assert form.content_stack.currentWidget() is form.png_state_widget
-    assert form.png_state_widget is form.png_form
+    assert form.content_stack.currentWidget() is form.png_form
+    assert form.png_form is form.png_form
     assert form.png_form.standard_fields["Title"].is_empty()
     assert len(form.png_form.custom_rows) == 1
     assert form.png_form.custom_rows[0].get_keyword() == "Secret"
@@ -352,8 +353,8 @@ def test_mp3_load_and_export_copy_nested_frames_and_apic_items() -> None:
     form = MetadataEmbedInputs()
 
     form.load_draft(source)
-    assert form.mp3_form.other_fields[0].frame_id == "TXXX"
-    assert form.mp3_form.other_fields[0].rows[0].get_value("text") == "TEST"
+    assert form.mp3_form.text_frames_form.other_fields[0].frame_id == "TXXX"
+    assert form.mp3_form.text_frames_form.other_fields[0].rows[0].get_value("text") == "TEST"
     source.payload.frames[0].instances[0].text = "changed"
     source.payload.apic_images[0].image_path = "changed.png"
 
@@ -388,8 +389,8 @@ def test_mp3_host_exports_live_text_controls_and_preserves_apic_draft(
             ),
         )
     )
-    form.mp3_form.standard_fields["TIT2"].set_value("Hidden title")
-    user_text = form.mp3_form.add_other_frame("TXXX")
+    form.mp3_form.text_frames_form.standard_fields["TIT2"].set_value("Hidden title")
+    user_text = form.mp3_form.text_frames_form.add_other_frame("TXXX")
     user_text.rows[0].set_value("desc", "Secret")
     user_text.rows[0].set_value("text", "TEST")
 
@@ -428,11 +429,11 @@ def test_mp3_host_exports_and_validates_text_frames_with_apic(tmp_path) -> None:
     _write_png(image_path)
     form = MetadataEmbedInputs()
     form.cover_drop_zone.add_files([str(cover)])
-    form.mp3_form.standard_fields["TIT2"].set_value("Hidden title")
-    form.mp3_apic_form.image_drop_zone.add_files([str(image_path)])
-    form.mp3_apic_form.description_input.setText("Front artwork")
+    form.mp3_form.text_frames_form.standard_fields["TIT2"].set_value("Hidden title")
+    form.mp3_form.apic_images_form.image_drop_zone.add_files([str(image_path)])
+    form.mp3_form.apic_images_form.description_input.setText("Front artwork")
 
-    assert form.mp3_apic_form.confirm_add_image()
+    assert form.mp3_form.apic_images_form.confirm_add_image()
     assert form.validate_draft()
     assert form.export_draft() == MetadataInputsDraft(
         cover_path=str(cover),
@@ -465,8 +466,8 @@ def test_apic_can_replace_a_previous_png_payload_after_cover_change(
     )
 
     form.cover_drop_zone.add_files([str(mp3_cover)])
-    form.mp3_apic_form.image_drop_zone.add_files([str(image_path)])
-    assert form.mp3_apic_form.confirm_add_image()
+    form.mp3_form.apic_images_form.image_drop_zone.add_files([str(image_path)])
+    assert form.mp3_form.apic_images_form.confirm_add_image()
 
     assert form.validate_draft()
     exported = form.export_draft()
@@ -510,8 +511,7 @@ def test_cover_switch_and_reload_do_not_leak_mp3_payload_into_png(
 
     form.load_draft(png_draft)
 
-    assert form.mp3_metadata_form.export_text_frames() == []
-    assert form.mp3_metadata_form.export_apic_images() == []
+    assert form.mp3_form.export_draft() == MP3MetadataDraft()
     assert form.export_draft() == png_draft
 
 

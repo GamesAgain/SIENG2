@@ -10,7 +10,7 @@ from config_prototype.gui.components.technique_forms.metadata import (
     PNGMetadataDraft,
     PNGMetadataForm,
 )
-from config_prototype.gui.components.technique_forms.metadata.png_metadata_form import (
+from config_prototype.gui.components.technique_forms.metadata.png_form import (
     SUGGESTED_KEYWORDS,
 )
 from src.core.stego.metadata_handlers.png_handler import STANDARD_KEYWORDS

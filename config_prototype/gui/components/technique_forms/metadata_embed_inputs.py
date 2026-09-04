@@ -1,6 +1,7 @@
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
+from typing import TypeAlias
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -13,20 +14,15 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from config_prototype.gui.paths import ICON_DIR
-from config_prototype.gui.components.technique_forms.metadata.mp3_apic_drafts import (
-    ApicImageDraft,
-    apic_draft_structure_error,
-)
-from config_prototype.gui.components.technique_forms.metadata.mp3_frame_drafts import (
-    MP3FrameDraft,
-)
-from config_prototype.gui.components.technique_forms.metadata.mp3_metadata_form import (
+from config_prototype.gui.components.technique_forms.metadata.mp3_form import (
+    MP3MetadataDraft,
     MP3MetadataForm,
 )
-from config_prototype.gui.components.technique_forms.metadata.png_metadata_form import (
+from config_prototype.gui.components.technique_forms.metadata.png_form import (
+    PNGMetadataDraft,
     PNGMetadataForm,
 )
+from config_prototype.gui.paths import ICON_DIR
 from src.gui.components.file_info_bar import FileInfoBar
 from src.gui.components.files_drop import FileDropWidget
 from src.gui.components.gui_utils import (
@@ -37,26 +33,8 @@ from src.gui.components.gui_utils import (
 )
 from src.gui.tabs.metadata_shared import get_file_display_info
 
-@dataclass
-class PNGMetadataDraft:
-    """Text Chunk metadata configured for a PNG pipeline step."""
 
-    entries: dict[str, str] = field(default_factory=dict)
-
-
-@dataclass
-class MP3MetadataDraft:
-    """User-configured ID3 frames and APIC images for an MP3 step.
-
-    Existing raw frames belong to the cover file and are intentionally not
-    copied into this payload draft.
-    """
-
-    frames: list[MP3FrameDraft] = field(default_factory=list)
-    apic_images: list[ApicImageDraft] = field(default_factory=list)
-
-
-MetadataPayloadDraft = PNGMetadataDraft | MP3MetadataDraft
+MetadataPayloadDraft: TypeAlias = PNGMetadataDraft | MP3MetadataDraft
 
 
 @dataclass
@@ -102,15 +80,11 @@ class MetadataEmbedInputs(QFrame):
         self.empty_state_label.setWordWrap(True)
 
         self.png_form = PNGMetadataForm()
-        self.png_state_widget = self.png_form
-        self.mp3_metadata_form = MP3MetadataForm()
-        self.mp3_form = self.mp3_metadata_form.text_frames_form
-        self.mp3_apic_form = self.mp3_metadata_form.apic_images_form
-        self.mp3_state_widget = self.mp3_metadata_form
+        self.mp3_form = MP3MetadataForm()
 
         self.content_stack.addWidget(self.empty_state_label)
-        self.content_stack.addWidget(self.png_state_widget)
-        self.content_stack.addWidget(self.mp3_state_widget)
+        self.content_stack.addWidget(self.png_form)
+        self.content_stack.addWidget(self.mp3_form)
 
         self.cover_file_stack = QStackedWidget()
         self.cover_card = self.build_cover_card()
@@ -213,11 +187,11 @@ class MetadataEmbedInputs(QFrame):
         self._cover_media_type = self.detect_cover_media(
             self._draft.cover_path
         )
-        state_index = {
-            "png": self.PNG_STATE_INDEX,
-            "mp3": self.MP3_STATE_INDEX,
-        }.get(self._cover_media_type, self.EMPTY_STATE_INDEX)
-        self.content_stack.setCurrentIndex(state_index)
+        current_form = {
+            "png": self.png_form,
+            "mp3": self.mp3_form,
+        }.get(self._cover_media_type, self.empty_state_label)
+        self.content_stack.setCurrentWidget(current_form)
 
         if self._cover_media_type is None:
             self.cover_file_stack.setCurrentIndex(
@@ -261,16 +235,11 @@ class MetadataEmbedInputs(QFrame):
             }
 
     def load_draft(self, draft: MetadataInputsDraft) -> None:
-        """Replace the form state with a detached copy of ``draft``."""
+        """Replace the form state with a detached copy of the draft."""
         loaded_draft = deepcopy(draft)
         if isinstance(loaded_draft.payload, MP3MetadataDraft):
             structure_error = self.mp3_form.draft_structure_error(
-                loaded_draft.payload.frames
-            )
-            if structure_error is not None:
-                raise ValueError(structure_error)
-            structure_error = apic_draft_structure_error(
-                loaded_draft.payload.apic_images
+                loaded_draft.payload
             )
             if structure_error is not None:
                 raise ValueError(structure_error)
@@ -286,14 +255,11 @@ class MetadataEmbedInputs(QFrame):
 
         self._draft = loaded_draft
         self.png_form.clear_all()
-        mp3_frames: list[MP3FrameDraft] = []
-        apic_images: list[ApicImageDraft] = []
+        self.mp3_form.clear_all()
         if isinstance(loaded_draft.payload, PNGMetadataDraft):
             self.png_form.load_draft(loaded_draft.payload)
         elif isinstance(loaded_draft.payload, MP3MetadataDraft):
-            mp3_frames = loaded_draft.payload.frames
-            apic_images = loaded_draft.payload.apic_images
-        self.mp3_metadata_form.load_draft(mp3_frames, apic_images)
+            self.mp3_form.load_draft(loaded_draft.payload)
         self.update_cover_media_state()
 
     def export_draft(self) -> MetadataInputsDraft:
@@ -302,14 +268,11 @@ class MetadataEmbedInputs(QFrame):
         if self._cover_media_type == "png":
             exported_draft.payload = self.png_form.export_draft()
         elif self._cover_media_type == "mp3":
-            exported_draft.payload = MP3MetadataDraft(
-                frames=self.mp3_metadata_form.export_text_frames(),
-                apic_images=self.mp3_metadata_form.export_apic_images(),
-            )
+            exported_draft.payload = self.mp3_form.export_draft()
         return exported_draft
 
     def validate_draft(self) -> bool:
-        """Validate Metadata draft."""
+        """Validate the selected cover and its active format form."""
         cover_path = self._draft.cover_path
         if not cover_path:
             return self.show_validation_warning(
@@ -340,28 +303,17 @@ class MetadataEmbedInputs(QFrame):
                 )
             return self.png_form.validate_draft()
 
-        frames = self.mp3_form.export_draft()
-        apic_images = self.mp3_apic_form.export_draft()
-        payload = self._draft.payload
+        mp3_draft = self.mp3_form.export_draft()
         if (
-            not frames
-            and not apic_images
-            and payload is not None
-            and not isinstance(payload, MP3MetadataDraft)
+            not mp3_draft.frames
+            and not mp3_draft.apic_images
+            and self._draft.payload is not None
+            and not isinstance(self._draft.payload, MP3MetadataDraft)
         ):
             return self.show_validation_warning(
                 "The metadata payload does not match the MP3 target file."
             )
-        if not self.mp3_form.validate_draft():
-            return False
-
-        if apic_images and not self.mp3_apic_form.validate_draft():
-            return False
-        if not frames and not apic_images:
-            return self.show_validation_warning(
-                "Please add at least one MP3 text frame or APIC image."
-            )
-        return True
+        return self.mp3_form.validate_draft()
 
     def show_validation_warning(
         self,
@@ -371,3 +323,10 @@ class MetadataEmbedInputs(QFrame):
     ) -> bool:
         QMessageBox.warning(self, title, message)
         return False
+
+
+__all__ = [
+    "MetadataEmbedInputs",
+    "MetadataInputsDraft",
+    "MetadataPayloadDraft",
+]
