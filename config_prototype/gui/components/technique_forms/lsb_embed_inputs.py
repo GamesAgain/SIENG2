@@ -4,10 +4,17 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QButtonGroup, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QMessageBox, QPlainTextEdit, QPushButton, QScrollArea,
-    QTabWidget, QVBoxLayout, QWidget)
+    QStackedWidget, QTabWidget, QVBoxLayout, QWidget)
 
 from PyQt6.QtCore import QSize, Qt
 
+from config_prototype.core.configurable import (
+    FileSource,
+    StepOutput,
+    StepOutputInfo,
+)
+from config_prototype.gui.components import LinkedStepToggle, StepOutputPicker
+from config_prototype.gui.paths import ICON_DIR
 from src.core.stego.lsb_pp import HEADER_BYTES, LSBPP, estimate_overhead_bytes, get_max_message_bytes
 from src.gui.components.files_drop import FileDropWidget
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, create_icon_state, format_file_size
@@ -18,7 +25,6 @@ from src.gui.components.toggle_switch import ToggleSwitch
 from src.gui.components.visibility_stack import VisibilityStack
 from src.gui.components.worker import FunctionWorker
 from src.gui.services.key_registry import KeyRegistry
-from config_prototype.gui.paths import ICON_DIR
 
 ICON_SIZE = 14
 COLOR_CHECKED_SYM = "#a78bfa"
@@ -29,7 +35,7 @@ CAPACITY_WARNING_RATIO = 0.90  # ใช้ไป > 90% ของ max capacity �
 @dataclass
 class LSBInputsDraft:
     "LSB++ inputs draft for saving/loading state of the form."
-    cover_path: str | None = None
+    cover: FileSource | None = None
     payload_text: str = ""
     encryption_enabled: bool = True
     encryption_mode: str = "password"
@@ -44,14 +50,18 @@ class LSBEmbedInputs(QFrame):
         self,
         *,
         key_registry: KeyRegistry | None = None,
+        output_catalog: list[StepOutputInfo] | None = None,
+        cover_dependency_error: str | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
 
         self.key_registry = key_registry
+        self.output_catalog = list(output_catalog or [])
+        self.cover_dependency_error = cover_dependency_error
         
         # Cover & Payload
-        self.cover_file_path: str | None = None
+        self.cover_source: FileSource | None = None
         self.payload_file_path: str | None = None
         self.capacity_bits: int | None = None  # ผล analyze ภาพ (Sobel+entropy) แคชไว้เพราะหนัก ไม่คำนวณซ้ำทุกครั้งที่พิมพ์/สลับโหมด
         self.isCalculating = False
@@ -61,6 +71,16 @@ class LSBEmbedInputs(QFrame):
         
         self.build_ui()
         
+    @property
+    def cover_file_path(self) -> str | None:
+        if isinstance(self.cover_source, str):
+            return self.cover_source
+        return None
+
+    @cover_file_path.setter
+    def cover_file_path(self, file_path: str | None) -> None:
+        self.cover_source = file_path
+
     
     def build_ui(self):
         main_layout = QVBoxLayout(self)
@@ -119,6 +139,11 @@ class LSBEmbedInputs(QFrame):
         title_layout.addWidget(title_icon)
         title_layout.addWidget(title_label)
         title_layout.addStretch()
+
+        self.cover_mode_toggle = LinkedStepToggle()
+        self.cover_mode_toggle.mode_changed.connect(
+            self.on_cover_mode_changed
+        )
         
         # Declare allowed image file format
         allowed_exts = [
@@ -146,8 +171,18 @@ class LSBEmbedInputs(QFrame):
         self.cover_drop_zone = drop_zone
         drop_zone.file_selected.connect(self.on_cover_file_selected)
 
+        self.cover_output_picker = StepOutputPicker(self.output_catalog)
+        self.cover_output_picker.selection_changed.connect(
+            self.on_cover_output_selected
+        )
+
+        self.cover_source_stack = QStackedWidget()
+        self.cover_source_stack.addWidget(drop_zone)
+        self.cover_source_stack.addWidget(self.cover_output_picker)
+
         cover_file_layout.addWidget(title_container, 0)  # top
-        cover_file_layout.addWidget(drop_zone, 1)
+        cover_file_layout.addWidget(self.cover_mode_toggle, 0)
+        cover_file_layout.addWidget(self.cover_source_stack, 1)
 
         return cover_file_card
     
@@ -401,20 +436,34 @@ class LSBEmbedInputs(QFrame):
             self.public_key_drop_zone.clear_all()
 
         # Cover
-        cover_path = draft.cover_path
-
-        if cover_path and Path(cover_path).is_file():
-            self.cover_drop_zone.add_files([cover_path])
+        cover = draft.cover
+        self.cover_drop_zone.clear_all()
+        self.cover_output_picker.clear_selection()
+        if isinstance(cover, str) and Path(cover).is_file():
+            self.cover_mode_toggle.set_mode("manual")
+            self.cover_source_stack.setCurrentIndex(0)
+            self.cover_drop_zone.add_files([cover])
+        elif isinstance(cover, StepOutput):
+            self.cover_mode_toggle.set_mode("linked")
+            self.cover_source_stack.setCurrentIndex(1)
+            self.cover_output_picker.set_selected_output(cover)
+            self.cover_output_picker.set_unavailable_reason(
+                self.cover_dependency_error
+            )
+            self.cover_source = cover
         else:
-            self.cover_drop_zone.clear_all()
+            self.cover_mode_toggle.set_mode("manual")
+            self.cover_source_stack.setCurrentIndex(0)
 
         # ถ้ามี Cover และ worker กำลังทำงาน จะขึ้น Calculating...
         # ถ้าไม่มี Cover จะแสดงเฉพาะขนาด Payload
         self.update_capacity_label()
 
     def validate_draft(self) -> bool:
-        cover_path = self.cover_file_path
-        if not cover_path or not Path(cover_path).is_file():
+        cover = self.cover_source
+        if cover is None or (
+            isinstance(cover, str) and not Path(cover).is_file()
+        ):
             return self.show_validation_warning(
                 "Please select an available cover image file."
             )
@@ -466,7 +515,7 @@ class LSBEmbedInputs(QFrame):
             "public_key" if self.btn_asymmetric.isChecked() else "password"
         )
         return LSBInputsDraft(
-            cover_path=self.cover_file_path,
+            cover=self.cover_source,
             payload_text=self.payload_text_area.toPlainText(),
             encryption_enabled=encryption_enabled,
             encryption_mode=encryption_mode,
@@ -492,9 +541,37 @@ class LSBEmbedInputs(QFrame):
     
     
     # --- Event Handler ---
+    def on_cover_mode_changed(self, mode: str) -> None:
+        linked = mode == "linked"
+        self.cover_source_stack.setCurrentIndex(1 if linked else 0)
+        self.capacity_bits = None
+        self.isCalculating = False
+
+        if linked:
+            self.cover_source = self.cover_output_picker.selected_output()
+        else:
+            manual_path = self.cover_drop_zone.file_path
+            self.cover_source = manual_path or None
+            if manual_path:
+                self.on_cover_file_selected(manual_path)
+                return
+        self.update_capacity_label()
+
+    def on_cover_output_selected(self, reference: StepOutput) -> None:
+        if not self.cover_mode_toggle.is_linked():
+            return
+        self.cover_source = reference
+        self.cover_dependency_error = None
+        self.capacity_bits = None
+        self.isCalculating = False
+        self.update_capacity_label()
+
     def on_cover_file_selected(self, file_path: str):
         if not file_path:
-            self.cover_file_path = None
+            if not self.cover_mode_toggle.is_linked():
+                self.cover_file_path = None
+            return
+        if self.cover_mode_toggle.is_linked():
             return
         self.cover_file_path = file_path
 
@@ -523,6 +600,14 @@ class LSBEmbedInputs(QFrame):
         
         text_size_bytes = len(self.payload_text_area.toPlainText().encode('utf-8'))
         text_size = format_file_size(text_size_bytes)
+
+        if isinstance(self.cover_source, StepOutput):
+            self.capacity_label.setText(f"Size: {text_size}")
+            self.capacity_label.setToolTip(
+                "Linked cover capacity will be checked when the pipeline runs."
+            )
+            self.set_capacity_state("normal")
+            return
 
         no_key_yet = self.encrypt_toggle_switch.isChecked() and self.btn_asymmetric.isChecked() and not self.public_key_path
         if self.capacity_bits is None or no_key_yet:

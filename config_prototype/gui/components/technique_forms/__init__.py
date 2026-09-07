@@ -5,8 +5,11 @@ from config_prototype.gui.components.technique_forms.lsb_embed_inputs import (
     LSBInputsDraft,
 )
 from config_prototype.gui.components.technique_forms.loco_embed_inputs import (
+    LocomotiveCoverDraft,
     LocomotiveEmbedInputs,
     LocomotiveInputsDraft,
+    generate_output_key,
+    link_sources_to_covers,
 )
 from config_prototype.gui.components.technique_forms.metadata_embed_inputs import (
     MetadataEmbedInputs,
@@ -36,6 +39,7 @@ __all__ = [
     "APIC_IMAGE_EXTENSIONS",
     "LSBEmbedInputs",
     "LSBInputsDraft",
+    "LocomotiveCoverDraft",
     "LocomotiveEmbedInputs",
     "LocomotiveInputsDraft",
     "MP3_COMPLEX_FRAME_CONTRACTS",
@@ -54,4 +58,6 @@ __all__ = [
     "MP3MetadataForm",
     "MP3SimpleFrameDraft",
     "PNGMetadataDraft",
+    "generate_output_key",
+    "link_sources_to_covers",
 ]

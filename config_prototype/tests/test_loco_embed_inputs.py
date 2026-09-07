@@ -2,15 +2,20 @@
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from config_prototype.gui.components.technique_forms import (
+    LocomotiveCoverDraft,
     LocomotiveEmbedInputs,
     LocomotiveInputsDraft,
+    generate_output_key,
+    link_sources_to_covers,
 )
+from config_prototype.core.configurable.step_output import StepOutput
 from config_prototype.gui.components.technique_forms import loco_embed_inputs
 from src.core.crypto.key_management import generate_and_save_keypair
 from src.gui.components.key_validation import KeyValidationResult
@@ -30,15 +35,72 @@ def _write_png(path: Path) -> Path:
     return path
 
 
+def test_locomotive_output_key_format_and_collision_retry(monkeypatch) -> None:
+    generated_uuids = iter(
+        [
+            SimpleNamespace(hex="a4f91c2e000000000000000000000000"),
+            SimpleNamespace(hex="12bd770a000000000000000000000000"),
+        ]
+    )
+    monkeypatch.setattr(
+        loco_embed_inputs,
+        "uuid4",
+        lambda: next(generated_uuids),
+    )
+
+    output_key = generate_output_key({"output_a4f91c2e"})
+
+    assert output_key == "output_12bd770a"
+
+
+def test_reconcile_locomotive_covers_preserves_keys_during_reorder() -> None:
+    first = LocomotiveCoverDraft("carrier-a.png", "output_a4f91c2e")
+    second = LocomotiveCoverDraft("carrier-b.png", "output_12bd770a")
+
+    reconciled = link_sources_to_covers(
+        ["carrier-b.png", "carrier-a.png"],
+        [first, second],
+    )
+
+    assert reconciled == [second, first]
+
+
+def test_reconcile_locomotive_covers_removes_and_replaces_identity() -> None:
+    removed = LocomotiveCoverDraft("old.png", "output_a4f91c2e")
+    preserved = LocomotiveCoverDraft("keep.png", "output_12bd770a")
+
+    reconciled = link_sources_to_covers(
+        ["keep.png", "new.png"],
+        [removed, preserved],
+    )
+
+    assert reconciled[0] is preserved
+    assert reconciled[1].source == "new.png"
+    assert reconciled[1].output_key not in {
+        removed.output_key,
+        preserved.output_key,
+    }
+
+
+def test_reconcile_locomotive_covers_supports_linked_sources() -> None:
+    linked_source = StepOutput("step_a31f8", "result")
+    existing = LocomotiveCoverDraft(linked_source, "output_a4f91c2e")
+
+    assert link_sources_to_covers(
+        [linked_source],
+        [existing],
+    ) == [existing]
+
+
 def test_draft_lists_are_isolated_and_form_defaults_are_consistent() -> None:
     _app()
     first = LocomotiveInputsDraft()
     second = LocomotiveInputsDraft()
-    first.cover_paths.append("first.png")
-    first.payload_paths.append("payload.bin")
+    first.covers.append(LocomotiveCoverDraft("first.png"))
+    first.payload_files.append("payload.bin")
 
-    assert second.cover_paths == []
-    assert second.payload_paths == []
+    assert second.covers == []
+    assert second.payload_files == []
 
     form = LocomotiveEmbedInputs()
     draft = form.export_draft()
@@ -60,9 +122,12 @@ def test_files_password_load_validate_export_roundtrip(tmp_path) -> None:
     payloads[0].write_bytes(b"a" * 1024)
     payloads[1].write_bytes(b"b" * 512)
     source = LocomotiveInputsDraft(
-        cover_paths=[str(path) for path in covers],
+        covers=[
+            LocomotiveCoverDraft(str(covers[0]), "output_a4f91c2e"),
+            LocomotiveCoverDraft(str(covers[1]), "output_12bd770a"),
+        ],
         payload_mode="files",
-        payload_paths=[str(path) for path in payloads],
+        payload_files=[str(path) for path in payloads],
         payload_text="inactive text",
         encryption_enabled=True,
         encryption_mode="password",
@@ -74,16 +139,18 @@ def test_files_password_load_validate_export_roundtrip(tmp_path) -> None:
     form.load_draft(source)
 
     assert form.validate_draft() is True
-    assert form.cover_drop_zone.selected_files == source.cover_paths
-    assert form.payload_file_drop_zone.selected_files == source.payload_paths
+    assert form.cover_drop_zone.selected_files == [
+        cover.source for cover in source.covers
+    ]
+    assert form.payload_file_drop_zone.selected_files == source.payload_files
     assert form.cover_summary_label.text() == "Selected: 2 PNGs"
     assert form.payload_file_summary_label.text() == (
         "Files: 2 · Total: 1.50 KB"
     )
     assert form.export_draft() == LocomotiveInputsDraft(
-        cover_paths=source.cover_paths,
+        covers=source.covers,
         payload_mode="files",
-        payload_paths=source.payload_paths,
+        payload_files=source.payload_files,
         encryption_enabled=True,
         encryption_mode="password",
         password="manual workflow password",
@@ -96,9 +163,9 @@ def test_text_no_encryption_load_clears_inactive_secrets(tmp_path) -> None:
     inactive_payload = tmp_path / "inactive.bin"
     inactive_payload.write_bytes(b"inactive")
     source = LocomotiveInputsDraft(
-        cover_paths=[str(cover)],
+        covers=[LocomotiveCoverDraft(str(cover), "output_a4f91c2e")],
         payload_mode="text",
-        payload_paths=[str(inactive_payload)],
+        payload_files=[str(inactive_payload)],
         payload_text="ทดสอบ",
         encryption_enabled=False,
         encryption_mode="public_key",
@@ -117,7 +184,7 @@ def test_text_no_encryption_load_clears_inactive_secrets(tmp_path) -> None:
     assert form.btn_symmetric.isEnabled() is False
     assert form.btn_asymmetric.isEnabled() is False
     assert form.export_draft() == LocomotiveInputsDraft(
-        cover_paths=[str(cover)],
+        covers=source.covers,
         payload_mode="text",
         payload_text="ทดสอบ",
         encryption_enabled=False,
@@ -137,14 +204,22 @@ def test_load_filters_missing_paths_and_replaces_stale_widget_state(
     form = LocomotiveEmbedInputs()
     form.load_draft(
         LocomotiveInputsDraft(
-            cover_paths=[str(old_cover)],
-            payload_paths=[str(old_payload)],
+            covers=[
+                LocomotiveCoverDraft(str(old_cover), "output_a4f91c2e")
+            ],
+            payload_files=[str(old_payload)],
             password="old password",
         )
     )
     form.load_draft(
         LocomotiveInputsDraft(
-            cover_paths=[str(tmp_path / "missing.png"), str(new_cover)],
+            covers=[
+                LocomotiveCoverDraft(
+                    str(tmp_path / "missing.png"),
+                    "output_deadbeef",
+                ),
+                LocomotiveCoverDraft(str(new_cover), "output_12bd770a"),
+            ],
             payload_mode="text",
             payload_text="replacement text",
             encryption_enabled=False,
@@ -157,6 +232,25 @@ def test_load_filters_missing_paths_and_replaces_stale_widget_state(
     assert form.password_input.text() == ""
     assert form.confirm_input.text() == ""
     assert form.public_key_path is None
+
+
+def test_manual_cover_changes_preserve_only_matching_output_identities() -> None:
+    _app()
+    form = LocomotiveEmbedInputs()
+    form.on_locomotive_file_selected(["first.png", "second.png"])
+    first, second = form.locomotive_covers
+
+    form.on_locomotive_file_selected(["second.png", "first.png"])
+    assert form.locomotive_covers == [second, first]
+
+    form.on_locomotive_file_selected(["second.png", "replacement.png"])
+    preserved, replacement = form.locomotive_covers
+    assert preserved is second
+    assert replacement.source == "replacement.png"
+    assert replacement.output_key not in {
+        first.output_key,
+        second.output_key,
+    }
 
 
 def test_validation_reports_required_file_and_password_states(

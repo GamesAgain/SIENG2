@@ -1,7 +1,9 @@
 """Focused GUI tests for the prototype StepCard collection."""
 
 import os
+import re
 from pathlib import Path
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -10,6 +12,7 @@ from PyQt6.QtGui import QColor, QEnterEvent, QImage
 from PyQt6.QtTest import QSignalSpy, QTest
 from PyQt6.QtWidgets import QApplication, QLabel, QMessageBox, QPushButton, QWidget
 
+from config_prototype.core.configurable import StepOutput, StepOutputInfo
 from config_prototype.gui.components.step_card import (
     CARD_HEIGHT,
     CARD_WIDTH,
@@ -45,6 +48,7 @@ from config_prototype.gui.pages.sub_pages.embed.configurable_page import (
     EmbedConfigurablePage,
     MAX_VISIBLE_FLOW_HEIGHT,
     PipelineStepDraft,
+    STEP_KEY_HEX_LENGTH,
 )
 from config_prototype.main import PrototypeWindow
 from src.core.crypto.key_management import (
@@ -116,11 +120,12 @@ def test_pipeline_step_drafts_have_unique_stable_keys_and_defaults() -> None:
     _add_steps(page, app, ["lsbpp", "locomotive", "metadata"])
 
     assert all(isinstance(step, PipelineStepDraft) for step in page.pipeline_steps)
-    assert [step.key for step in page.pipeline_steps] == [
-        "prototype_step_1",
-        "prototype_step_2",
-        "prototype_step_3",
-    ]
+    original_keys = [step.key for step in page.pipeline_steps]
+    key_pattern = re.compile(
+        rf"step_[0-9a-f]{{{STEP_KEY_HEX_LENGTH}}}"
+    )
+    assert len(set(original_keys)) == 3
+    assert all(key_pattern.fullmatch(key) for key in original_keys)
     assert [step.description for step in page.pipeline_steps] == [
         "Embed text in PNG",
         "Embed files in PNG",
@@ -130,19 +135,118 @@ def test_pipeline_step_drafts_have_unique_stable_keys_and_defaults() -> None:
     assert all(step.technique_inputs is None for step in page.pipeline_steps)
 
     locomotive = page.pipeline_steps[1]
+    locomotive_key = locomotive.key
     locomotive.description = "Hide contract across three covers"
     locomotive.guidenote = "Attach every carrier before extraction"
     page.remove_pipeline_step(0)
 
     assert page.pipeline_steps[0] is locomotive
-    assert locomotive.key == "prototype_step_2"
+    assert locomotive.key == locomotive_key
     assert locomotive.description == "Hide contract across three covers"
     assert locomotive.guidenote == "Attach every carrier before extraction"
     assert page.step_cards[0].description == locomotive.description
 
     page.clear_pipeline()
     page.add_pipeline_step("lsbpp")
-    assert page.pipeline_steps[0].key == "prototype_step_4"
+    assert page.pipeline_steps[0].key not in original_keys
+
+
+def test_step_key_collision_regenerates_and_never_reuses_retired_keys(
+    monkeypatch,
+) -> None:
+    generated_hex = iter([
+        "abcde",
+        "abcde",
+        "bcdef",
+        "abcde",
+        "bcdef",
+        "cdef0",
+    ])
+    monkeypatch.setattr(
+        "config_prototype.gui.pages.sub_pages.embed.configurable_page.uuid4",
+        lambda: SimpleNamespace(hex=next(generated_hex)),
+    )
+    app, page = _page()
+
+    _add_steps(page, app, ["lsbpp"])
+    first_key = page.pipeline_steps[0].key
+    page.remove_pipeline_step(0)
+
+    _add_steps(page, app, ["locomotive"])
+    second_key = page.pipeline_steps[0].key
+    page.clear_pipeline()
+
+    _add_steps(page, app, ["metadata"])
+    third_key = page.pipeline_steps[0].key
+
+    assert [first_key, second_key, third_key] == [
+        "step_abcde",
+        "step_bcdef",
+        "step_cdef0",
+    ]
+    assert page.used_step_keys == {
+        "step_abcde",
+        "step_bcdef",
+        "step_cdef0",
+    }
+
+
+def test_output_catalog_lists_only_previous_single_outputs() -> None:
+    app, page = _page()
+    _add_steps(page, app, ["lsbpp", "metadata", "locomotive", "lsbpp"])
+
+    assert page.build_output_catalog(before_step_index=0) == []
+    catalog = page.build_output_catalog(before_step_index=3)
+
+    assert catalog == [
+        StepOutputInfo(
+            reference=StepOutput(page.pipeline_steps[0].key, "result"),
+            step_number=1,
+            technique="lsbpp",
+            media_type="png",
+        ),
+        StepOutputInfo(
+            reference=StepOutput(page.pipeline_steps[1].key, "result"),
+            step_number=2,
+            technique="metadata",
+            media_type=None,
+        ),
+    ]
+
+
+def test_output_catalog_detects_metadata_png_and_mp3_media() -> None:
+    app, page = _page()
+    _add_steps(page, app, ["metadata", "metadata", "lsbpp"])
+    page.pipeline_steps[0].technique_inputs = MetadataInputsDraft(
+        cover_path="carrier.png",
+        payload=PNGMetadataDraft(entries={"Comment": "PNG payload"}),
+    )
+    page.pipeline_steps[1].technique_inputs = MetadataInputsDraft(
+        cover_path="carrier.mp3",
+        payload=MP3MetadataDraft(),
+    )
+
+    catalog = page.build_output_catalog(before_step_index=2)
+
+    assert [output.media_type for output in catalog] == ["png", "mp3"]
+
+
+def test_output_catalog_renumbers_display_without_changing_reference() -> None:
+    app, page = _page()
+    _add_steps(page, app, ["lsbpp", "metadata", "lsbpp"])
+    metadata_key = page.pipeline_steps[1].key
+
+    page.remove_pipeline_step(0)
+    catalog = page.build_output_catalog(before_step_index=1)
+
+    assert catalog == [
+        StepOutputInfo(
+            reference=StepOutput(metadata_key, "result"),
+            step_number=1,
+            technique="metadata",
+            media_type=None,
+        )
+    ]
 
 
 def test_step_card_overlay_geometry_hover_and_header_fonts() -> None:
@@ -209,6 +313,7 @@ def test_step_card_click_emits_clicked_but_delete_does_not() -> None:
 def test_card_click_opens_popup_and_cancel_resets_active_step(capsys) -> None:
     app, page = _page()
     _add_steps(page, app, ["lsbpp", "locomotive", "metadata"])
+    locomotive_key = page.pipeline_steps[1].key
     page.pipeline_steps[1].description = "Hide contract across three covers"
     page.pipeline_steps[1].guidenote = "Attach every carrier before extraction"
     observed = {}
@@ -233,7 +338,7 @@ def test_card_click_opens_popup_and_cancel_resets_active_step(capsys) -> None:
 
     assert observed == {
         "active_step_index": 1,
-        "active_step_key": "prototype_step_2",
+        "active_step_key": locomotive_key,
         "step_number": 2,
         "technique": "Locomotive",
         "description": "Hide contract across three covers",
@@ -299,6 +404,7 @@ def test_clear_with_active_step_closes_popup_and_restores_empty_state() -> None:
 def test_inline_variant_reuses_shell_and_cancel_resets_active_step() -> None:
     app, page = _page()
     _add_steps(page, app, ["lsbpp", "locomotive", "metadata"])
+    metadata_key = page.pipeline_steps[2].key
 
     page.btn_inline.click()
     QTest.mouseClick(
@@ -311,7 +417,7 @@ def test_inline_variant_reuses_shell_and_cancel_resets_active_step() -> None:
     panel = page.active_step_panel
     assert page.config_variant == "inline"
     assert page.active_step_index == 2
-    assert page.active_step_key == "prototype_step_3"
+    assert page.active_step_key == metadata_key
     assert page.active_step_dialog is None
     assert isinstance(panel, StepConfigShellPanel)
     assert panel.step_number == 3
@@ -1320,7 +1426,7 @@ def test_lsb_inline_save_persists_inputs_and_updates_step_card(tmp_path) -> None
 
     draft = page.pipeline_steps[0].technique_inputs
     assert isinstance(draft, LSBInputsDraft)
-    assert draft.cover_path == str(cover_path)
+    assert draft.cover == str(cover_path)
     assert draft.payload_text == "Project Phoenix launch code"
     assert draft.encryption_enabled is True
     assert draft.encryption_mode == "password"
@@ -1362,7 +1468,7 @@ def test_lsb_popup_save_persists_inputs_and_updates_step_card(tmp_path) -> None:
 
     draft = page.pipeline_steps[0].technique_inputs
     assert isinstance(draft, LSBInputsDraft)
-    assert draft.cover_path == str(cover_path)
+    assert draft.cover == str(cover_path)
     assert draft.payload_text == "Popup payload"
     assert draft.encryption_mode == "password"
     assert draft.password == "popup passphrase"
@@ -1512,6 +1618,45 @@ def test_lsb_saved_inputs_reopen_and_cancel_does_not_mutate_draft(
     assert page.step_cards[0].summary_text("payload") == "Text (13 B)"
 
 
+def test_lsb_linked_cover_round_trips_without_manual_picker() -> None:
+    app = _app()
+    form = LSBEmbedInputs()
+    linked_cover = StepOutput("step_a31f8", "result")
+    draft = LSBInputsDraft(
+        cover=linked_cover,
+        payload_text="Linked payload",
+        encryption_enabled=False,
+    )
+
+    form.load_draft(draft)
+    _process_events(app)
+
+    assert form.cover_source == linked_cover
+    assert form.cover_file_path is None
+    assert form.cover_drop_zone.selected_files == []
+    assert form.validate_draft() is True
+    assert form.export_draft() == draft
+
+
+def test_lsb_linked_cover_renders_without_path_assumptions() -> None:
+    app, page = _page()
+    _add_steps(page, app, ["metadata", "lsbpp"])
+    source_key = page.pipeline_steps[0].key
+    page.pipeline_steps[1].technique_inputs = LSBInputsDraft(
+        cover=StepOutput(source_key, "result"),
+        payload_text="Linked payload",
+        encryption_enabled=False,
+    )
+
+    page.render_step_cards()
+
+    card = page.step_cards[1]
+    assert card.summary_text("cover") == "From STEP 1, Output 1"
+    assert card.summary_tooltip("cover") == (
+        "From STEP 1, Output 1\nSource: Unavailable"
+    )
+
+
 def _configure_valid_locomotive_file_form(
     form: LocomotiveEmbedInputs,
     cover_paths: list[Path],
@@ -1557,9 +1702,12 @@ def test_locomotive_inline_save_reopens_and_updates_step_card(tmp_path) -> None:
 
     draft = page.pipeline_steps[0].technique_inputs
     assert isinstance(draft, LocomotiveInputsDraft)
-    assert draft.cover_paths == [str(path) for path in cover_paths]
+    assert [cover.source for cover in draft.covers] == [
+        str(path) for path in cover_paths
+    ]
+    assert len({cover.output_key for cover in draft.covers}) == 2
     assert draft.payload_mode == "files"
-    assert draft.payload_paths == [str(path) for path in payload_paths]
+    assert draft.payload_files == [str(path) for path in payload_paths]
     assert draft.payload_text == ""
     assert draft.encryption_mode == "password"
     assert draft.password == "locomotive passphrase"
@@ -1592,6 +1740,7 @@ def test_locomotive_inline_save_reopens_and_updates_step_card(tmp_path) -> None:
     assert reopened_form.cover_drop_zone.selected_files == [
         str(path) for path in cover_paths
     ]
+    assert reopened_form.locomotive_covers == draft.covers
     assert reopened_form.payload_file_drop_zone.selected_files == [
         str(path) for path in payload_paths
     ]
@@ -1636,9 +1785,9 @@ def test_locomotive_popup_text_no_encryption_persists_across_shells(
 
     draft = page.pipeline_steps[0].technique_inputs
     assert isinstance(draft, LocomotiveInputsDraft)
-    assert draft.cover_paths == [str(cover_path)]
+    assert [cover.source for cover in draft.covers] == [str(cover_path)]
     assert draft.payload_mode == "text"
-    assert draft.payload_paths == []
+    assert draft.payload_files == []
     assert draft.payload_text == "Secret timetable"
     assert draft.encryption_enabled is False
     assert draft.password == ""

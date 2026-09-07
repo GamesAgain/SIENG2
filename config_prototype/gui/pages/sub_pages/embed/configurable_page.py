@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
+from uuid import uuid4
 
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QIcon
@@ -10,11 +11,15 @@ from PyQt6.QtWidgets import (
     QProgressBar,
 )
 
+from config_prototype.core.configurable import StepOutput, StepOutputInfo
 from config_prototype.gui.components.step_card import (
     CARD_HEIGHT,
     TECHNIQUE_DISPLAY,
     StepCard,
     make_arrow,
+)
+from config_prototype.gui.components.step_output_picker import (
+    output_display_name,
 )
 from config_prototype.gui.components.technique_forms import (
     ApicImageDraft,
@@ -51,6 +56,7 @@ CANVAS_MARGIN = 16
 FLOW_SPACING = 8
 VISIBLE_CANVAS_ROWS = 2
 MAX_VISIBLE_FLOW_HEIGHT = (CARD_HEIGHT * VISIBLE_CANVAS_ROWS + FLOW_SPACING * (VISIBLE_CANVAS_ROWS - 1))
+STEP_KEY_HEX_LENGTH = 5
 
 
 @dataclass
@@ -78,7 +84,7 @@ class EmbedConfigurablePage(QFrame):
 
         self.key_registry = key_registry
         self.pipeline_steps: list[PipelineStepDraft] = []
-        self._next_step_key = 1
+        self.used_step_keys: set[str] = set()
         self.step_cards: list[StepCard] = []
         self.technique_buttons: dict[str, QPushButton] = {}
         self.config_variant = "popup"
@@ -277,17 +283,346 @@ class EmbedConfigurablePage(QFrame):
         meta = TECHNIQUE_DISPLAY[technique]
         self.pipeline_steps.append(
             PipelineStepDraft(
-                key=self._new_step_key(),
+                key=self.generate_step_key(),
                 technique=technique,
                 description=meta["description"],
             )
         )
         self.render_step_cards()
 
-    def _new_step_key(self) -> str:
-        key = f"prototype_step_{self._next_step_key}"
-        self._next_step_key += 1
-        return key
+    def generate_step_key(self) -> str:
+        while True:
+            key = f"step_{uuid4().hex[:STEP_KEY_HEX_LENGTH]}"
+            if key not in self.used_step_keys:
+                self.used_step_keys.add(key)
+                return key
+
+    def build_output_catalog(
+        self,
+        before_step_index: int,
+    ) -> list[StepOutputInfo]:
+        if not 0 <= before_step_index <= len(self.pipeline_steps):
+            raise IndexError("Step index is outside the pipeline")
+
+        catalog: list[StepOutputInfo] = []
+        for step_index in range(before_step_index):
+            step = self.pipeline_steps[step_index]
+            draft = step.technique_inputs
+            output_keys = (
+                [cover.output_key for cover in draft.covers]
+                if isinstance(draft, LocomotiveInputsDraft)
+                else ["result"]
+            )
+            for output_key in output_keys:
+                output_info = self.step_output_info(step_index, output_key)
+                if output_info is not None:
+                    catalog.append(output_info)
+        return catalog
+
+    def step_index_for_key(self, step_key: str) -> int | None:
+        return next(
+            (
+                index
+                for index, step in enumerate(self.pipeline_steps)
+                if step.key == step_key
+            ),
+            None,
+        )
+
+    def step_output_info(
+        self,
+        step_index: int,
+        output_key: str,
+    ) -> StepOutputInfo | None:
+        if not 0 <= step_index < len(self.pipeline_steps):
+            raise IndexError("Step index is outside the pipeline")
+
+        step = self.pipeline_steps[step_index]
+        if step.technique == "lsbpp":
+            if output_key != "result":
+                return None
+            media_type = "png"
+            display_name = None
+        elif step.technique == "locomotive":
+            draft = step.technique_inputs
+            if not isinstance(draft, LocomotiveInputsDraft):
+                return None
+            output_index = next(
+                (
+                    index
+                    for index, cover in enumerate(draft.covers)
+                    if cover.output_key == output_key
+                ),
+                None,
+            )
+            if output_index is None:
+                return None
+            media_type = "png"
+            display_name = f"Output {output_index + 1}"
+        elif step.technique == "metadata":
+            if output_key != "result":
+                return None
+            media_type = self.metadata_output_media_type(step)
+            display_name = None
+        else:
+            return None
+
+        return StepOutputInfo(
+            reference=StepOutput(step.key, output_key),
+            step_number=step_index + 1,
+            technique=step.technique,
+            media_type=media_type,
+            preview_path=self.step_output_preview_path(step, output_key),
+            display_name=display_name,
+        )
+
+    def linked_output_error(
+        self,
+        reference: StepOutput,
+        consumer_index: int,
+        accepted_media: set[str],
+    ) -> str | None:
+        if not 0 <= consumer_index < len(self.pipeline_steps):
+            raise IndexError("Consumer index is outside the pipeline")
+
+        producer_index = self.step_index_for_key(reference.step_key)
+        if producer_index is None:
+            return "Source step no longer exists."
+        if producer_index == consumer_index:
+            return "A step cannot use its own output."
+        if producer_index > consumer_index:
+            return "A step cannot use output from a later step."
+
+        output_info = self.step_output_info(
+            producer_index,
+            reference.output_key,
+        )
+        if output_info is None:
+            output_name = output_display_name(reference.output_key)
+            return (
+                f"{output_name} is not available from "
+                f"Step {producer_index + 1}."
+            )
+
+        producer = self.pipeline_steps[producer_index]
+        if producer.technique_inputs is None:
+            return f"Step {producer_index + 1} is not configured yet."
+
+        media_type = output_info.media_type
+        if media_type is None:
+            return f"Step {producer_index + 1} output type is unknown."
+
+        accepted = {media.lower() for media in accepted_media}
+        if media_type.lower() not in accepted:
+            expected = ", ".join(sorted(media.upper() for media in accepted))
+            return (
+                f"{media_type.upper()} output from Step "
+                f"{producer_index + 1} cannot be used here. "
+                f"Expected: {expected}."
+            )
+        return None
+
+    def linked_output_dependency_error(
+        self,
+        reference: StepOutput,
+        consumer_index: int,
+        accepted_media: set[str],
+    ) -> str | None:
+        """Validate a link and the producer chain behind that link."""
+        direct_error = self.linked_output_error(
+            reference,
+            consumer_index,
+            accepted_media,
+        )
+        if direct_error is not None:
+            return direct_error
+
+        usage_error = self.step_output_usage_error(
+            reference,
+            consumer_index,
+        )
+        if usage_error is not None:
+            return usage_error
+
+        producer_index = self.step_index_for_key(reference.step_key)
+        if producer_index is None:
+            return "Source step no longer exists."
+
+        upstream_error = self.step_dependency_error(producer_index)
+        if upstream_error is not None:
+            return (
+                f"Step {producer_index + 1} is blocked by an earlier "
+                "dependency."
+            )
+        return None
+
+    @staticmethod
+    def step_output_references(
+        step: PipelineStepDraft,
+    ) -> list[StepOutput]:
+        """Return every saved output reference used by a Step."""
+        draft = step.technique_inputs
+        if isinstance(draft, LSBInputsDraft) and isinstance(
+            draft.cover,
+            StepOutput,
+        ):
+            return [draft.cover]
+        if isinstance(draft, LocomotiveInputsDraft):
+            references = [
+                cover.source
+                for cover in draft.covers
+                if isinstance(cover.source, StepOutput)
+            ]
+            if draft.payload_mode == "files":
+                references.extend(
+                    source
+                    for source in draft.payload_files
+                    if isinstance(source, StepOutput)
+                )
+            return references
+        return []
+
+    def step_output_consumer_indices(
+        self,
+        reference: StepOutput,
+    ) -> list[int]:
+        consumers: list[int] = []
+        for step_index, step in enumerate(self.pipeline_steps):
+            consumers.extend(
+                step_index
+                for saved_reference in self.step_output_references(step)
+                if saved_reference == reference
+            )
+        return consumers
+
+    def step_output_usage_error(
+        self,
+        reference: StepOutput,
+        consumer_index: int,
+    ) -> str | None:
+        """Enforce one saved consumer per output across all input roles."""
+        if not 0 <= consumer_index < len(self.pipeline_steps):
+            raise IndexError("Consumer index is outside the pipeline")
+
+        consumers = self.step_output_consumer_indices(reference)
+        if not consumers:
+            return None
+
+        if consumers.count(consumer_index) > 1:
+            producer_index = self.step_index_for_key(reference.step_key)
+            output_name = self.output_name_for_reference(reference)
+            source = (
+                output_name
+                if producer_index is None
+                else f"{output_name} from Step {producer_index + 1}"
+            )
+            return f"{source} is used more than once by Step {consumer_index + 1}."
+
+        owner_index = consumers[0]
+        if consumer_index == owner_index:
+            return None
+
+        producer_index = self.step_index_for_key(reference.step_key)
+        output_name = self.output_name_for_reference(reference)
+        if producer_index is None:
+            source = output_name
+        else:
+            source = f"{output_name} from Step {producer_index + 1}"
+        return f"{source} is already used by Step {owner_index + 1}."
+
+    def output_name_for_reference(self, reference: StepOutput) -> str:
+        producer_index = self.step_index_for_key(reference.step_key)
+        if producer_index is None:
+            return output_display_name(reference.output_key)
+        output_info = self.step_output_info(
+            producer_index,
+            reference.output_key,
+        )
+        if output_info is not None and output_info.display_name:
+            return output_info.display_name
+        return output_display_name(reference.output_key)
+
+    def step_output_preview_path(
+        self,
+        step: PipelineStepDraft,
+        output_key: str = "result",
+    ) -> str | None:
+        draft = step.technique_inputs
+        if isinstance(draft, LSBInputsDraft):
+            return self.resolve_source_preview_path(draft.cover)
+        if isinstance(draft, LocomotiveInputsDraft):
+            cover = next(
+                (
+                    cover
+                    for cover in draft.covers
+                    if cover.output_key == output_key
+                ),
+                None,
+            )
+            return (
+                self.resolve_source_preview_path(cover.source)
+                if cover is not None
+                else None
+            )
+        if isinstance(draft, MetadataInputsDraft):
+            return draft.cover_path
+        return None
+
+    def resolve_source_preview_path(
+        self,
+        source: str | StepOutput | None,
+        visited_steps: set[str] | None = None,
+    ) -> str | None:
+        if isinstance(source, str):
+            return source
+        if source is None:
+            return None
+
+        visited = set() if visited_steps is None else set(visited_steps)
+        if source.step_key in visited:
+            return None
+        visited.add(source.step_key)
+
+        producer = self.step_draft_for_key(source.step_key)
+        if producer is None:
+            return None
+        draft = producer.technique_inputs
+        if isinstance(draft, LSBInputsDraft):
+            return self.resolve_source_preview_path(draft.cover, visited)
+        if isinstance(draft, LocomotiveInputsDraft):
+            cover = next(
+                (
+                    cover
+                    for cover in draft.covers
+                    if cover.output_key == source.output_key
+                ),
+                None,
+            )
+            return (
+                self.resolve_source_preview_path(cover.source, visited)
+                if cover is not None
+                else None
+            )
+        if isinstance(draft, MetadataInputsDraft):
+            return draft.cover_path
+        return None
+
+    @staticmethod
+    def metadata_output_media_type(
+        step: PipelineStepDraft,
+    ) -> str | None:
+        draft = step.technique_inputs
+        if not isinstance(draft, MetadataInputsDraft):
+            return None
+        if isinstance(draft.payload, PNGMetadataDraft):
+            return "png"
+        if isinstance(draft.payload, MP3MetadataDraft):
+            return "mp3"
+        if draft.cover_path:
+            suffix = Path(draft.cover_path).suffix.lower()
+            if suffix in {".png", ".mp3"}:
+                return suffix[1:]
+        return None
 
     def clear_pipeline(self):
         self.close_active_step_config()
@@ -331,10 +666,10 @@ class EmbedConfigurablePage(QFrame):
         self.render_step_cards()
 
     def step_draft_for_key(self, step_key: str) -> PipelineStepDraft | None:
-        return next(
-            (step for step in self.pipeline_steps if step.key == step_key),
-            None,
-        )
+        step_index = self.step_index_for_key(step_key)
+        if step_index is None:
+            return None
+        return self.pipeline_steps[step_index]
 
     def save_step_draft(
         self,
@@ -360,11 +695,64 @@ class EmbedConfigurablePage(QFrame):
         if isinstance(technique_form, LSBEmbedInputs):
             if not technique_form.validate_draft():
                 return False
-            technique_inputs = technique_form.export_draft()
+            lsb_draft = technique_form.export_draft()
+            if isinstance(lsb_draft.cover, StepOutput):
+                step_index = self.step_index_for_key(step_key)
+                if step_index is None:
+                    return False
+                dependency_error = self.linked_output_dependency_error(
+                    lsb_draft.cover,
+                    step_index,
+                    {"png"},
+                )
+                if dependency_error is not None:
+                    technique_form.cover_output_picker.set_unavailable_reason(
+                        dependency_error
+                    )
+                    return technique_form.show_validation_warning(
+                        dependency_error,
+                        title="Linked Output Unavailable",
+                    )
+            technique_inputs = lsb_draft
         elif isinstance(technique_form, LocomotiveEmbedInputs):
             if not technique_form.validate_draft():
                 return False
-            technique_inputs = technique_form.export_draft()
+            locomotive_draft = technique_form.export_draft()
+            step_index = self.step_index_for_key(step_key)
+            if step_index is None:
+                return False
+            linked_inputs = [
+                (cover.source, {"png"})
+                for cover in locomotive_draft.covers
+                if isinstance(cover.source, StepOutput)
+            ]
+            if locomotive_draft.payload_mode == "files":
+                linked_inputs.extend(
+                    (source, {"png", "mp3"})
+                    for source in locomotive_draft.payload_files
+                    if isinstance(source, StepOutput)
+                )
+
+            references = [reference for reference, _media in linked_inputs]
+            if len(references) != len(set(references)):
+                return technique_form.show_validation_warning(
+                    "The same previous output cannot be used more than once "
+                    "in a Locomotive step.",
+                    title="Linked Output Already Used",
+                )
+
+            for reference, accepted_media in linked_inputs:
+                dependency_error = self.linked_output_dependency_error(
+                    reference,
+                    step_index,
+                    accepted_media,
+                )
+                if dependency_error is not None:
+                    return technique_form.show_validation_warning(
+                        dependency_error,
+                        title="Linked Output Unavailable",
+                    )
+            technique_inputs = locomotive_draft
         elif isinstance(technique_form, MetadataEmbedInputs):
             if not technique_form.validate_draft():
                 return False
@@ -378,15 +766,121 @@ class EmbedConfigurablePage(QFrame):
     def create_step_technique_form(
         self,
         step: PipelineStepDraft,
+        step_index: int,
     ) -> QWidget | None:
         if step.technique == "lsbpp":
-            form = LSBEmbedInputs(key_registry=self.key_registry)
+            cover_dependency_error = None
+            if (
+                isinstance(step.technique_inputs, LSBInputsDraft)
+                and isinstance(step.technique_inputs.cover, StepOutput)
+            ):
+                cover_dependency_error = self.linked_output_dependency_error(
+                    step.technique_inputs.cover,
+                    step_index,
+                    {"png"},
+                )
+            output_catalog = [
+                output
+                for output in self.build_output_catalog(step_index)
+                if output.media_type == "png"
+                and self.linked_output_dependency_error(
+                    output.reference,
+                    step_index,
+                    {"png"},
+                )
+                is None
+            ]
+            form = LSBEmbedInputs(
+                key_registry=self.key_registry,
+                output_catalog=output_catalog,
+                cover_dependency_error=cover_dependency_error,
+            )
             if isinstance(step.technique_inputs, LSBInputsDraft):
                 form.load_draft(step.technique_inputs)
             return form
 
         if step.technique == "locomotive":
-            form = LocomotiveEmbedInputs(key_registry=self.key_registry)
+            saved_draft = (
+                step.technique_inputs
+                if isinstance(step.technique_inputs, LocomotiveInputsDraft)
+                else LocomotiveInputsDraft()
+            )
+            saved_cover_references = {
+                cover.source
+                for cover in saved_draft.covers
+                if isinstance(cover.source, StepOutput)
+            }
+            saved_payload_references = (
+                {
+                    source
+                    for source in saved_draft.payload_files
+                    if isinstance(source, StepOutput)
+                }
+                if saved_draft.payload_mode == "files"
+                else set()
+            )
+            all_outputs = self.build_output_catalog(step_index)
+            cover_output_catalog = [
+                output
+                for output in all_outputs
+                if output.media_type == "png"
+                and self.linked_output_dependency_error(
+                    output.reference,
+                    step_index,
+                    {"png"},
+                )
+                is None
+                and (
+                    not self.step_output_consumer_indices(output.reference)
+                    or output.reference in saved_cover_references
+                )
+            ]
+            payload_output_catalog = [
+                output
+                for output in all_outputs
+                if output.media_type in {"png", "mp3"}
+                and self.linked_output_dependency_error(
+                    output.reference,
+                    step_index,
+                    {"png", "mp3"},
+                )
+                is None
+                and (
+                    not self.step_output_consumer_indices(output.reference)
+                    or output.reference in saved_payload_references
+                )
+            ]
+            cover_dependency_errors = {
+                reference: error
+                for reference in saved_cover_references
+                if (
+                    error := self.linked_output_dependency_error(
+                        reference,
+                        step_index,
+                        {"png"},
+                    )
+                )
+                is not None
+            }
+            payload_dependency_errors = {
+                reference: error
+                for reference in saved_payload_references
+                if (
+                    error := self.linked_output_dependency_error(
+                        reference,
+                        step_index,
+                        {"png", "mp3"},
+                    )
+                )
+                is not None
+            }
+            form = LocomotiveEmbedInputs(
+                key_registry=self.key_registry,
+                output_catalog=cover_output_catalog,
+                payload_output_catalog=payload_output_catalog,
+                cover_dependency_errors=cover_dependency_errors,
+                payload_dependency_errors=payload_dependency_errors,
+            )
             if isinstance(step.technique_inputs, LocomotiveInputsDraft):
                 form.load_draft(step.technique_inputs)
             return form
@@ -417,7 +911,7 @@ class EmbedConfigurablePage(QFrame):
         self.close_active_step_config()
         step = self.pipeline_steps[index]
         meta = TECHNIQUE_DISPLAY[step.technique]
-        technique_form = self.create_step_technique_form(step)
+        technique_form = self.create_step_technique_form(step, index)
         dialog = StepConfigShellDialog(
             step_number=index + 1,
             technique_label=meta["label"],
@@ -452,7 +946,7 @@ class EmbedConfigurablePage(QFrame):
         self.close_active_step_config()
         step = self.pipeline_steps[index]
         meta = TECHNIQUE_DISPLAY[step.technique]
-        technique_form = self.create_step_technique_form(step)
+        technique_form = self.create_step_technique_form(step, index)
         panel = StepConfigShellPanel(
             step_number=index + 1,
             technique_label=meta["label"],
@@ -529,6 +1023,9 @@ class EmbedConfigurablePage(QFrame):
                 lambda index=step_number - 1: self.on_step_card_clicked(index)
             )
             self.apply_step_draft_to_card(step_card, step)
+            dependency_error = self.step_dependency_error(step_number - 1)
+            if dependency_error is not None:
+                step_card.set_status("blocked", dependency_error)
             self.step_cards.append(step_card)
             self.flow_layout.addWidget(step_card)
 
@@ -540,21 +1037,21 @@ class EmbedConfigurablePage(QFrame):
 
         self.refresh_canvas_height()
 
-    @staticmethod
     def apply_step_draft_to_card(
+        self,
         step_card: StepCard,
         step: PipelineStepDraft,
     ) -> None:
         draft = step.technique_inputs
         if step.technique == "lsbpp" and isinstance(draft, LSBInputsDraft):
-            EmbedConfigurablePage.apply_lsb_draft_to_card(step_card, draft)
+            self.apply_lsb_draft_to_card(step_card, draft)
             return
 
         if step.technique == "locomotive" and isinstance(
             draft,
             LocomotiveInputsDraft,
         ):
-            EmbedConfigurablePage.apply_locomotive_draft_to_card(
+            self.apply_locomotive_draft_to_card(
                 step_card,
                 draft,
             )
@@ -575,8 +1072,8 @@ class EmbedConfigurablePage(QFrame):
                     draft,
                 )
 
-    @staticmethod
     def apply_lsb_draft_to_card(
+        self,
         step_card: StepCard,
         draft: LSBInputsDraft,
     ) -> None:
@@ -584,42 +1081,156 @@ class EmbedConfigurablePage(QFrame):
             draft.encryption_enabled,
             draft.encryption_mode,
         )
+        if isinstance(draft.cover, StepOutput):
+            cover = self.step_output_summary(draft.cover)
+        elif draft.cover:
+            cover = Path(draft.cover).name
+        else:
+            cover = "Not selected"
 
         step_card.set_summary(
-            cover=Path(draft.cover_path).name if draft.cover_path else "Not selected",
+            cover=cover,
             payload=(
                 f"Text ({format_file_size(len(draft.payload_text.encode('utf-8')))})"
             ),
             output="PNG ×1",
             encryption=encryption,
         )
+        if isinstance(draft.cover, StepOutput):
+            step_card.set_summary_tooltip(
+                "cover",
+                self.step_output_tooltip(draft.cover),
+            )
         step_card.set_status("ready", "LSB++ inputs are configured")
 
-    @staticmethod
+    def step_dependency_error(self, step_index: int) -> str | None:
+        if not 0 <= step_index < len(self.pipeline_steps):
+            raise IndexError("Step index is outside the pipeline")
+
+        if self._has_dependency_cycle(step_index):
+            return "Circular dependency detected."
+
+        draft = self.pipeline_steps[step_index].technique_inputs
+        if isinstance(draft, LSBInputsDraft) and isinstance(
+            draft.cover,
+            StepOutput,
+        ):
+            return self.linked_output_dependency_error(
+                draft.cover,
+                step_index,
+                {"png"},
+            )
+        if isinstance(draft, LocomotiveInputsDraft):
+            linked_inputs = [
+                (cover.source, {"png"})
+                for cover in draft.covers
+                if isinstance(cover.source, StepOutput)
+            ]
+            if draft.payload_mode == "files":
+                linked_inputs.extend(
+                    (source, {"png", "mp3"})
+                    for source in draft.payload_files
+                    if isinstance(source, StepOutput)
+                )
+            for reference, accepted_media in linked_inputs:
+                dependency_error = self.linked_output_dependency_error(
+                    reference,
+                    step_index,
+                    accepted_media,
+                )
+                if dependency_error is not None:
+                    return dependency_error
+        return None
+
+    def _has_dependency_cycle(
+        self,
+        step_index: int,
+        path: set[str] | None = None,
+    ) -> bool:
+        """Follow saved linked covers while guarding invalid imported graphs."""
+        step = self.pipeline_steps[step_index]
+        current_path = set() if path is None else path
+        if step.key in current_path:
+            return True
+
+        for reference in self.step_output_references(step):
+            producer_index = self.step_index_for_key(reference.step_key)
+            if producer_index is None:
+                continue
+            if self._has_dependency_cycle(
+                producer_index,
+                current_path | {step.key},
+            ):
+                return True
+        return False
+
+    def step_output_summary(self, reference: StepOutput) -> str:
+        producer_index = self.step_index_for_key(reference.step_key)
+        if producer_index is None:
+            return "Source unavailable"
+        output_info = self.step_output_info(
+            producer_index,
+            reference.output_key,
+        )
+        output_name = (
+            output_info.display_name
+            if output_info is not None and output_info.display_name
+            else output_display_name(reference.output_key)
+        )
+        return f"From STEP {producer_index + 1}, {output_name}"
+
+    def step_output_tooltip(self, reference: StepOutput) -> str:
+        producer = self.step_draft_for_key(reference.step_key)
+        if producer is None:
+            return "Source step no longer exists."
+        preview_path = (
+            self.step_output_preview_path(producer, reference.output_key)
+        )
+        source_name = Path(preview_path).name if preview_path else "Unavailable"
+        return f"{self.step_output_summary(reference)}\nSource: {source_name}"
+
     def apply_locomotive_draft_to_card(
+        self,
         step_card: StepCard,
         draft: LocomotiveInputsDraft,
     ) -> None:
-        cover_count = len(draft.cover_paths)
-        cover = (
-            Path(draft.cover_paths[0]).name
-            if cover_count == 1
-            else f"PNG ×{cover_count}"
-        )
+        cover_count = len(draft.covers)
+        if cover_count == 1:
+            source = draft.covers[0].source
+            cover = (
+                self.step_output_summary(source)
+                if isinstance(source, StepOutput)
+                else Path(source).name
+            )
+        else:
+            cover = f"PNG ×{cover_count}"
 
         if draft.payload_mode == "text":
             payload_size = len(draft.payload_text.encode("utf-8"))
             payload = f"Text ({format_file_size(payload_size)})"
         else:
+            manual_payloads = [
+                source
+                for source in draft.payload_files
+                if isinstance(source, str)
+            ]
+            linked_payloads = [
+                source
+                for source in draft.payload_files
+                if isinstance(source, StepOutput)
+            ]
             payload_size = sum(
                 Path(path).stat().st_size
-                for path in draft.payload_paths
+                for path in manual_payloads
                 if Path(path).is_file()
             )
-            payload = (
-                f"Files ×{len(draft.payload_paths)} "
-                f"({format_file_size(payload_size)})"
-            )
+            if linked_payloads:
+                payload = f"Files ×{len(draft.payload_files)} (at run)"
+            else:
+                payload = (
+                    f"Files ×{len(draft.payload_files)} "
+                    f"({format_file_size(payload_size)})"
+                )
 
         step_card.set_summary(
             cover=cover,
@@ -634,29 +1245,49 @@ class EmbedConfigurablePage(QFrame):
         if cover_count > 1:
             cover_lines = [f"Cover PNGs ({cover_count}):"]
             cover_lines.extend(
-                f"{index}. {Path(path).name}"
-                for index, path in enumerate(draft.cover_paths, start=1)
+                (
+                    f"{index}. {self.step_output_summary(item.source)}"
+                    if isinstance(item.source, StepOutput)
+                    else f"{index}. {Path(item.source).name}"
+                )
+                for index, item in enumerate(draft.covers, start=1)
             )
             step_card.set_summary_tooltip(
                 "cover",
                 "\n".join(cover_lines),
             )
+        elif cover_count == 1 and isinstance(
+            draft.covers[0].source,
+            StepOutput,
+        ):
+            step_card.set_summary_tooltip(
+                "cover",
+                self.step_output_tooltip(draft.covers[0].source),
+            )
 
         if draft.payload_mode == "files":
             payload_lines = [
-                f"Payload files ({len(draft.payload_paths)}):"
+                f"Payload files ({len(draft.payload_files)}):"
             ]
-            for index, path in enumerate(draft.payload_paths, start=1):
-                file_path = Path(path)
-                file_size = (
-                    format_file_size(file_path.stat().st_size)
-                    if file_path.is_file()
-                    else "Unavailable"
-                )
+            for index, source in enumerate(draft.payload_files, start=1):
+                if isinstance(source, StepOutput):
+                    payload_lines.append(
+                        f"{index}. {self.step_output_summary(source)}"
+                    )
+                else:
+                    file_path = Path(source)
+                    file_size = (
+                        format_file_size(file_path.stat().st_size)
+                        if file_path.is_file()
+                        else "Unavailable"
+                    )
+                    payload_lines.append(
+                        f"{index}. {file_path.name} — {file_size}"
+                    )
+            if not linked_payloads:
                 payload_lines.append(
-                    f"{index}. {file_path.name} — {file_size}"
+                    f"Total: {format_file_size(payload_size)}"
                 )
-            payload_lines.append(f"Total: {format_file_size(payload_size)}")
             step_card.set_summary_tooltip(
                 "payload",
                 "\n".join(payload_lines),
