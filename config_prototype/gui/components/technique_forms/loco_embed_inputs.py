@@ -226,6 +226,12 @@ class LocomotiveEmbedInputs(QFrame):
         self.cover_source_stack = QStackedWidget()
         self.cover_source_stack.addWidget(drop_zone)
         self.cover_source_stack.addWidget(self.cover_output_picker)
+        self.cover_output_picker.minimum_height_changed.connect(
+            self.cover_source_stack.setMinimumHeight
+        )
+        self.cover_source_stack.setMinimumHeight(
+            self.cover_output_picker.minimumHeight()
+        )
 
         self.cover_summary_label = QLabel()
         self.cover_summary_label.setObjectName("capacityLabel")
@@ -292,6 +298,12 @@ class LocomotiveEmbedInputs(QFrame):
         self.payload_source_stack = QStackedWidget()
         self.payload_source_stack.addWidget(drop_zone)
         self.payload_source_stack.addWidget(self.payload_output_picker)
+        self.payload_output_picker.minimum_height_changed.connect(
+            self.payload_source_stack.setMinimumHeight
+        )
+        self.payload_source_stack.setMinimumHeight(
+            self.payload_output_picker.minimumHeight()
+        )
 
         file_tab_layout.addWidget(self.payload_mode_toggle)
         file_tab_layout.addWidget(self.payload_source_stack)

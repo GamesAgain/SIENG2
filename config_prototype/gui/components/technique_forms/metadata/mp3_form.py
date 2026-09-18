@@ -6,14 +6,25 @@ from pathlib import Path
 from typing import Literal, TypeAlias
 
 from PyQt6.QtCore import QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QIcon, QImageReader, QPixmap
+from PyQt6.QtGui import QIcon, QImageReader, QPixmap, QStandardItemModel
 from PyQt6.QtWidgets import (
-    QComboBox, QFileDialog, QFrame, QGridLayout,
+    QComboBox, QFrame, QGridLayout,
     QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-    QPlainTextEdit, QPushButton, QScrollArea, QTabWidget,
+    QPlainTextEdit, QPushButton, QScrollArea, QStackedWidget, QTabWidget,
     QVBoxLayout, QWidget,
 )
 
+from config_prototype.core.configurable import (
+    FileSource,
+    StepOutput,
+    StepOutputInfo,
+)
+from config_prototype.gui.components.linked_step_toggle import LinkedStepToggle
+from config_prototype.gui.components.step_card import TECHNIQUE_DISPLAY
+from config_prototype.gui.components.step_output_picker import (
+    StepOutputPicker,
+    output_info_display_name,
+)
 from config_prototype.gui.paths import ICON_DIR
 from src.core.stego.metadata_handlers.mp3_handler import (
     APIC_TYPES,
@@ -116,13 +127,48 @@ MP3FrameDraft: TypeAlias = MP3SimpleFrameDraft | MP3ComplexFrameDraft
 
 
 APIC_IMAGE_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png"})
+APIC_DESCRIPTION_MAX_LENGTH = 64
+APIC_DEFAULT_DESCRIPTIONS = {
+    0: "Other",
+    1: "File icon",
+    2: "Other file icon",
+    3: "Front cover",
+    4: "Back cover",
+    5: "Leaflet",
+    6: "Media label",
+    7: "Lead artist",
+    8: "Artist",
+    9: "Conductor",
+    10: "Band or orchestra",
+    11: "Composer",
+    12: "Lyricist",
+    13: "Recording location",
+    14: "During recording",
+    15: "During performance",
+    16: "Video capture",
+    17: "Bright coloured fish",
+    18: "Illustration",
+    19: "Artist logo",
+    20: "Publisher logo",
+}
+
+
+def default_apic_description(picture_type: int) -> str:
+    """Return the concise description used for a new APIC image."""
+
+    try:
+        return APIC_DEFAULT_DESCRIPTIONS[picture_type]
+    except KeyError as error:
+        raise ValueError(
+            f"Unsupported APIC picture type: {picture_type}."
+        ) from error
 
 
 @dataclass
 class ApicImageDraft:
-    """One local image that will become an MP3 attached-picture frame."""
+    """One image source that will become an MP3 attached-picture frame."""
 
-    image_path: str
+    image: FileSource
     picture_type: int = 3
     description: str = ""
 
@@ -135,8 +181,8 @@ def apic_draft_structure_error(drafts: object) -> str | None:
     for draft in drafts:
         if not isinstance(draft, ApicImageDraft):
             return "APIC image drafts contain an unsupported item."
-        if not isinstance(draft.image_path, str):
-            return "APIC image paths must be text."
+        if not isinstance(draft.image, (str, StepOutput)):
+            return "APIC image sources must be file paths or step outputs."
         if not isinstance(draft.picture_type, int) or isinstance(
             draft.picture_type,
             bool,
@@ -966,11 +1012,15 @@ class ApicImageCard(QFrame):
         self,
         draft: ApicImageDraft,
         *,
+        output_info: StepOutputInfo | None = None,
+        source_error: str | None = None,
         tint: str = "blue",
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.draft = draft
+        self.output_info = output_info
+        self.source_error = source_error
         self.setObjectName("apicCard")
         self.build_ui(tint)
 
@@ -999,7 +1049,19 @@ class ApicImageCard(QFrame):
 
         image_label = QLabel()
         image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        pixmap = QPixmap(self.draft.image_path)
+        manual_path = (
+            Path(self.draft.image)
+            if isinstance(self.draft.image, str)
+            else None
+        )
+        preview_path = (
+            str(manual_path)
+            if manual_path is not None
+            else self.output_info.preview_path
+            if self.output_info is not None
+            else None
+        )
+        pixmap = QPixmap(preview_path) if preview_path else QPixmap()
         if pixmap.isNull():
             pixmap = create_icon_pixmap(ICON_DIR / "photo.svg", size=28)
         else:
@@ -1018,19 +1080,47 @@ class ApicImageCard(QFrame):
         info_layout.setContentsMargins(10, 8, 10, 10)
         info_layout.setSpacing(4)
 
-        image_path = Path(self.draft.image_path)
-        name_label = QLabel(truncate_text_middle(image_path.name, 38))
+        if manual_path is not None:
+            source_title = manual_path.name
+            source_tooltip = str(manual_path)
+        elif self.output_info is not None:
+            presentation = TECHNIQUE_DISPLAY[self.output_info.technique]
+            source_title = (
+                f"Step {self.output_info.step_number} · "
+                f"{presentation['label']} · "
+                f"{output_info_display_name(self.output_info)}"
+            )
+            source_name = (
+                Path(self.output_info.preview_path).name
+                if self.output_info.preview_path
+                else "Preview unavailable"
+            )
+            source_tooltip = f"{source_title}\nSource: {source_name}"
+        else:
+            source_title = "Previous output unavailable"
+            source_tooltip = self.source_error or source_title
+
+        name_label = QLabel(truncate_text_middle(source_title, 38))
         name_label.setObjectName("fileInfoName")
-        name_label.setToolTip(str(image_path))
+        name_label.setToolTip(source_tooltip)
         info_layout.addWidget(name_label)
 
-        if image_path.is_file():
+        if manual_path is not None and manual_path.is_file():
             detail = (
-                f"{image_path.suffix[1:].upper()} - "
-                f"{format_file_size(image_path.stat().st_size)}"
+                f"{manual_path.suffix[1:].upper()} - "
+                f"{format_file_size(manual_path.stat().st_size)}"
             )
-        else:
+        elif manual_path is not None:
             detail = "File unavailable"
+        elif self.output_info is not None:
+            source_name = (
+                Path(self.output_info.preview_path).name
+                if self.output_info.preview_path
+                else "Preview unavailable"
+            )
+            detail = f"PNG - Source: {source_name}"
+        else:
+            detail = self.source_error or "Source unavailable"
         detail_label = QLabel(detail)
         detail_label.setObjectName("fileInfoDetail")
         info_layout.addWidget(detail_label)
@@ -1077,20 +1167,30 @@ class ApicImageCard(QFrame):
 
 
 class MP3ApicImagesForm(QFrame):
-    """Own the manual APIC image collection for one MP3 step draft."""
+    """Own manual and linked APIC image sources for one MP3 step draft."""
 
     changed = pyqtSignal()
 
     def __init__(
         self,
         *,
+        output_catalog: list[StepOutputInfo] | None = None,
+        dependency_errors: dict[StepOutput, str] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("mp3ApicImagesForm")
+        self.output_catalog = [
+            output
+            for output in (output_catalog or [])
+            if output.media_type == "png"
+        ]
+        self.dependency_errors = dict(dependency_errors or {})
         self._drafts: list[ApicImageDraft] = []
         self.cards: list[ApicImageCard] = []
-        self._pending_image_path: str | None = None
+        self._pending_image: FileSource | None = None
+        self._editing_index: int | None = None
+        self._generated_description: str | None = None
         self.build_ui()
 
     def build_ui(self) -> None:
@@ -1119,9 +1219,7 @@ class MP3ApicImagesForm(QFrame):
         title_label = QLabel("Attached Pictures (APIC)")
         title_label.setObjectName("cardTitle")
         self.count_badge = _make_badge("0")
-        hint_label = QLabel(
-            "Multiple images need different descriptions"
-        )
+        hint_label = QLabel("Each picture type can be used once")
         hint_label.setObjectName("hintLabel")
 
         header.addWidget(icon_label)
@@ -1147,12 +1245,18 @@ class MP3ApicImagesForm(QFrame):
         icon_label.setPixmap(
             create_icon_pixmap(ICON_DIR / "photo.svg", size=16)
         )
-        title_label = QLabel("Add New Image")
-        title_label.setObjectName("cardTitle")
+        self.add_form_title = QLabel("Add New Image")
+        self.add_form_title.setObjectName("cardTitle")
         title_row.addWidget(icon_label)
-        title_row.addWidget(title_label)
+        title_row.addWidget(self.add_form_title)
         title_row.addStretch()
         layout.addLayout(title_row)
+
+        self.source_mode_toggle = LinkedStepToggle()
+        self.source_mode_toggle.mode_changed.connect(
+            self.on_source_mode_changed
+        )
+        layout.addWidget(self.source_mode_toggle)
 
         form_row = QHBoxLayout()
         form_row.setSpacing(16)
@@ -1165,7 +1269,18 @@ class MP3ApicImagesForm(QFrame):
         self.image_drop_zone.file_selected.connect(
             self.on_image_file_selected
         )
-        form_row.addWidget(self.image_drop_zone, 1)
+        self.output_picker = StepOutputPicker(self.output_catalog)
+        self.output_picker.selection_changed.connect(
+            self.on_output_selected
+        )
+        self.source_stack = QStackedWidget()
+        self.source_stack.addWidget(self.image_drop_zone)
+        self.source_stack.addWidget(self.output_picker)
+        self.output_picker.minimum_height_changed.connect(
+            self.source_stack.setMinimumHeight
+        )
+        self.source_stack.setMinimumHeight(self.output_picker.minimumHeight())
+        form_row.addWidget(self.source_stack, 1)
 
         settings_layout = QVBoxLayout()
         settings_layout.setSpacing(8)
@@ -1175,6 +1290,9 @@ class MP3ApicImagesForm(QFrame):
         self.type_combo = QComboBox()
         for type_id, type_name in APIC_TYPES.items():
             self.type_combo.addItem(f"{type_id} - {type_name}", type_id)
+        self.type_combo.currentIndexChanged.connect(
+            self._apply_default_description
+        )
         settings_layout.addWidget(type_label)
         settings_layout.addWidget(self.type_combo)
 
@@ -1182,8 +1300,9 @@ class MP3ApicImagesForm(QFrame):
         description_label.setObjectName("formLabel")
         self.description_input = QLineEdit()
         self.description_input.setObjectName("formInput")
+        self.description_input.setMaxLength(APIC_DESCRIPTION_MAX_LENGTH)
         self.description_input.setPlaceholderText(
-            "Optional for one image; unique when adding several"
+            "Unique description for this picture"
         )
         settings_layout.addWidget(description_label)
         settings_layout.addWidget(self.description_input)
@@ -1209,67 +1328,151 @@ class MP3ApicImagesForm(QFrame):
         return card
 
     def _reset_picture_type(self) -> None:
-        index = self.type_combo.findData(3)
-        self.type_combo.setCurrentIndex(index if index >= 0 else 0)
+        used_types = {draft.picture_type for draft in self._drafts}
+        preferred_types = [3, 4, *APIC_TYPES]
+        picture_type = next(
+            (
+                type_id
+                for type_id in preferred_types
+                if type_id not in used_types
+            ),
+            None,
+        )
+        index = (
+            self.type_combo.findData(picture_type)
+            if picture_type is not None
+            else -1
+        )
+        self.type_combo.setCurrentIndex(index)
+        self._apply_default_description()
+
+    def _apply_default_description(self, _index: int = -1) -> None:
+        picture_type = self.type_combo.currentData()
+        if picture_type is None:
+            return
+
+        default_description = default_apic_description(int(picture_type))
+        current_description = self.description_input.text()
+        if (
+            not current_description.strip()
+            or current_description == self._generated_description
+        ):
+            self.description_input.setText(default_description)
+        self._generated_description = default_description
+
+    def _refresh_picture_type_options(self) -> None:
+        used_types = {
+            draft.picture_type
+            for index, draft in enumerate(self._drafts)
+            if index != self._editing_index
+        }
+        model = self.type_combo.model()
+        if isinstance(model, QStandardItemModel):
+            for index in range(self.type_combo.count()):
+                item = model.item(index)
+                if item is not None:
+                    item.setEnabled(
+                        self.type_combo.itemData(index) not in used_types
+                    )
+
+        has_available_type = len(used_types) < len(APIC_TYPES)
+        self.type_combo.setEnabled(has_available_type)
+        self.add_button.setEnabled(has_available_type)
+        if (
+            not has_available_type
+            or self.type_combo.currentData() in used_types
+        ):
+            self._reset_picture_type()
+
+    def on_source_mode_changed(self, mode: str) -> None:
+        linked = mode == "linked"
+        self.source_stack.setCurrentIndex(1 if linked else 0)
+        self._pending_image = (
+            self.output_picker.selected_output()
+            if linked
+            else self.image_drop_zone.file_path or None
+        )
 
     def on_image_file_selected(self, image_path: str) -> None:
-        self._pending_image_path = image_path or None
+        if not self.source_mode_toggle.is_linked():
+            self._pending_image = image_path or None
+
+    def on_output_selected(self, reference: StepOutput) -> None:
+        if self.source_mode_toggle.is_linked():
+            self._pending_image = reference
 
     def confirm_add_image(self) -> bool:
-        if not self._pending_image_path:
+        if self._pending_image is None:
             return self.show_validation_warning(
-                "Please select an image first."
+                "Please select an image source first."
+            )
+
+        picture_type = self.type_combo.currentData()
+        if picture_type is None:
+            return self.show_validation_warning(
+                "All APIC picture types are already in use."
             )
 
         candidate = ApicImageDraft(
-            image_path=self._pending_image_path,
-            picture_type=int(self.type_combo.currentData()),
+            image=self._pending_image,
+            picture_type=int(picture_type),
             description=self.description_input.text().strip(),
         )
-        error = self.draft_validation_error([*self._drafts, candidate])
+        candidate_drafts = list(self._drafts)
+        if self._editing_index is None:
+            candidate_drafts.append(candidate)
+        else:
+            candidate_drafts[self._editing_index] = candidate
+        error = self.draft_validation_error(candidate_drafts)
+        if error is None and isinstance(candidate.image, StepOutput):
+            error = self.linked_source_error(candidate.image)
         if error is not None:
             return self.show_validation_warning(error)
 
-        self._drafts.append(candidate)
-        self._refresh_collection()
+        if self._editing_index is None:
+            self._drafts.append(candidate)
+        else:
+            self._drafts[self._editing_index] = candidate
         self.reset_add_form()
+        self._refresh_collection()
         self.changed.emit()
         return True
 
     def remove_image(self, card: ApicImageCard) -> None:
         if card.draft not in self._drafts:
             return
+        removed_index = self._drafts.index(card.draft)
         self._drafts.remove(card.draft)
+        if self._editing_index == removed_index:
+            self.reset_add_form()
+        elif (
+            self._editing_index is not None
+            and self._editing_index > removed_index
+        ):
+            self._editing_index -= 1
         self._refresh_collection()
         self.changed.emit()
 
     def replace_image(
         self,
         card: ApicImageCard,
-        image_path: str | None = None,
+        image: FileSource | None = None,
     ) -> bool:
         if card.draft not in self._drafts:
             return False
-        if image_path is None:
-            patterns = " ".join(
-                f"*{suffix}" for suffix in sorted(APIC_IMAGE_EXTENSIONS)
-            )
-            image_path, _ = QFileDialog.getOpenFileName(
-                self,
-                "Select replacement image",
-                "",
-                f"Images ({patterns})",
-            )
-        if not image_path:
-            return False
+        if image is None:
+            self.begin_change_image(card)
+            return True
 
         replacement = deepcopy(card.draft)
-        replacement.image_path = image_path
+        replacement.image = image
         candidate_drafts = [
             replacement if draft is card.draft else draft
             for draft in self._drafts
         ]
         error = self.draft_validation_error(candidate_drafts)
+        if error is None and isinstance(image, StepOutput):
+            error = self.linked_source_error(image)
         if error is not None:
             return self.show_validation_warning(error)
 
@@ -1279,11 +1482,49 @@ class MP3ApicImagesForm(QFrame):
         self.changed.emit()
         return True
 
-    def reset_add_form(self) -> None:
+    def begin_change_image(self, card: ApicImageCard) -> None:
+        if card.draft not in self._drafts:
+            return
+
+        self._editing_index = self._drafts.index(card.draft)
+        draft = self._drafts[self._editing_index]
+        self.add_form_title.setText("Change Image")
+        self.add_button.setText("Save Changes")
+        self._generated_description = None
+        self.type_combo.setCurrentIndex(
+            self.type_combo.findData(draft.picture_type)
+        )
+        self.description_input.setText(draft.description)
         self.image_drop_zone.clear_file()
+        self.output_picker.clear_selection()
+
+        if isinstance(draft.image, StepOutput):
+            self.source_mode_toggle.set_mode("linked")
+            self.source_stack.setCurrentIndex(1)
+            self.output_picker.set_selected_output(draft.image)
+            self.output_picker.set_unavailable_reason(
+                self.linked_source_error(draft.image)
+            )
+        else:
+            self.source_mode_toggle.set_mode("manual")
+            self.source_stack.setCurrentIndex(0)
+            self.image_drop_zone.add_files([draft.image])
+        self._pending_image = draft.image
+        self._refresh_picture_type_options()
+
+    def reset_add_form(self) -> None:
+        self._editing_index = None
+        self.add_form_title.setText("Add New Image")
+        self.add_button.setText("+ Add Image")
+        self.image_drop_zone.clear_file()
+        self.output_picker.clear_selection()
+        self.source_mode_toggle.set_mode("manual")
+        self.source_stack.setCurrentIndex(0)
         self.description_input.clear()
+        self._generated_description = None
         self._reset_picture_type()
-        self._pending_image_path = None
+        self._refresh_picture_type_options()
+        self._pending_image = None
 
     def _refresh_collection(self) -> None:
         while self.cards_grid.count():
@@ -1297,6 +1538,12 @@ class MP3ApicImagesForm(QFrame):
         for index, draft in enumerate(self._drafts):
             card = ApicImageCard(
                 draft,
+                output_info=self.output_info(draft.image),
+                source_error=(
+                    self.linked_source_error(draft.image)
+                    if isinstance(draft.image, StepOutput)
+                    else None
+                ),
                 tint=TINT_CYCLE[index % len(TINT_CYCLE)],
             )
             card.replace_requested.connect(self.replace_image)
@@ -1308,6 +1555,7 @@ class MP3ApicImagesForm(QFrame):
         count = len(self._drafts)
         self.count_badge.setText(str(count))
         self.cards_section.setVisible(count > 0)
+        self._refresh_picture_type_options()
 
     def load_draft(self, drafts: list[ApicImageDraft]) -> None:
         loaded_drafts = deepcopy(drafts)
@@ -1331,6 +1579,43 @@ class MP3ApicImagesForm(QFrame):
     def image_count(self) -> int:
         return len(self._drafts)
 
+    def output_info(self, source: FileSource) -> StepOutputInfo | None:
+        if not isinstance(source, StepOutput):
+            return None
+        return next(
+            (
+                output
+                for output in self.output_catalog
+                if output.reference == source
+            ),
+            None,
+        )
+
+    def linked_source_error(self, source: StepOutput) -> str | None:
+        if self.output_info(source) is not None:
+            return None
+        return self.dependency_errors.get(
+            source,
+            "The saved APIC output is no longer available.",
+        )
+
+    def mark_linked_source_unavailable(
+        self,
+        source: StepOutput,
+        reason: str,
+    ) -> None:
+        """Refresh an open editor after Save detects a stale output claim."""
+        self.output_catalog = [
+            output
+            for output in self.output_catalog
+            if output.reference != source
+        ]
+        self.dependency_errors[source] = reason
+        self.output_picker.set_candidates(self.output_catalog)
+        if self.output_picker.selected_output() == source:
+            self.output_picker.set_unavailable_reason(reason)
+        self._refresh_collection()
+
     @staticmethod
     def draft_validation_error(
         drafts: list[ApicImageDraft],
@@ -1340,29 +1625,71 @@ class MP3ApicImagesForm(QFrame):
             return structure_error
 
         descriptions: set[str] = set()
+        picture_types: set[int] = set()
         for draft in drafts:
-            image_path = Path(draft.image_path)
-            if not draft.image_path.strip():
-                return "Each APIC image needs a file."
-            if image_path.suffix.lower() not in APIC_IMAGE_EXTENSIONS:
-                return "APIC images must use JPEG or PNG format."
-            if not image_path.is_file():
-                return f"APIC image is unavailable: {image_path.name}"
-            if not QImageReader(str(image_path)).canRead():
-                return f"APIC image cannot be read: {image_path.name}"
+            image_path = None
+            image_reader = None
+            if isinstance(draft.image, str):
+                image_path = Path(draft.image)
+                if not draft.image.strip():
+                    return "Each APIC image needs a file."
+                if image_path.suffix.lower() not in APIC_IMAGE_EXTENSIONS:
+                    return "APIC images must use JPEG or PNG format."
+                if not image_path.is_file():
+                    return f"APIC image is unavailable: {image_path.name}"
+                image_reader = QImageReader(str(image_path))
+                if not image_reader.canRead():
+                    return f"APIC image cannot be read: {image_path.name}"
+
+            if draft.picture_type in picture_types:
+                return (
+                    "Each APIC picture type can be used only once. "
+                    f"Type {draft.picture_type} is already used."
+                )
+            picture_types.add(draft.picture_type)
+
+            if draft.picture_type == 1 and image_reader is not None:
+                image_format = bytes(image_reader.format()).lower()
+                if (
+                    image_path is None
+                    or image_path.suffix.lower() != ".png"
+                    or image_format != b"png"
+                ):
+                    return "APIC type 1 must use PNG format."
+                if image_reader.size() != QSize(32, 32):
+                    return "APIC type 1 must be exactly 32 x 32 pixels."
 
             description = draft.description.strip()
-            if description in descriptions:
+            if len(description) > APIC_DESCRIPTION_MAX_LENGTH:
                 return (
-                    "APIC descriptions must be unique. Add a description "
-                    "when using multiple images."
+                    "APIC descriptions cannot exceed "
+                    f"{APIC_DESCRIPTION_MAX_LENGTH} characters."
                 )
-            descriptions.add(description)
+            description_key = description.casefold()
+            if description_key in descriptions:
+                return (
+                    "APIC descriptions must be unique, ignoring letter case."
+                )
+            descriptions.add(description_key)
 
         return None
 
     def validate_draft(self) -> bool:
-        error = self.draft_validation_error(self.export_draft())
+        drafts = self.export_draft()
+        error = self.draft_validation_error(drafts)
+        if error is None:
+            error = next(
+                (
+                    source_error
+                    for draft in drafts
+                    if isinstance(draft.image, StepOutput)
+                    if (
+                        source_error := self.linked_source_error(draft.image)
+                    )
+                    is not None
+                ),
+                None,
+            )
         if error is not None:
             return self.show_validation_warning(error)
         return True
@@ -1385,6 +1712,8 @@ class MP3MetadataForm(QFrame):
     def __init__(
         self,
         *,
+        apic_output_catalog: list[StepOutputInfo] | None = None,
+        apic_dependency_errors: dict[StepOutput, str] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -1397,7 +1726,10 @@ class MP3MetadataForm(QFrame):
         self.tabs.setIconSize(QSize(16, 16))
 
         self.text_frames_form = MP3TextFramesForm()
-        self.apic_images_form = MP3ApicImagesForm()
+        self.apic_images_form = MP3ApicImagesForm(
+            output_catalog=apic_output_catalog,
+            dependency_errors=apic_dependency_errors,
+        )
         self.text_frames_form.changed.connect(self.changed.emit)
         self.apic_images_form.changed.connect(self._on_apic_changed)
 
@@ -1485,6 +1817,8 @@ class MP3MetadataForm(QFrame):
 
 
 __all__ = [
+    "APIC_DEFAULT_DESCRIPTIONS",
+    "APIC_DESCRIPTION_MAX_LENGTH",
     "APIC_IMAGE_EXTENSIONS",
     "ApicImageCard",
     "ApicImageDraft",
@@ -1503,5 +1837,6 @@ __all__ = [
     "MP3TextFramesForm",
     "TextFrameField",
     "apic_draft_structure_error",
+    "default_apic_description",
     "is_mp3_simple_frame_id",
 ]

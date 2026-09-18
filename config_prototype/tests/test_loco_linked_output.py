@@ -162,6 +162,10 @@ def test_step_output_picker_scrolls_long_catalog_without_compressing_rows() -> N
 
     assert short_picker.output_scroll.height() < OUTPUT_LIST_MAX_HEIGHT
     assert short_picker.output_scroll.verticalScrollBar().maximum() == 0
+    assert short_picker.header.y() == 0
+    assert short_picker.output_scroll.y() == (
+        short_picker.header.height() + short_picker.content_layout.spacing()
+    )
     assert long_picker.output_scroll.height() == OUTPUT_LIST_MAX_HEIGHT
     assert long_picker.output_scroll.verticalScrollBar().maximum() > 0
     assert all(

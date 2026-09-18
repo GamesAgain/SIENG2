@@ -256,11 +256,11 @@ def test_lsb_picker_filters_used_output_media_and_resolves_chained_preview(
         encryption_enabled=False,
     )
     page.pipeline_steps[2].technique_inputs = MetadataInputsDraft(
-        cover_path=str(cover_path),
+        cover=str(cover_path),
         payload=MP3MetadataDraft(),
     )
     page.pipeline_steps[3].technique_inputs = MetadataInputsDraft(
-        cover_path=str(cover_path),
+        cover=str(cover_path),
         payload=PNGMetadataDraft(entries={"Comment": "Layer three"}),
     )
 

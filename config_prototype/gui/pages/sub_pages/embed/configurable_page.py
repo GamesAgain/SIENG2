@@ -480,6 +480,19 @@ class EmbedConfigurablePage(QFrame):
                     if isinstance(source, StepOutput)
                 )
             return references
+        if isinstance(draft, MetadataInputsDraft):
+            references = (
+                [draft.cover]
+                if isinstance(draft.cover, StepOutput)
+                else []
+            )
+            if isinstance(draft.payload, MP3MetadataDraft):
+                references.extend(
+                    image.image
+                    for image in draft.payload.apic_images
+                    if isinstance(image.image, StepOutput)
+                )
+            return references
         return []
 
     def step_output_consumer_indices(
@@ -565,7 +578,7 @@ class EmbedConfigurablePage(QFrame):
                 else None
             )
         if isinstance(draft, MetadataInputsDraft):
-            return draft.cover_path
+            return self.resolve_source_preview_path(draft.cover)
         return None
 
     def resolve_source_preview_path(
@@ -604,7 +617,7 @@ class EmbedConfigurablePage(QFrame):
                 else None
             )
         if isinstance(draft, MetadataInputsDraft):
-            return draft.cover_path
+            return self.resolve_source_preview_path(draft.cover, visited)
         return None
 
     @staticmethod
@@ -618,8 +631,8 @@ class EmbedConfigurablePage(QFrame):
             return "png"
         if isinstance(draft.payload, MP3MetadataDraft):
             return "mp3"
-        if draft.cover_path:
-            suffix = Path(draft.cover_path).suffix.lower()
+        if isinstance(draft.cover, str):
+            suffix = Path(draft.cover).suffix.lower()
             if suffix in {".png", ".mp3"}:
                 return suffix[1:]
         return None
@@ -756,7 +769,64 @@ class EmbedConfigurablePage(QFrame):
         elif isinstance(technique_form, MetadataEmbedInputs):
             if not technique_form.validate_draft():
                 return False
-            technique_inputs = technique_form.export_draft()
+            metadata_draft = technique_form.export_draft()
+            step_index = self.step_index_for_key(step_key)
+            if step_index is None:
+                return False
+            linked_apic_images = (
+                [
+                    image.image
+                    for image in metadata_draft.payload.apic_images
+                    if isinstance(image.image, StepOutput)
+                ]
+                if isinstance(metadata_draft.payload, MP3MetadataDraft)
+                else []
+            )
+            linked_references = (
+                [metadata_draft.cover]
+                if isinstance(metadata_draft.cover, StepOutput)
+                else []
+            )
+            linked_references.extend(linked_apic_images)
+            if len(linked_references) != len(set(linked_references)):
+                return technique_form.show_validation_warning(
+                    "The same previous output cannot be used more than once "
+                    "in a Metadata step.",
+                    title="Linked Output Already Used",
+                )
+            if isinstance(metadata_draft.cover, StepOutput):
+                dependency_error = self.linked_output_dependency_error(
+                    metadata_draft.cover,
+                    step_index,
+                    {"png", "mp3"},
+                )
+                if dependency_error is not None:
+                    technique_form.cover_output_picker.set_unavailable_reason(
+                        dependency_error
+                    )
+                    return technique_form.show_validation_warning(
+                        dependency_error,
+                        title="Linked Output Unavailable",
+                    )
+            for reference in linked_apic_images:
+                dependency_error = self.linked_output_dependency_error(
+                    reference,
+                    step_index,
+                    {"png"},
+                )
+                if dependency_error is not None:
+                    apic_form = (
+                        technique_form.mp3_form.apic_images_form
+                    )
+                    apic_form.mark_linked_source_unavailable(
+                        reference,
+                        dependency_error,
+                    )
+                    return technique_form.show_validation_warning(
+                        dependency_error,
+                        title="Linked APIC Source Unavailable",
+                    )
+            technique_inputs = metadata_draft
 
         step.description = description
         step.guidenote = guidenote.strip()
@@ -886,7 +956,83 @@ class EmbedConfigurablePage(QFrame):
             return form
 
         if step.technique == "metadata":
-            form = MetadataEmbedInputs()
+            saved_draft = (
+                step.technique_inputs
+                if isinstance(step.technique_inputs, MetadataInputsDraft)
+                else MetadataInputsDraft()
+            )
+            saved_reference = (
+                saved_draft.cover
+                if isinstance(saved_draft.cover, StepOutput)
+                else None
+            )
+            saved_apic_references = {
+                image.image
+                for image in (
+                    saved_draft.payload.apic_images
+                    if isinstance(saved_draft.payload, MP3MetadataDraft)
+                    else []
+                )
+                if isinstance(image.image, StepOutput)
+            }
+            cover_dependency_error = (
+                self.linked_output_dependency_error(
+                    saved_reference,
+                    step_index,
+                    {"png", "mp3"},
+                )
+                if saved_reference is not None
+                else None
+            )
+            all_outputs = self.build_output_catalog(step_index)
+            output_catalog = [
+                output
+                for output in all_outputs
+                if output.media_type in {"png", "mp3"}
+                and self.linked_output_dependency_error(
+                    output.reference,
+                    step_index,
+                    {"png", "mp3"},
+                )
+                is None
+                and (
+                    not self.step_output_consumer_indices(output.reference)
+                    or output.reference == saved_reference
+                )
+            ]
+            apic_output_catalog = [
+                output
+                for output in all_outputs
+                if output.media_type == "png"
+                and self.linked_output_dependency_error(
+                    output.reference,
+                    step_index,
+                    {"png"},
+                )
+                is None
+                and (
+                    not self.step_output_consumer_indices(output.reference)
+                    or output.reference in saved_apic_references
+                )
+            ]
+            apic_dependency_errors = {
+                reference: error
+                for reference in saved_apic_references
+                if (
+                    error := self.linked_output_dependency_error(
+                        reference,
+                        step_index,
+                        {"png"},
+                    )
+                )
+                is not None
+            }
+            form = MetadataEmbedInputs(
+                output_catalog=output_catalog,
+                cover_dependency_error=cover_dependency_error,
+                apic_output_catalog=apic_output_catalog,
+                apic_dependency_errors=apic_dependency_errors,
+            )
             if isinstance(step.technique_inputs, MetadataInputsDraft):
                 form.load_draft(step.technique_inputs)
             return form
@@ -1062,12 +1208,12 @@ class EmbedConfigurablePage(QFrame):
             and isinstance(draft, MetadataInputsDraft)
         ):
             if isinstance(draft.payload, PNGMetadataDraft):
-                EmbedConfigurablePage.apply_metadata_png_draft_to_card(
+                self.apply_metadata_png_draft_to_card(
                     step_card,
                     draft,
                 )
             elif isinstance(draft.payload, MP3MetadataDraft):
-                EmbedConfigurablePage.apply_metadata_mp3_draft_to_card(
+                self.apply_metadata_mp3_draft_to_card(
                     step_card,
                     draft,
                 )
@@ -1107,10 +1253,17 @@ class EmbedConfigurablePage(QFrame):
         if not 0 <= step_index < len(self.pipeline_steps):
             raise IndexError("Step index is outside the pipeline")
 
+        step = self.pipeline_steps[step_index]
+        if any(
+            reference.step_key == step.key
+            for reference in self.step_output_references(step)
+        ):
+            return "A step cannot use its own output."
+
         if self._has_dependency_cycle(step_index):
             return "Circular dependency detected."
 
-        draft = self.pipeline_steps[step_index].technique_inputs
+        draft = step.technique_inputs
         if isinstance(draft, LSBInputsDraft) and isinstance(
             draft.cover,
             StepOutput,
@@ -1131,6 +1284,26 @@ class EmbedConfigurablePage(QFrame):
                     (source, {"png", "mp3"})
                     for source in draft.payload_files
                     if isinstance(source, StepOutput)
+                )
+            for reference, accepted_media in linked_inputs:
+                dependency_error = self.linked_output_dependency_error(
+                    reference,
+                    step_index,
+                    accepted_media,
+                )
+                if dependency_error is not None:
+                    return dependency_error
+        if isinstance(draft, MetadataInputsDraft):
+            linked_inputs = (
+                [(draft.cover, {"png", "mp3"})]
+                if isinstance(draft.cover, StepOutput)
+                else []
+            )
+            if isinstance(draft.payload, MP3MetadataDraft):
+                linked_inputs.extend(
+                    (image.image, {"png"})
+                    for image in draft.payload.apic_images
+                    if isinstance(image.image, StepOutput)
                 )
             for reference, accepted_media in linked_inputs:
                 dependency_error = self.linked_output_dependency_error(
@@ -1295,32 +1468,37 @@ class EmbedConfigurablePage(QFrame):
 
         step_card.set_status("ready", "Locomotive inputs are configured")
 
-    @staticmethod
     def apply_metadata_png_draft_to_card(
+        self,
         step_card: StepCard,
         draft: MetadataInputsDraft,
     ) -> None:
         payload = draft.payload
         if not isinstance(payload, PNGMetadataDraft):
             return
-        if (
-            not draft.cover_path
-            or Path(draft.cover_path).suffix.lower() != ".png"
-            or not payload.entries
-        ):
+        if not payload.entries:
+            return
+        if isinstance(draft.cover, str):
+            if Path(draft.cover).suffix.lower() != ".png":
+                return
+            cover_summary = Path(draft.cover).name
+        elif isinstance(draft.cover, StepOutput):
+            cover_summary = self.step_output_summary(draft.cover)
+        else:
             return
 
         entry_count = len(payload.entries)
         step_card.set_summary(
-            cover=(
-                Path(draft.cover_path).name
-                if draft.cover_path
-                else "Not selected"
-            ),
+            cover=cover_summary,
             payload=f"Text fields ×{entry_count}",
             output="PNG ×1",
             encryption="None",
         )
+        if isinstance(draft.cover, StepOutput):
+            step_card.set_summary_tooltip(
+                "cover",
+                self.step_output_tooltip(draft.cover),
+            )
 
         key_lines = [f"PNG metadata fields ({entry_count}):"]
         key_lines.extend(
@@ -1336,18 +1514,21 @@ class EmbedConfigurablePage(QFrame):
             "PNG metadata inputs are configured",
         )
 
-    @staticmethod
     def apply_metadata_mp3_draft_to_card(
+        self,
         step_card: StepCard,
         draft: MetadataInputsDraft,
     ) -> None:
         payload = draft.payload
         if not isinstance(payload, MP3MetadataDraft):
             return
-        if (
-            not draft.cover_path
-            or Path(draft.cover_path).suffix.lower() != ".mp3"
-        ):
+        if isinstance(draft.cover, str):
+            if Path(draft.cover).suffix.lower() != ".mp3":
+                return
+            cover_summary = Path(draft.cover).name
+        elif isinstance(draft.cover, StepOutput):
+            cover_summary = self.step_output_summary(draft.cover)
+        else:
             return
 
         frame_count = 0
@@ -1390,12 +1571,17 @@ class EmbedConfigurablePage(QFrame):
         for image in payload.apic_images:
             if (
                 not isinstance(image, ApicImageDraft)
-                or not image.image_path.strip()
                 or image.picture_type not in APIC_TYPES
             ):
                 return
+            if isinstance(image.image, StepOutput):
+                image_name = self.step_output_summary(image.image)
+            elif isinstance(image.image, str) and image.image.strip():
+                image_name = Path(image.image).name
+            else:
+                return
             apic_lines.append(
-                f"{len(apic_lines) + 1}. {Path(image.image_path).name} - "
+                f"{len(apic_lines) + 1}. {image_name} - "
                 f"{APIC_TYPES[image.picture_type]}"
             )
 
@@ -1423,11 +1609,16 @@ class EmbedConfigurablePage(QFrame):
             status_tooltip = "MP3 APIC inputs are configured"
 
         step_card.set_summary(
-            cover=Path(draft.cover_path).name,
+            cover=cover_summary,
             payload=payload_summary,
             output="MP3 ×1",
             encryption="None",
         )
+        if isinstance(draft.cover, StepOutput):
+            step_card.set_summary_tooltip(
+                "cover",
+                self.step_output_tooltip(draft.cover),
+            )
         step_card.set_summary_tooltip(
             "payload",
             "\n".join(tooltip_lines),

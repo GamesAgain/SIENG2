@@ -17,6 +17,8 @@ from config_prototype.gui.components.technique_forms.metadata_embed_inputs impor
     MetadataPayloadDraft,
 )
 from config_prototype.gui.components.technique_forms.metadata.mp3_form import (
+    APIC_DEFAULT_DESCRIPTIONS,
+    APIC_DESCRIPTION_MAX_LENGTH,
     APIC_IMAGE_EXTENSIONS,
     MP3_COMPLEX_FRAME_CONTRACTS,
     ApicImageCard,
@@ -30,12 +32,15 @@ from config_prototype.gui.components.technique_forms.metadata.mp3_form import (
     MP3MetadataDraft,
     MP3MetadataForm,
     MP3SimpleFrameDraft,
+    default_apic_description,
 )
 from config_prototype.gui.components.technique_forms.metadata.png_form import (
     PNGMetadataDraft,
 )
 
 __all__ = [
+    "APIC_DEFAULT_DESCRIPTIONS",
+    "APIC_DESCRIPTION_MAX_LENGTH",
     "APIC_IMAGE_EXTENSIONS",
     "LSBEmbedInputs",
     "LSBInputsDraft",
@@ -59,5 +64,6 @@ __all__ = [
     "MP3SimpleFrameDraft",
     "PNGMetadataDraft",
     "generate_output_key",
+    "default_apic_description",
     "link_sources_to_covers",
 ]

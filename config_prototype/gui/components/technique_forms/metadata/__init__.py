@@ -1,6 +1,8 @@
 """PNG and MP3 Metadata technique forms used by the prototype."""
 
 from config_prototype.gui.components.technique_forms.metadata.mp3_form import (
+    APIC_DEFAULT_DESCRIPTIONS,
+    APIC_DESCRIPTION_MAX_LENGTH,
     APIC_IMAGE_EXTENSIONS,
     MP3_COMPLEX_FRAME_CONTRACTS,
     ApicImageCard,
@@ -19,6 +21,7 @@ from config_prototype.gui.components.technique_forms.metadata.mp3_form import (
     MP3TextFramesForm,
     TextFrameField,
     apic_draft_structure_error,
+    default_apic_description,
     is_mp3_simple_frame_id,
 )
 from config_prototype.gui.components.technique_forms.metadata.png_form import (
@@ -29,6 +32,8 @@ from config_prototype.gui.components.technique_forms.metadata.png_form import (
 )
 
 __all__ = [
+    "APIC_DEFAULT_DESCRIPTIONS",
+    "APIC_DESCRIPTION_MAX_LENGTH",
     "APIC_IMAGE_EXTENSIONS",
     "MP3_COMPLEX_FRAME_CONTRACTS",
     "ApicImageCard",
@@ -51,5 +56,6 @@ __all__ = [
     "PNGStandardField",
     "TextFrameField",
     "apic_draft_structure_error",
+    "default_apic_description",
     "is_mp3_simple_frame_id",
 ]

@@ -179,6 +179,12 @@ class LSBEmbedInputs(QFrame):
         self.cover_source_stack = QStackedWidget()
         self.cover_source_stack.addWidget(drop_zone)
         self.cover_source_stack.addWidget(self.cover_output_picker)
+        self.cover_output_picker.minimum_height_changed.connect(
+            self.cover_source_stack.setMinimumHeight
+        )
+        self.cover_source_stack.setMinimumHeight(
+            self.cover_output_picker.minimumHeight()
+        )
 
         cover_file_layout.addWidget(title_container, 0)  # top
         cover_file_layout.addWidget(self.cover_mode_toggle, 0)

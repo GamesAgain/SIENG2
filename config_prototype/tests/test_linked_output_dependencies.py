@@ -137,7 +137,7 @@ def test_linked_output_reports_unknown_and_incompatible_media() -> None:
     page = _page("metadata", "metadata", "lsbpp")
     page.pipeline_steps[0].technique_inputs = MetadataInputsDraft()
     page.pipeline_steps[1].technique_inputs = MetadataInputsDraft(
-        cover_path="D:/demo/audio.mp3",
+        cover="D:/demo/audio.mp3",
         payload=MP3MetadataDraft(),
     )
 
@@ -227,7 +227,7 @@ def test_deleting_producer_preserves_reference_and_blocks_step_card() -> None:
 def test_incompatible_link_blocks_lsb_step_card() -> None:
     page = _page("metadata", "lsbpp")
     page.pipeline_steps[0].technique_inputs = MetadataInputsDraft(
-        cover_path="D:/demo/audio.mp3",
+        cover="D:/demo/audio.mp3",
         payload=MP3MetadataDraft(),
     )
     page.pipeline_steps[1].technique_inputs = LSBInputsDraft(

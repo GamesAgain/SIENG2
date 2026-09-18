@@ -10,6 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtGui import QColor, QImage
 from PyQt6.QtWidgets import QApplication, QMessageBox, QWidget
 
+from config_prototype.core.configurable import StepOutput, StepOutputInfo
 from config_prototype.gui.components import technique_forms
 from config_prototype.gui.components.technique_forms.metadata_embed_inputs import (
     MetadataEmbedInputs,
@@ -57,7 +58,7 @@ def test_metadata_draft_defaults_are_isolated() -> None:
     assert second_mp3.frames == []
     assert second_mp3.apic_images == []
     assert MetadataInputsDraft() == MetadataInputsDraft(
-        cover_path=None,
+        cover=None,
         payload=None,
     )
 
@@ -78,28 +79,35 @@ def test_metadata_types_are_available_from_the_public_technique_package() -> Non
 
 def test_apic_draft_keeps_a_file_reference_instead_of_raw_bytes() -> None:
     draft = ApicImageDraft(
-        image_path="album-cover.png",
+        image="album-cover.png",
         picture_type=4,
         description="back",
     )
 
-    assert draft.image_path == "album-cover.png"
+    assert draft.image == "album-cover.png"
     assert draft.picture_type == 4
     assert draft.description == "back"
     assert {item.name for item in fields(ApicImageDraft)} == {
-        "image_path",
+        "image",
         "picture_type",
         "description",
     }
 
 
+def test_apic_draft_accepts_manual_or_linked_sources() -> None:
+    reference = StepOutput("step_ab123", "result")
+
+    assert ApicImageDraft("front.png").image == "front.png"
+    assert ApicImageDraft(reference).image == reference
+
+
 def test_metadata_inputs_accept_png_or_mp3_payload_drafts() -> None:
     png_inputs = MetadataInputsDraft(
-        cover_path="carrier.png",
+        cover="carrier.png",
         payload=PNGMetadataDraft(entries={"Secret": "TEST"}),
     )
     mp3_inputs = MetadataInputsDraft(
-        cover_path="carrier.mp3",
+        cover="carrier.mp3",
         payload=MP3MetadataDraft(
             frames=[
                 MP3ComplexFrameDraft(
@@ -114,7 +122,7 @@ def test_metadata_inputs_accept_png_or_mp3_payload_drafts() -> None:
             ],
             apic_images=[
                 ApicImageDraft(
-                    image_path="hidden.png",
+                    image="hidden.png",
                     picture_type=3,
                     description="front",
                 )
@@ -126,7 +134,91 @@ def test_metadata_inputs_accept_png_or_mp3_payload_drafts() -> None:
     assert png_inputs.payload.entries == {"Secret": "TEST"}
     assert isinstance(mp3_inputs.payload, MP3MetadataDraft)
     assert mp3_inputs.payload.frames[0].instances[0].text == "TEST"
-    assert mp3_inputs.payload.apic_images[0].image_path == "hidden.png"
+    assert mp3_inputs.payload.apic_images[0].image == "hidden.png"
+
+
+def test_metadata_cover_contract_accepts_manual_or_linked_sources() -> None:
+    reference = StepOutput("step_ab123", "result")
+
+    assert {item.name for item in fields(MetadataInputsDraft)} == {
+        "cover",
+        "payload",
+    }
+    assert MetadataInputsDraft(cover="carrier.png").cover == "carrier.png"
+    assert MetadataInputsDraft(cover=reference).cover == reference
+
+
+def test_broken_linked_cover_keeps_reference_payload_and_unavailable_state(
+    monkeypatch,
+) -> None:
+    _app()
+    warnings: list[str] = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        lambda _parent, _title, message: warnings.append(message),
+    )
+    draft = MetadataInputsDraft(
+        cover=StepOutput("step_ab123", "result"),
+        payload=PNGMetadataDraft(entries={"Title": "Hidden"}),
+    )
+    form = MetadataEmbedInputs(
+        cover_dependency_error="Source step no longer exists."
+    )
+
+    form.load_draft(draft)
+
+    assert form.cover_drop_zone.get_selected_files() == []
+    assert form.cover_mode_toggle.is_linked()
+    assert form.cover_output_picker.selected_output() == draft.cover
+    assert form.cover_output_picker.unavailable_reason() == (
+        "Source step no longer exists."
+    )
+    assert form.cover_media_type == "png"
+    assert form.content_stack.currentWidget() is form.png_form
+    assert form.export_draft() == draft
+    assert form.validate_draft()
+    assert warnings == []
+
+
+@pytest.mark.parametrize(
+    ("media_type", "payload_type", "expected_form_name"),
+    [
+        ("png", PNGMetadataDraft, "png_form"),
+        ("mp3", MP3MetadataDraft, "mp3_form"),
+    ],
+)
+def test_previous_output_selection_uses_catalog_media_without_fake_path(
+    media_type,
+    payload_type,
+    expected_form_name,
+) -> None:
+    _app()
+    reference = StepOutput("step_ab123", "result")
+    form = MetadataEmbedInputs(
+        output_catalog=[
+            StepOutputInfo(
+                reference=reference,
+                step_number=1,
+                technique="metadata",
+                media_type=media_type,
+            )
+        ]
+    )
+
+    form.cover_mode_toggle.set_mode("linked")
+    form.on_cover_mode_changed("linked")
+    form.cover_output_picker._select_from_click(reference)
+
+    exported = form.export_draft()
+    assert exported.cover == reference
+    assert isinstance(exported.payload, payload_type)
+    assert form.cover_drop_zone.get_selected_files() == []
+    assert form.cover_media_type == media_type
+    assert form.content_stack.currentWidget() is getattr(
+        form,
+        expected_form_name,
+    )
 
 
 def test_metadata_host_starts_with_an_empty_draft_and_view() -> None:
@@ -174,7 +266,7 @@ def test_manual_cover_select_replace_and_clear_updates_the_draft(
     form.cover_drop_zone.add_files([str(png_cover)])
 
     assert form.cover_drop_zone.get_selected_files() == [str(png_cover)]
-    assert form.export_draft().cover_path == str(png_cover)
+    assert form.export_draft().cover == str(png_cover)
     assert form.cover_media_type == "png"
     assert form.cover_file_stack.currentWidget() is form.selected_cover_widget
     assert form.file_info_bar.file_info_name.text() == png_cover.name
@@ -183,7 +275,7 @@ def test_manual_cover_select_replace_and_clear_updates_the_draft(
     form.cover_drop_zone.add_files([str(mp3_cover)])
 
     assert form.cover_drop_zone.get_selected_files() == [str(mp3_cover)]
-    assert form.export_draft().cover_path == str(mp3_cover)
+    assert form.export_draft().cover == str(mp3_cover)
     assert form.export_draft().payload == MP3MetadataDraft()
     assert form.cover_media_type == "mp3"
     assert form.cover_file_stack.currentWidget() is form.selected_cover_widget
@@ -193,7 +285,7 @@ def test_manual_cover_select_replace_and_clear_updates_the_draft(
     form.clear_cover()
 
     assert form.cover_drop_zone.get_selected_files() == []
-    assert form.export_draft().cover_path is None
+    assert form.export_draft().cover is None
     assert form.export_draft().payload == payload
     assert form.cover_media_type is None
     assert form.cover_file_stack.currentWidget() is form.cover_card
@@ -258,7 +350,7 @@ def test_load_draft_restores_available_cover_widget_and_media_state(
     cover = tmp_path / "carrier.png"
     cover.write_bytes(b"prototype png")
     source = MetadataInputsDraft(
-        cover_path=str(cover),
+        cover=str(cover),
         payload=PNGMetadataDraft(entries={"Secret": "TEST"}),
     )
     form = MetadataEmbedInputs()
@@ -277,10 +369,10 @@ def test_load_draft_restores_available_cover_widget_and_media_state(
     assert form.png_form.custom_rows[0].get_value() == "TEST"
     assert form.export_draft() == source
 
-    source.cover_path = "changed.png"
+    source.cover = "changed.png"
     source.payload.entries["Secret"] = "changed"
     assert form.export_draft() == MetadataInputsDraft(
-        cover_path=str(cover),
+        cover=str(cover),
         payload=PNGMetadataDraft(entries={"Secret": "TEST"}),
     )
 
@@ -306,18 +398,18 @@ def test_load_draft_with_no_cover_resets_widget_and_media_state(
 def test_png_load_and_export_are_detached_from_caller_state() -> None:
     _app()
     source = MetadataInputsDraft(
-        cover_path="carrier.png",
+        cover="carrier.png",
         payload=PNGMetadataDraft(entries={"Secret": "TEST"}),
     )
     form = MetadataEmbedInputs()
 
     form.load_draft(source)
-    source.cover_path = "changed.png"
+    source.cover = "changed.png"
     source.payload.entries["Secret"] = "changed"
 
     exported = form.export_draft()
     assert exported == MetadataInputsDraft(
-        cover_path="carrier.png",
+        cover="carrier.png",
         payload=PNGMetadataDraft(entries={"Secret": "TEST"}),
     )
 
@@ -328,7 +420,7 @@ def test_png_load_and_export_are_detached_from_caller_state() -> None:
 def test_mp3_load_and_export_copy_nested_frames_and_apic_items() -> None:
     _app()
     source = MetadataInputsDraft(
-        cover_path="carrier.mp3",
+        cover="carrier.mp3",
         payload=MP3MetadataDraft(
             frames=[
                 MP3ComplexFrameDraft(
@@ -343,7 +435,7 @@ def test_mp3_load_and_export_copy_nested_frames_and_apic_items() -> None:
             ],
             apic_images=[
                 ApicImageDraft(
-                    image_path="front.png",
+                    image="front.png",
                     picture_type=3,
                     description="front",
                 )
@@ -356,11 +448,11 @@ def test_mp3_load_and_export_copy_nested_frames_and_apic_items() -> None:
     assert form.mp3_form.text_frames_form.other_fields[0].frame_id == "TXXX"
     assert form.mp3_form.text_frames_form.other_fields[0].rows[0].get_value("text") == "TEST"
     source.payload.frames[0].instances[0].text = "changed"
-    source.payload.apic_images[0].image_path = "changed.png"
+    source.payload.apic_images[0].image = "changed.png"
 
     exported = form.export_draft()
     assert exported.payload.frames[0].instances[0].text == "TEST"
-    assert exported.payload.apic_images[0].image_path == "front.png"
+    assert exported.payload.apic_images[0].image == "front.png"
 
     exported.payload.frames[0].instances[0].text = "changed again"
     exported.payload.apic_images.clear()
@@ -378,11 +470,11 @@ def test_mp3_host_exports_live_text_controls_and_preserves_apic_draft(
     form = MetadataEmbedInputs()
     form.load_draft(
         MetadataInputsDraft(
-            cover_path=str(cover),
+            cover=str(cover),
             payload=MP3MetadataDraft(
                 apic_images=[
                     ApicImageDraft(
-                        image_path="front.png",
+                        image="front.png",
                         description="front",
                     )
                 ]
@@ -397,7 +489,7 @@ def test_mp3_host_exports_live_text_controls_and_preserves_apic_draft(
     exported = form.export_draft()
 
     assert exported == MetadataInputsDraft(
-        cover_path=str(cover),
+        cover=str(cover),
         payload=MP3MetadataDraft(
             frames=[
                 MP3SimpleFrameDraft("TIT2", "Hidden title"),
@@ -413,7 +505,7 @@ def test_mp3_host_exports_live_text_controls_and_preserves_apic_draft(
             ],
             apic_images=[
                 ApicImageDraft(
-                    image_path="front.png",
+                    image="front.png",
                     description="front",
                 )
             ],
@@ -436,12 +528,12 @@ def test_mp3_host_exports_and_validates_text_frames_with_apic(tmp_path) -> None:
     assert form.mp3_form.apic_images_form.confirm_add_image()
     assert form.validate_draft()
     assert form.export_draft() == MetadataInputsDraft(
-        cover_path=str(cover),
+        cover=str(cover),
         payload=MP3MetadataDraft(
             frames=[MP3SimpleFrameDraft("TIT2", "Hidden title")],
             apic_images=[
                 ApicImageDraft(
-                    image_path=str(image_path),
+                    image=str(image_path),
                     picture_type=3,
                     description="Front artwork",
                 )
@@ -474,7 +566,7 @@ def test_apic_can_replace_a_previous_png_payload_after_cover_change(
     assert isinstance(exported.payload, MP3MetadataDraft)
     assert exported.payload.frames == []
     assert exported.payload.apic_images == [
-        ApicImageDraft(str(image_path))
+        ApicImageDraft(str(image_path), description="Front cover")
     ]
 
 
@@ -491,7 +583,7 @@ def test_cover_switch_and_reload_do_not_leak_mp3_payload_into_png(
     form = MetadataEmbedInputs()
     form.load_draft(
         MetadataInputsDraft(
-            cover_path=str(mp3_cover),
+            cover=str(mp3_cover),
             payload=MP3MetadataDraft(
                 frames=[MP3SimpleFrameDraft("TIT2", "MP3 secret")],
                 apic_images=[ApicImageDraft(str(apic_image))],
@@ -505,7 +597,7 @@ def test_cover_switch_and_reload_do_not_leak_mp3_payload_into_png(
     assert form.validate_draft()
     png_draft = form.export_draft()
     assert png_draft == MetadataInputsDraft(
-        cover_path=str(png_cover),
+        cover=str(png_cover),
         payload=PNGMetadataDraft(entries={"Title": "PNG secret"}),
     )
 
@@ -520,7 +612,7 @@ def test_mp3_host_rejects_invalid_frame_draft_before_mutating_state() -> None:
     form = MetadataEmbedInputs()
     form.load_draft(
         MetadataInputsDraft(
-            cover_path="original.png",
+            cover="original.png",
             payload=PNGMetadataDraft(entries={"Title": "Keep me"}),
         )
     )
@@ -528,7 +620,7 @@ def test_mp3_host_rejects_invalid_frame_draft_before_mutating_state() -> None:
     with pytest.raises(ValueError, match="requires a complex draft"):
         form.load_draft(
             MetadataInputsDraft(
-                cover_path="invalid.mp3",
+                cover="invalid.mp3",
                 payload=MP3MetadataDraft(
                     frames=[MP3SimpleFrameDraft("COMM", "Wrong")]
                 ),
@@ -536,7 +628,7 @@ def test_mp3_host_rejects_invalid_frame_draft_before_mutating_state() -> None:
         )
 
     assert form.export_draft() == MetadataInputsDraft(
-        cover_path="original.png",
+        cover="original.png",
         payload=PNGMetadataDraft(entries={"Title": "Keep me"}),
     )
 
@@ -546,13 +638,13 @@ def test_loading_a_new_draft_replaces_the_previous_payload_type() -> None:
     form = MetadataEmbedInputs()
     form.load_draft(
         MetadataInputsDraft(
-            cover_path="first.png",
+            cover="first.png",
             payload=PNGMetadataDraft(entries={"Title": "First"}),
         )
     )
 
     replacement = MetadataInputsDraft(
-        cover_path="second.mp3",
+        cover="second.mp3",
         payload=MP3MetadataDraft(
             frames=[MP3SimpleFrameDraft("TIT2", "Second")]
         ),
@@ -587,25 +679,25 @@ def test_baseline_validation_reports_missing_and_mismatched_inputs(
         ),
         (
             MetadataInputsDraft(
-                cover_path=str(tmp_path / "missing.png"),
+                cover=str(tmp_path / "missing.png"),
                 payload=PNGMetadataDraft(entries={"Title": "Hidden"}),
             ),
             "The selected target file is unavailable.",
         ),
         (
             MetadataInputsDraft(
-                cover_path=str(unsupported_cover),
+                cover=str(unsupported_cover),
                 payload=PNGMetadataDraft(entries={"Title": "Hidden"}),
             ),
             "Metadata supports PNG and MP3 target files only.",
         ),
         (
-            MetadataInputsDraft(cover_path=str(png_cover)),
+            MetadataInputsDraft(cover=str(png_cover)),
             "Please add at least one PNG metadata value.",
         ),
         (
             MetadataInputsDraft(
-                cover_path=str(png_cover),
+                cover=str(png_cover),
                 payload=MP3MetadataDraft(
                     frames=[MP3SimpleFrameDraft("TIT2", "Hidden")]
                 ),
@@ -614,21 +706,21 @@ def test_baseline_validation_reports_missing_and_mismatched_inputs(
         ),
         (
             MetadataInputsDraft(
-                cover_path=str(mp3_cover),
+                cover=str(mp3_cover),
                 payload=PNGMetadataDraft(entries={"Title": "Hidden"}),
             ),
             "The metadata payload does not match the MP3 target file.",
         ),
         (
             MetadataInputsDraft(
-                cover_path=str(png_cover),
+                cover=str(png_cover),
                 payload=PNGMetadataDraft(),
             ),
             "Please add at least one PNG metadata value.",
         ),
         (
             MetadataInputsDraft(
-                cover_path=str(mp3_cover),
+                cover=str(mp3_cover),
                 payload=MP3MetadataDraft(),
             ),
             "Please add at least one MP3 text frame or APIC image.",
@@ -662,17 +754,17 @@ def test_baseline_validation_accepts_structural_png_and_mp3_drafts(
 
     valid_drafts = [
         MetadataInputsDraft(
-            cover_path=str(png_cover),
+            cover=str(png_cover),
             payload=PNGMetadataDraft(entries={"Secret": "TEST"}),
         ),
         MetadataInputsDraft(
-            cover_path=str(mp3_cover),
+            cover=str(mp3_cover),
             payload=MP3MetadataDraft(
                 frames=[MP3SimpleFrameDraft("TIT2", "Hidden")]
             ),
         ),
         MetadataInputsDraft(
-            cover_path=str(mp3_cover),
+            cover=str(mp3_cover),
             payload=MP3MetadataDraft(
                 apic_images=[ApicImageDraft(str(apic_image))]
             ),
@@ -699,7 +791,7 @@ def test_png_host_exports_live_form_controls_without_mutating_saved_state(
     exported = form.export_draft()
 
     assert exported == MetadataInputsDraft(
-        cover_path=str(cover),
+        cover=str(cover),
         payload=PNGMetadataDraft(
             entries={
                 "Title": "Hidden title",

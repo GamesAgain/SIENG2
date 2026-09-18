@@ -218,11 +218,11 @@ def test_output_catalog_detects_metadata_png_and_mp3_media() -> None:
     app, page = _page()
     _add_steps(page, app, ["metadata", "metadata", "lsbpp"])
     page.pipeline_steps[0].technique_inputs = MetadataInputsDraft(
-        cover_path="carrier.png",
+        cover="carrier.png",
         payload=PNGMetadataDraft(entries={"Comment": "PNG payload"}),
     )
     page.pipeline_steps[1].technique_inputs = MetadataInputsDraft(
-        cover_path="carrier.mp3",
+        cover="carrier.mp3",
         payload=MP3MetadataDraft(),
     )
 
@@ -650,7 +650,7 @@ def test_metadata_png_inline_save_persists_and_reopens_draft(
 
     saved_draft = page.pipeline_steps[0].technique_inputs
     assert saved_draft == MetadataInputsDraft(
-        cover_path=str(cover),
+        cover=str(cover),
         payload=PNGMetadataDraft(
             entries={
                 "Title": "Hidden title",
@@ -724,7 +724,7 @@ def test_metadata_mp3_inline_save_persists_and_reopens_text_frames(
 
     saved_draft = page.pipeline_steps[0].technique_inputs
     assert saved_draft == MetadataInputsDraft(
-        cover_path=str(cover),
+        cover=str(cover),
         payload=MP3MetadataDraft(
             frames=[
                 MP3SimpleFrameDraft("TIT2", "Hidden title"),
@@ -805,7 +805,7 @@ def test_metadata_png_popup_save_persists_draft(tmp_path) -> None:
     _process_events(app)
 
     assert page.pipeline_steps[0].technique_inputs == MetadataInputsDraft(
-        cover_path=str(cover),
+        cover=str(cover),
         payload=PNGMetadataDraft(entries={"Author": "Alice"}),
     )
     assert page.active_step_dialog is None
@@ -844,7 +844,7 @@ def test_metadata_mp3_popup_save_persists_text_frame_draft(tmp_path) -> None:
     _process_events(app)
 
     assert page.pipeline_steps[0].technique_inputs == MetadataInputsDraft(
-        cover_path=str(cover),
+        cover=str(cover),
         payload=MP3MetadataDraft(
             frames=[
                 MP3SimpleFrameDraft("TIT2", "Popup MP3 title")
@@ -887,11 +887,11 @@ def test_metadata_mp3_inline_save_persists_apic_draft(tmp_path) -> None:
 
     saved_draft = page.pipeline_steps[0].technique_inputs
     assert saved_draft == MetadataInputsDraft(
-        cover_path=str(cover),
+        cover=str(cover),
         payload=MP3MetadataDraft(
             apic_images=[
                 ApicImageDraft(
-                    image_path=str(image_path),
+                    image=str(image_path),
                     picture_type=3,
                     description="Front artwork",
                 )
@@ -952,11 +952,11 @@ def test_metadata_mp3_popup_save_persists_apic_only_draft(tmp_path) -> None:
     _process_events(app)
 
     assert page.pipeline_steps[0].technique_inputs == MetadataInputsDraft(
-        cover_path=str(cover),
+        cover=str(cover),
         payload=MP3MetadataDraft(
             apic_images=[
                 ApicImageDraft(
-                    image_path=str(image_path),
+                    image=str(image_path),
                     picture_type=3,
                     description="Popup artwork",
                 )
@@ -980,7 +980,7 @@ def test_metadata_mp3_popup_save_persists_apic_only_draft(tmp_path) -> None:
     assert reopened_form.mp3_form.tabs.currentIndex() == 1
     assert reopened_form.mp3_form.apic_images_form.export_draft() == [
         ApicImageDraft(
-            image_path=str(image_path),
+            image=str(image_path),
             picture_type=3,
             description="Popup artwork",
         )
@@ -999,7 +999,7 @@ def test_metadata_mp3_text_and_apic_summary_is_ready(tmp_path) -> None:
     app, page = _page()
     _add_steps(page, app, ["metadata"])
     page.pipeline_steps[0].technique_inputs = MetadataInputsDraft(
-        cover_path=str(cover),
+        cover=str(cover),
         payload=MP3MetadataDraft(
             frames=[
                 MP3SimpleFrameDraft("TIT2", "Private title"),
@@ -1113,7 +1113,7 @@ def test_metadata_mp3_text_and_apic_reopen_cancel_change_and_remove(
     changed_draft = page.pipeline_steps[0].technique_inputs
     assert isinstance(changed_draft, MetadataInputsDraft)
     assert isinstance(changed_draft.payload, MP3MetadataDraft)
-    assert changed_draft.payload.apic_images[0].image_path == str(
+    assert changed_draft.payload.apic_images[0].image == str(
         replacement_image
     )
     assert "replacement-front.png" in page.step_cards[0].summary_tooltip(
@@ -1201,7 +1201,7 @@ def test_incomplete_metadata_draft_does_not_mark_card_ready() -> None:
     step = page.pipeline_steps[0]
 
     step.technique_inputs = MetadataInputsDraft(
-        cover_path="carrier.png",
+        cover="carrier.png",
         payload=PNGMetadataDraft(),
     )
     page.render_step_cards()
@@ -1209,7 +1209,7 @@ def test_incomplete_metadata_draft_does_not_mark_card_ready() -> None:
     assert page.step_cards[0].status == "setup"
 
     step.technique_inputs = MetadataInputsDraft(
-        cover_path="carrier.mp3",
+        cover="carrier.mp3",
         payload=MP3MetadataDraft(),
     )
     page.render_step_cards()
@@ -1222,7 +1222,7 @@ def test_complete_mp3_metadata_draft_marks_card_ready() -> None:
     _add_steps(page, app, ["metadata"])
     step = page.pipeline_steps[0]
     step.technique_inputs = MetadataInputsDraft(
-        cover_path="carrier.mp3",
+        cover="carrier.mp3",
         payload=MP3MetadataDraft(
             frames=[MP3SimpleFrameDraft("TIT2", "Hidden")]
         ),
@@ -1237,7 +1237,7 @@ def test_mp3_card_counts_complex_instances_without_exposing_values() -> None:
     _add_steps(page, app, ["metadata"])
     step = page.pipeline_steps[0]
     step.technique_inputs = MetadataInputsDraft(
-        cover_path="carrier.mp3",
+        cover="carrier.mp3",
         payload=MP3MetadataDraft(
             frames=[
                 MP3SimpleFrameDraft("TIT2", "Private title"),

@@ -14,6 +14,12 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from config_prototype.core.configurable import (
+    FileSource,
+    StepOutput,
+    StepOutputInfo,
+)
+from config_prototype.gui.components import LinkedStepToggle, StepOutputPicker
 from config_prototype.gui.components.technique_forms.metadata.mp3_form import (
     MP3MetadataDraft,
     MP3MetadataForm,
@@ -39,9 +45,9 @@ MetadataPayloadDraft: TypeAlias = PNGMetadataDraft | MP3MetadataDraft
 
 @dataclass
 class MetadataInputsDraft:
-    """Saved manual inputs for one Metadata pipeline step."""
+    """Saved inputs for one Metadata pipeline step."""
 
-    cover_path: str | None = None
+    cover: FileSource | None = None
     payload: MetadataPayloadDraft | None = None
 
 
@@ -57,10 +63,26 @@ class MetadataEmbedInputs(QFrame):
     def __init__(
         self,
         *,
+        output_catalog: list[StepOutputInfo] | None = None,
+        cover_dependency_error: str | None = None,
+        apic_output_catalog: list[StepOutputInfo] | None = None,
+        apic_dependency_errors: dict[StepOutput, str] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
 
+        self.output_catalog = [
+            output
+            for output in (output_catalog or [])
+            if output.media_type in {"png", "mp3"}
+        ]
+        self.cover_dependency_error = cover_dependency_error
+        self.apic_output_catalog = [
+            output
+            for output in (apic_output_catalog or [])
+            if output.media_type == "png"
+        ]
+        self.apic_dependency_errors = dict(apic_dependency_errors or {})
         self._draft = MetadataInputsDraft()
         self._cover_media_type: str | None = None
         self._syncing_cover = False
@@ -80,7 +102,10 @@ class MetadataEmbedInputs(QFrame):
         self.empty_state_label.setWordWrap(True)
 
         self.png_form = PNGMetadataForm()
-        self.mp3_form = MP3MetadataForm()
+        self.mp3_form = MP3MetadataForm(
+            apic_output_catalog=self.apic_output_catalog,
+            apic_dependency_errors=self.apic_dependency_errors,
+        )
 
         self.content_stack.addWidget(self.empty_state_label)
         self.content_stack.addWidget(self.png_form)
@@ -91,10 +116,13 @@ class MetadataEmbedInputs(QFrame):
         self.selected_cover_widget = self.build_selected_cover_widget()
         self.cover_file_stack.addWidget(self.cover_card)
         self.cover_file_stack.addWidget(self.selected_cover_widget)
-        main_layout.addWidget(self.cover_file_stack, 1)
+        main_layout.addWidget(self.cover_file_stack)
+        main_layout.addWidget(self.content_stack, 1)
+        self.content_stack.hide()
+        self._sync_cover_file_stack_height()
 
     def build_cover_card(self) -> QFrame:
-        """Build the manual PNG/MP3 target selector."""
+        """Build the manual/linked PNG or MP3 target selector."""
         card = QFrame()
         card.setObjectName("card")
         add_shadow_effect(card)
@@ -116,6 +144,11 @@ class MetadataEmbedInputs(QFrame):
         title_layout.addWidget(title_label)
         title_layout.addStretch()
 
+        self.cover_mode_toggle = LinkedStepToggle()
+        self.cover_mode_toggle.mode_changed.connect(
+            self.on_cover_mode_changed
+        )
+
         self.cover_drop_zone = FileDropWidget(
             "Drop PNG or MP3 file here or click to browse",
             "Supports PNG and MP3 formats only",
@@ -126,9 +159,45 @@ class MetadataEmbedInputs(QFrame):
             self.on_cover_file_selected
         )
 
+        self.cover_output_picker = StepOutputPicker(self.output_catalog)
+        self.cover_output_picker.selection_changed.connect(
+            self.on_cover_output_selected
+        )
+
+        self.cover_source_stack = QStackedWidget()
+        self.cover_source_stack.addWidget(self.cover_drop_zone)
+        self.cover_source_stack.addWidget(self.cover_output_picker)
+        self.cover_output_picker.minimum_height_changed.connect(
+            self.cover_source_stack.setMinimumHeight
+        )
+        self.cover_output_picker.minimum_height_changed.connect(
+            self._sync_cover_file_stack_height
+        )
+        self.cover_source_stack.setMinimumHeight(
+            self.cover_output_picker.minimumHeight()
+        )
+
         card_layout.addWidget(title_container)
-        card_layout.addWidget(self.cover_drop_zone, 1)
+        card_layout.addWidget(self.cover_mode_toggle)
+        card_layout.addWidget(self.cover_source_stack, 1)
         return card
+
+    def _sync_cover_file_stack_height(self, _height: int = 0) -> None:
+        """Keep the active cover page tall enough for its dynamic picker."""
+        if not hasattr(self, "cover_file_stack"):
+            return
+        current_widget = self.cover_file_stack.currentWidget()
+        if current_widget is None:
+            return
+        if current_widget.layout() is not None:
+            current_widget.layout().activate()
+        self.cover_file_stack.setMinimumHeight(
+            current_widget.sizeHint().height()
+        )
+        if self.layout() is not None:
+            self.layout().invalidate()
+            self.setMinimumHeight(self.layout().minimumSize().height())
+        self.updateGeometry()
 
     def build_selected_cover_widget(self) -> QWidget:
         """Build the compact selected-file view used before media editors."""
@@ -142,15 +211,32 @@ class MetadataEmbedInputs(QFrame):
             self.on_change_cover_requested
         )
         layout.addWidget(self.file_info_bar)
-        layout.addWidget(self.content_stack, 1)
         return container
+
+    def on_cover_mode_changed(self, mode: str) -> None:
+        """Switch source kind without inventing a path for linked output."""
+        linked = mode == "linked"
+        self.cover_source_stack.setCurrentIndex(1 if linked else 0)
+        if linked:
+            self._draft.cover = self.cover_output_picker.selected_output()
+        else:
+            self._draft.cover = self.cover_drop_zone.file_path or None
+        self.update_cover_media_state()
+
+    def on_cover_output_selected(self, reference: StepOutput) -> None:
+        if not self.cover_mode_toggle.is_linked():
+            return
+        self._draft.cover = reference
+        self.cover_dependency_error = None
+        self.cover_output_picker.set_unavailable_reason(None)
+        self.update_cover_media_state()
 
     def on_cover_file_selected(self, file_path: str) -> None:
         """Keep the manual cover selection in the form draft."""
-        if self._syncing_cover:
+        if self._syncing_cover or self.cover_mode_toggle.is_linked():
             return
 
-        self._draft.cover_path = file_path or None
+        self._draft.cover = file_path or None
         self.update_cover_media_state()
 
     def clear_cover(self) -> None:
@@ -166,12 +252,12 @@ class MetadataEmbedInputs(QFrame):
         return self._cover_media_type
 
     @staticmethod
-    def detect_cover_media(file_path: str | None) -> str | None:
+    def detect_cover_media(source: FileSource | None) -> str | None:
         """Return the supported media type for an available manual cover."""
-        if not file_path:
+        if not isinstance(source, str) or not source:
             return None
 
-        cover = Path(file_path)
+        cover = Path(source)
         if not cover.is_file():
             return None
 
@@ -184,36 +270,62 @@ class MetadataEmbedInputs(QFrame):
 
     def update_cover_media_state(self) -> None:
         """Synchronize the cover selector, file bar, and media host page."""
-        self._cover_media_type = self.detect_cover_media(
-            self._draft.cover_path
-        )
+        self._cover_media_type = self.cover_media_for_source(self._draft.cover)
         current_form = {
             "png": self.png_form,
             "mp3": self.mp3_form,
         }.get(self._cover_media_type, self.empty_state_label)
         self.content_stack.setCurrentWidget(current_form)
+        self.content_stack.setVisible(self._cover_media_type is not None)
+
+        if isinstance(self._draft.cover, StepOutput):
+            self.cover_file_stack.setCurrentIndex(self.COVER_DROP_STATE_INDEX)
+            self._sync_cover_file_stack_height()
+            return
 
         if self._cover_media_type is None:
             self.cover_file_stack.setCurrentIndex(
                 self.COVER_DROP_STATE_INDEX
             )
+            self._sync_cover_file_stack_height()
             return
 
         self.file_info_bar.update_info(self.cover_display_info())
         self.cover_file_stack.setCurrentIndex(
             self.COVER_SELECTED_STATE_INDEX
         )
+        self._sync_cover_file_stack_height()
+
+    def cover_media_for_source(self, source: FileSource | None) -> str | None:
+        if isinstance(source, str) or source is None:
+            return self.detect_cover_media(source)
+
+        output_info = next(
+            (
+                output
+                for output in self.output_catalog
+                if output.reference == source
+            ),
+            None,
+        )
+        if output_info is not None:
+            return output_info.media_type
+        if isinstance(self._draft.payload, PNGMetadataDraft):
+            return "png"
+        if isinstance(self._draft.payload, MP3MetadataDraft):
+            return "mp3"
+        return None
 
     def cover_display_info(self) -> dict:
         """Return FileInfoBar data, including a safe unreadable-file state."""
-        cover_path = self._draft.cover_path
-        if cover_path is None:
+        cover_source = self._draft.cover
+        if not isinstance(cover_source, str):
             raise ValueError("A cover file is required for display info.")
 
         try:
-            return get_file_display_info(cover_path)
+            return get_file_display_info(cover_source)
         except Exception:
-            cover = Path(cover_path)
+            cover = Path(cover_source)
             media_label = (self._cover_media_type or cover.suffix[1:]).upper()
             icon_name = (
                 "photo.svg"
@@ -221,7 +333,7 @@ class MetadataEmbedInputs(QFrame):
                 else "file-music.svg"
             )
             return {
-                "path": cover_path,
+                "path": cover_source,
                 "icon": str(ICON_DIR / icon_name),
                 "name": truncate_text_middle(cover.name, 110),
                 "detail": (
@@ -243,13 +355,29 @@ class MetadataEmbedInputs(QFrame):
             )
             if structure_error is not None:
                 raise ValueError(structure_error)
-        cover_path = loaded_draft.cover_path
+        cover_source = loaded_draft.cover
 
         self._syncing_cover = True
         try:
             self.cover_drop_zone.clear_all()
-            if self.detect_cover_media(cover_path) is not None:
-                self.cover_drop_zone.add_files([cover_path])
+            self.cover_output_picker.clear_selection()
+            if (
+                isinstance(cover_source, str)
+                and self.detect_cover_media(cover_source) is not None
+            ):
+                self.cover_mode_toggle.set_mode("manual")
+                self.cover_source_stack.setCurrentIndex(0)
+                self.cover_drop_zone.add_files([cover_source])
+            elif isinstance(cover_source, StepOutput):
+                self.cover_mode_toggle.set_mode("linked")
+                self.cover_source_stack.setCurrentIndex(1)
+                self.cover_output_picker.set_selected_output(cover_source)
+                self.cover_output_picker.set_unavailable_reason(
+                    self.cover_dependency_error
+                )
+            else:
+                self.cover_mode_toggle.set_mode("manual")
+                self.cover_source_stack.setCurrentIndex(0)
         finally:
             self._syncing_cover = False
 
@@ -273,25 +401,24 @@ class MetadataEmbedInputs(QFrame):
 
     def validate_draft(self) -> bool:
         """Validate the selected cover and its active format form."""
-        cover_path = self._draft.cover_path
-        if not cover_path:
+        cover_source = self._draft.cover
+        if cover_source is None:
             return self.show_validation_warning(
                 "Please select a target PNG or MP3 file."
             )
 
-        cover = Path(cover_path)
-        if not cover.is_file():
-            return self.show_validation_warning(
-                "The selected target file is unavailable."
-            )
+        if isinstance(cover_source, str):
+            cover = Path(cover_source)
+            if not cover.is_file():
+                return self.show_validation_warning(
+                    "The selected target file is unavailable."
+                )
+            if cover.suffix.lower() not in {".png", ".mp3"}:
+                return self.show_validation_warning(
+                    "Metadata supports PNG and MP3 target files only."
+                )
 
-        suffix = cover.suffix.lower()
-        if suffix not in {".png", ".mp3"}:
-            return self.show_validation_warning(
-                "Metadata supports PNG and MP3 target files only."
-            )
-
-        if suffix == ".png":
+        if self._cover_media_type == "png":
             png_draft = self.png_form.export_draft()
             if (
                 not png_draft.entries
@@ -302,6 +429,11 @@ class MetadataEmbedInputs(QFrame):
                     "The metadata payload does not match the PNG target file."
                 )
             return self.png_form.validate_draft()
+
+        if self._cover_media_type != "mp3":
+            return self.show_validation_warning(
+                "The linked output media type is unavailable."
+            )
 
         mp3_draft = self.mp3_form.export_draft()
         if (
