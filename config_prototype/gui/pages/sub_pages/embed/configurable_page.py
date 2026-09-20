@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -11,7 +12,11 @@ from PyQt6.QtWidgets import (
     QProgressBar,
 )
 
-from config_prototype.core.configurable import StepOutput, StepOutputInfo
+from config_prototype.core.configurable import (
+    PipelineRunRequest,
+    StepOutput,
+    StepOutputInfo,
+)
 from config_prototype.gui.components.step_card import (
     CARD_HEIGHT,
     TECHNIQUE_DISPLAY,
@@ -33,6 +38,9 @@ from config_prototype.gui.components.technique_forms import (
     MP3MetadataDraft,
     MP3SimpleFrameDraft,
     PNGMetadataDraft,
+)
+from config_prototype.gui.pages.sub_pages.embed.run_request_converter import (
+    build_run_step_request,
 )
 from config_prototype.gui.components.step_config_shell import (
     StepConfigShellDialog,
@@ -71,6 +79,25 @@ class PipelineStepDraft:
         | MetadataInputsDraft
         | None
     ) = None
+
+
+def build_pipeline_run_request(
+    steps: Iterable[PipelineStepDraft],
+) -> PipelineRunRequest:
+    """Create an immutable snapshot from committed editor Drafts."""
+
+    return PipelineRunRequest(
+        steps=tuple(
+            build_run_step_request(
+                step_key=step.key,
+                technique=step.technique,
+                description=step.description,
+                guidenote=step.guidenote,
+                draft=step.technique_inputs,
+            )
+            for step in steps
+        ),
+    )
 
 
 class EmbedConfigurablePage(QFrame):
@@ -296,6 +323,11 @@ class EmbedConfigurablePage(QFrame):
             if key not in self.used_step_keys:
                 self.used_step_keys.add(key)
                 return key
+
+    def build_run_request(self) -> PipelineRunRequest:
+        """Snapshot only the Drafts already saved in ``pipeline_steps``."""
+
+        return build_pipeline_run_request(self.pipeline_steps)
 
     def build_output_catalog(
         self,
