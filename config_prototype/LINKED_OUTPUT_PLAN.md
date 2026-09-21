@@ -1,12 +1,12 @@
 # Linked Output — ข้อตกลงและแผนพัฒนา Configurable Pipeline
 
-อัปเดต: 2026-09-20
-ตรวจโค้ดบน checkpoint: `e670581` — `prototype: complete metadata linked output workflow`
+อัปเดต: 2026-09-21
+ตรวจโค้ดบน checkpoint: `62bf165` — `prototype: add immutable pipeline run request boundary`
 สถานะงาน: L6 Metadata Linked Output และ L7 Main three-step GUI/Draft acceptance ปิดครบแล้ว;
 LSB Cover, Locomotive Covers/File Payload, Metadata Cover/APIC พร้อม picker, persistence,
 dependency, single-consumer, BLOCKED และ lifecycle verification
-L8.0 Execution Contract และ L8.1 Qt-independent Run Request boundary ปิดแล้ว;
-งานถัดไปคือ L8.2 compiler สำหรับ validation, dependencies, output declarations และ deliverables
+L8.0 Execution Contract ถึง L8.3 Runtime foundation และ L8.4A-L8.4D real adapters ปิดแล้ว;
+งานถัดไปคือ L8.5 sequential executor และ run lifecycle
 
 ## วิธีใช้เอกสารนี้ร่วมกัน
 
@@ -839,10 +839,15 @@ READY = ผ่านการตรวจ Draft/links ในระดับท�
   - [x] L8.0: กำหนด Execution Contract, Qt boundary, compiled plan, workspace,
     output mapping, lifecycle, error/cancellation และ adapter responsibilities
   - [x] L8.1: สร้าง Qt-independent Run Request models และ Draft → Request converter พร้อม unit tests
-  - [ ] L8.2: สร้าง compiler สำหรับ dependency/output declarations/deliverables และ validation issues
-  - [ ] L8.3: สร้าง isolated RunWorkspace, resolver และ RunArtifact โดยยังใช้ fake adapters
-  - [ ] L8.4a: สร้าง LSB++/Locomotive adapters พร้อม stable multi-output mapping
-  - [ ] L8.4b: สร้าง Metadata PNG/MP3 adapter และ resolve linked APIC
+  - [x] L8.2: สร้าง compiler สำหรับ dependency/output declarations/deliverables และ validation issues
+    - [x] L8.2A: สร้าง immutable Compiler models, validation contracts และ output declarations
+    - [x] L8.2B: สร้าง aggregate validation, dependencies, single-consumer และ deliverables
+  - [x] L8.3: สร้าง isolated RunWorkspace, resolver และ RunArtifact โดยยังใช้ fake adapters
+  - [x] L8.4a: สร้าง LSB++/Locomotive adapters พร้อม stable multi-output mapping
+    - [x] L8.4A-LSB: สร้าง real LSB++ adapter พร้อม encryption และ extraction round-trip
+    - [x] L8.4B-Locomotive: สร้าง real Locomotive adapter พร้อม stable multi-output mapping
+  - [x] L8.4C: สร้าง Metadata-PNG adapter พร้อม preservation tests
+  - [x] L8.4D: สร้าง Metadata-MP3 adapter และ resolve linked APIC
   - [ ] L8.5: สร้าง sequential executor, progress, cancellation และ partial-failure lifecycle
   - [ ] L8.6: ทำ pairwise preservation tests; แก้ core เฉพาะ incompatibility ที่พบ
   - [ ] L8.7: เชื่อม Run Pipeline GUI กับ request/compiler/executor โดยไม่ทำ Delivery ล่วงหน้า
@@ -877,6 +882,151 @@ READY = ผ่านการตรวจ Draft/links ในระดับท�
 - ไม่ add/commit/push โดยอัตโนมัติ; ไฟล์เอกสารหรือ tests ที่จะขึ้น Git ให้ผู้ใช้กำหนด
 
 ## 10. บันทึกรอบล่าสุด
+
+### 2026-09-21 — L8.4D Real Metadata-MP3/APIC execution adapter
+
+- เพิ่ม `execute_metadata_mp3()` ซึ่งรับ typed `MetadataRunInputs`, resolved MP3 Cover `Path`,
+  resolved APIC `Path` ตามลำดับ Draft และ staging `result_path`; adapter ไม่อ่าน GUI Draft
+  และไม่แยก Manual/Linked APIC หลัง source resolution
+- แปลง simple text/URL frames และ complex `COMM`/`USLT`/`USER`/`TXXX`/`WXXX`
+  เป็น dictionary contract ของ `MetadataEmbedder`; ตรวจ required fields, frame identity และ duplicate frame ID
+- ตรวจ APIC เป็น JPEG/PNG จริง, picture type 0–20 ไม่ซ้ำ, description ยาวไม่เกิน 64 ตัวและไม่ซ้ำแบบ case-insensitive;
+  Type 1 ต้องเป็น PNG 32 × 32 ตาม GUI contract
+- เขียนผลไปยัง MP3 staging path ใหม่และตรวจ MP3 ซ้ำหลังเขียน; metadata ระบุ output identity `result`,
+  frame/APIC count, ordered frame IDs และ size โดยไม่เก็บ source path หรือ image bytes
+- Tests ครอบคลุม text-only แบบ simple+complex, manual APIC-only, text+APIC, linked APIC ผ่าน runtime resolver,
+  output commit, input preservation, MPEG audio bytes และ unrelated ID3 frame preservation
+- Direct Metadata-MP3 adapter tests: `6 passed`; focused core/runtime/adapters: `70 passed`;
+  Prototype suite: `353 passed`; full source roots: `603 passed, 3 failed` โดย failures เป็น
+  BPP validation เดิมใน `prototype/image/tests/test_lsb_replacement.py` และไม่เกี่ยวกับ adapter
+- ไม่พบ failing regression ใน Metadata-MP3 core จึงไม่แก้ production stego core
+- รอบนี้ไม่ทำ Executor/Delivery/GUI, ไม่เชื่อม Run button และไม่ stage/commit/push
+- งานถัดไป L8.5: สร้าง sequential executor, progress, cancellation และ partial-failure lifecycle
+
+### 2026-09-21 — L8.4C Real Metadata-PNG execution adapter
+
+- เพิ่ม `execute_metadata_png()` ซึ่งรับ typed `MetadataRunInputs`, resolved PNG Cover `Path`
+  และ staging `result_path`; payload ต้องเป็น normalized `PNGMetadataRunPayload`
+- Adapter ตรวจ entries ไม่ว่าง/ไม่ซ้ำ, Cover และ staging path เป็น PNG, staging path ใหม่ไม่ทับ Cover
+  แล้วส่ง path ใหม่นั้นเป็น `save_path` ให้ `MetadataEmbedder`
+- หลัง core เขียนเสร็จ ตรวจ returned path, file existence และ PNG container อีกครั้ง;
+  metadata ระบุ output identity `result`, ordered keywords, entry count และ size
+- Embed/extract round-trip ผ่าน และ integration test ยืนยันว่า adapter ไม่ commit mapping เอง;
+  `RunArtifact` commit `StepOutput(step_metadata, result)` หลัง output ผ่านครบเท่านั้น
+- Preservation tests ยืนยัน decoded pixels ไม่เปลี่ยน, unrelated private ancillary chunk และ trailing bytes อยู่ครบ,
+  LSB++ payload ยัง extract ได้ และ Locomotive session/trailer ยัง extract ได้หลังเขียน Metadata-PNG
+- Direct Metadata-PNG adapter tests: `6 passed`; focused core/runtime/adapters: `68 passed`;
+  Prototype suite: `347 passed`; full source roots: `597 passed, 3 failed` โดย failures เป็น
+  BPP validation เดิมใน `prototype/image/tests/test_lsb_replacement.py` และไม่เกี่ยวกับ adapter
+- ไม่พบ failing regression ใน Metadata-PNG core จึงไม่แก้ `src/core/stego/metadata_handlers/png_handler.py`
+  หรือ production stego core อื่น
+- รอบนี้ไม่ทำ MP3/Executor/Delivery/GUI, ไม่เชื่อม Run button และไม่ stage/commit/push
+- งานถัดไป L8.4D: สร้าง Metadata-MP3 adapter สำหรับ text/complex frames และ linked APIC paths
+
+### 2026-09-21 — L8.4B Real Locomotive execution adapter
+
+- เพิ่ม `execute_locomotive()` ซึ่งรับ typed `LocomotiveRunInputs`, resolved Cover/Payload `Path`
+  และ staging paths ที่ map ด้วย stable `output_key`; adapter ไม่อ่าน GUI Draft/`StepOutput`
+- รองรับ text/file payload และ no encryption/password/public-key; ส่งเฉพาะ active credential ให้ core
+  และไม่ใส่ password, key path หรือ key bytes ใน metadata
+- ตรวจจำนวน resolved inputs, stable keys, staging paths และผลลัพธ์จาก core ให้ครบก่อนเขียน;
+  จับคู่ผลตามลำดับ Cover → stable `output_key` โดย suggested filename เป็น metadata เท่านั้น
+- ทุก output ต้องเป็น valid PNG และ staging path ต้องไม่ทับ Cover/Payload/Public Key; หากเขียนกลางชุดล้มเหลว
+  adapter ล้าง partial staging files และไม่แตะ `RunArtifact` mapping
+- Metadata เก็บ `session_id`, output count, encryption mode และ suggested filename/size ต่อ stable key;
+  successful integration test commit ทุก mapping พร้อมกันผ่าน `RunArtifact.commit_step_outputs()`
+- Direct Locomotive adapter tests: `6 passed`; focused core/runtime/adapters: `62 passed`;
+  Prototype suite: `341 passed`; full source roots: `591 passed, 3 failed` โดย failures เป็น
+  BPP validation เดิมใน `prototype/image/tests/test_lsb_replacement.py` และไม่เกี่ยวกับ adapter
+- Tests ครอบคลุมหนึ่ง/หลาย Covers, linked Cover, linked file payload, no/password/public-key encryption,
+  output-count mismatch, failure กลางชุด, input preservation และ extraction round-trip
+- ไม่พบ Locomotive core regression ในขอบเขตที่ทดสอบ จึงไม่แก้ `src/core/stego/locomotive.py`
+- รอบนี้ไม่สร้าง Executor/Delivery/GUI, ไม่เชื่อม Run button และไม่ stage/commit/push
+- งานถัดไป L8.4C: สร้าง Metadata PNG/MP3 adapter โดย resolve linked APIC เป็น Path ก่อนเรียก core
+
+### 2026-09-21 — L8.4A Real LSB++ execution adapter
+
+- เพิ่ม Qt/GUI-independent `execute_lsbpp()` ซึ่งรับ resolved Cover `Path`, typed `LSBRunInputs`
+  และ staging `result_path`; adapter ไม่อ่าน GUI Draft/`StepOutput` และไม่ commit runtime mapping
+- รองรับ no encryption, password และ public key โดยส่งเฉพาะ active credential ให้ `LSBPP.embed()`;
+  metadata คืนเฉพาะ media type, suggested filename, output size และ encryption mode ไม่มี password/key
+- Adapter ปฏิเสธ Cover ที่หาย/ไม่ใช่ PNG, staging path ที่ไม่ใช่ PNG/มีไฟล์อยู่แล้ว และการเขียนทับ Cover;
+  ตรวจ returned bytes ด้วย PNG parser ก่อนเขียนและตรวจ staged file ซ้ำหลังเขียน
+- ใช้ returned bytes จาก core โดยตรง ไม่เปิด/re-save ภาพ; direct preservation test ยืนยันว่า PNG `tEXt`
+  chunk และ bytes หลัง IEND ยังอยู่ครบ พร้อมถอดข้อความ LSB++ ได้จริง
+- Direct adapter tests: `7 passed`; focused core/runtime/adapters: `56 passed`;
+  Prototype suite: `335 passed`; full source roots: `585 passed, 3 failed` โดย failures เป็น
+  BPP validation เดิมใน `prototype/image/tests/test_lsb_replacement.py` และไม่เกี่ยวกับ adapter
+- Adapter tests ครอบคลุม no encryption/password/public-key round-trip, Cover read-only,
+  staging-before-commit, invalid core output และ PNG metadata/trailing preservation
+- ไม่พบ LSB++ core regression ในขอบเขตที่ทดสอบ จึงไม่แก้ `src/core/stego/lsb_pp.py`
+- รอบนี้ไม่สร้าง Executor/Delivery/GUI, ไม่เชื่อม Run button และไม่ stage/commit/push
+- งานถัดไป L8.4A-Locomotive: รับ resolved Covers/Payload และจับคู่ผลตามลำดับ Cover ไปยัง stable output keys
+
+### 2026-09-21 — L8.3 Isolated runtime foundation
+
+- เพิ่ม Qt-independent `RunWorkspace` ซึ่งสร้าง workspace ใหม่ต่อหนึ่ง run ใต้ temp base ที่กำหนดได้,
+  ใช้ unique `run_id`, marker file และโครงสร้าง `steps/<position>_<step_key>/`
+- ชื่อ Step/Output ที่นำไปสร้าง path ถูก sanitize แบบ deterministic และทุก path ต้อง resolve อยู่ภายใน
+  run root; cleanup ยอมลบเฉพาะ direct child ของ base ที่ marker ตรงกับ `run_id`
+- เพิ่ม staging area ต่อ Step และ commit declared outputs แบบ all-or-nothing: ตรวจจำนวน, identity,
+  assigned path และไฟล์ครบทั้งหมดก่อน move; หาก move บางรายการล้มเหลวจะ rollback รายการที่ย้ายแล้ว
+- เพิ่ม `resolve_source()`: manual `str` resolve เป็น external read-only `Path`; `StepOutput` resolve จาก
+  committed mapping ของ run ปัจจุบันเท่านั้น โดยไม่มี fallback ไป `preview_path` หรือ fake path
+- เพิ่ม `RunArtifact` สำหรับ compiled plan, committed `StepOutput -> Path`, metadata ราย Step และ state
+  `running/succeeded/failed/cancelled`; failed run เก็บ workspace เพื่อวิเคราะห์ ส่วน cancelled cleanup ได้ทันที
+- Focused core/request/compiler/runtime tests: `49 passed`; Prototype suite: `328 passed`;
+  full source roots: `578 passed, 3 failed` โดย failures เป็น BPP validation เดิมใน
+  `prototype/image/tests/test_lsb_replacement.py` และไม่เกี่ยวกับ L8.3
+- Runtime tests โดยตรง `11 passed`; ครอบคลุม workspace isolation, path traversal, mapping-only resolver,
+  missing output, multi-output commit/rollback, incomplete staging, foreign staging path, states และ safe cleanup
+- รอบนี้ยังไม่สร้าง executor/adapters/delivery, ไม่เรียก stego core, ไม่เชื่อม Run button และไม่แก้ production core
+- งานถัดไป L8.4a: สร้าง real execution adapter boundary และเริ่มผูก LSB++/Locomotive ตาม stable output mapping
+
+### 2026-09-21 — L8.2B Pipeline compiler
+
+- เพิ่ม `compile_pipeline(PipelineRunRequest)` แบบ Qt-independent; ใช้ลำดับ Canvas เป็นลำดับ
+  execution และคืน immutable `CompiledPipeline` เมื่อ validation ผ่านทั้งหมด
+- Aggregate structured issues ก่อน raise `PipelineValidationError`: pipeline/step key, technique และ
+  input type, required Cover/Payload, manual file/public-key availability, encryption mode,
+  Locomotive stable output keys และ Metadata PNG/MP3/APIC required values
+- รวบรวม `StepOutput` จาก LSB Cover, Locomotive Covers/File Payload และ Metadata Cover/APIC;
+  ตรวจ missing/self/forward/output reference, media ของแต่ละ input role และ global single-consumer
+- Dependencies เก็บ producer step keys แบบไม่ซ้ำตามลำดับที่พบ; Locomotive หลาย outputs จาก producer
+  เดียวกันจึงสร้าง dependency เพียงรายการเดียว
+- Deliverables คำนวณราย declared output ตามลำดับ Step/output โดยเลือกเฉพาะ leaf ที่ไม่มี consumer;
+  main acceptance flow จึงได้ LSB `result` และ Metadata `result` โดย Locomotive outputs เป็น intermediate
+- Compiler ตรวจ public-key path ว่ามีไฟล์ แต่ยังไม่ parse/validate cryptographic key, ไม่ตรวจ capacity
+  และยังไม่อ้างว่า pixel/chunk/trailer preservation ผ่าน; งาน compatibility เชิง stego อยู่ L8.6
+- Error messages ไม่บันทึก password หรือ key bytes; focused test ตรวจว่า dormant password ไม่ปรากฏ
+  ใน exception text/repr
+- Focused core/request/compiler tests: `38 passed`; Prototype suite: `317 passed`;
+  full source roots: `567 passed, 3 failed` โดย failures เป็น BPP validation เดิมใน
+  `prototype/image/tests/test_lsb_replacement.py` และไม่เกี่ยวกับ L8.2B
+- รอบนี้ไม่สร้าง workspace/resolver/executor/adapters/delivery, ไม่เรียก stego core, ไม่แก้ GUI/
+  production core และไม่ stage/commit/push
+- งานถัดไป L8.3: สร้าง isolated `RunWorkspace`, `FileSource` resolver และ `RunArtifact`
+  โดยเริ่มพิสูจน์ lifecycle ด้วย fake files/adapters ก่อนเรียกเทคนิคจริง
+
+### 2026-09-21 — L8.2A Immutable Compiler contracts
+
+- แทนที่ Prototype compiler scaffold ด้วย Qt-independent contracts ได้แก่ `DeclaredOutput`,
+  `ValidationIssue`, `PipelineValidationError`, `CompiledStep` และ `CompiledPipeline`
+- Models ใช้ frozen dataclasses และ tuple collections; structured issue เก็บ `code`, `message`,
+  `step_key` และ `field` โดย exception สรุปจำนวน issues โดยไม่พิมพ์ input/secret values
+- เพิ่ม `declare_step_outputs()` สำหรับ output identity/media เท่านั้น: LSB++ ประกาศ `result/png`,
+  Metadata ประกาศ `result/png|mp3` จาก saved media type และ Locomotive ประกาศ PNG ตาม stable
+  `output_key` ของ Covers โดยรักษาลำดับเดิมและไม่ deduplicate key เงียบ ๆ
+- Incomplete/unsupported request คืน declaration ว่างในรอบนี้เพื่อให้ L8.2B เป็นผู้สร้าง
+  aggregate validation issues; ยังไม่มี `compile_pipeline()` หรือการตรวจ filesystem/dependency
+- Public exports ผ่าน `core.configurable`; fresh-process test ยืนยันว่า compiler contracts ไม่โหลด PyQt6
+- Focused core/request/compiler tests: `27 passed`; Prototype suite: `306 passed`;
+  full source roots: `556 passed, 3 failed` โดย failures เป็น BPP validation เดิมใน
+  `prototype/image/tests/test_lsb_replacement.py` และไม่เกี่ยวกับ L8.2A
+- รอบนี้ไม่สร้าง workspace/resolver/executor/delivery, ไม่เรียก stego core, ไม่แก้ GUI/production core
+  และไม่ stage/commit/push
+- งานถัดไป L8.2B: สร้าง `compile_pipeline()` ให้ aggregate validation, ตรวจ references/media/
+  single-consumer, สร้าง ordered dependencies และ leaf deliverables
 
 ### 2026-09-20 — L8.1 Qt-independent Run Request boundary
 

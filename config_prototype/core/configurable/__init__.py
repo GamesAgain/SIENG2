@@ -1,5 +1,14 @@
 """Domain model and execution boundary for configurable pipelines."""
 
+from .compiler import (
+    CompiledPipeline,
+    CompiledStep,
+    DeclaredOutput,
+    PipelineValidationError,
+    ValidationIssue,
+    compile_pipeline,
+    declare_step_outputs,
+)
 from .run_request import (
     ApicImageRequest,
     EncryptionRequest,
@@ -18,10 +27,21 @@ from .run_request import (
     RunStepRequest,
     TechniqueRunInputs,
 )
+from .runtime import (
+    MissingRuntimeOutputError,
+    RunArtifact,
+    RunStatus,
+    RunWorkspace,
+    StepCommitError,
+    resolve_source,
+)
 from .step_output import FileSource, StepOutput, StepOutputInfo
 
 __all__ = [
     "ApicImageRequest",
+    "CompiledPipeline",
+    "CompiledStep",
+    "DeclaredOutput",
     "EncryptionRequest",
     "FileSource",
     "LSBRunInputs",
@@ -34,10 +54,20 @@ __all__ = [
     "MP3SimpleFrameRequest",
     "MetadataRunInputs",
     "MetadataRunPayload",
+    "MissingRuntimeOutputError",
     "PNGMetadataRunPayload",
     "PipelineRunRequest",
+    "PipelineValidationError",
     "RunStepRequest",
+    "RunArtifact",
+    "RunStatus",
+    "RunWorkspace",
     "StepOutput",
     "StepOutputInfo",
+    "StepCommitError",
     "TechniqueRunInputs",
+    "ValidationIssue",
+    "compile_pipeline",
+    "declare_step_outputs",
+    "resolve_source",
 ]
