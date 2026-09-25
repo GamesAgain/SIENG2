@@ -49,16 +49,16 @@ class KeyRegistry(QObject):
         config_dir = QStandardPaths.writableLocation(
             QStandardPaths.StandardLocation.AppConfigLocation
         )
-        return Path(config_dir) / "rsa_keys.json"
+        return Path(config_dir) / "key_storage" / "rsa_keys.json"
 
     def records(self, role: str | None = None) -> list[KeyRecord]:
         records = self._records
         if role is not None:
             records = [record for record in records if record.role == role]
-        return sorted(records, key=lambda record: record.label.casefold())
+        return sorted(records, key=lambda record: record.label.casefold()) # เรียงลำดับตัวอักษรไม่สนใจตัวพิมพ์เล็ก/ใหญ่
 
     def get(self, record_id: str) -> KeyRecord | None:
-        return next((record for record in self._records if record.id == record_id), None)
+        return next((record for record in self._records if record.id == record_id), None) # next() ถ้าเจอตัวที่ใช่ ให้ส่งค่ากลับทันทีแล้วหยุดลูป
 
     def add(self, label: str, info: RSAKeyInfo) -> KeyRecord:
         clean_label = label.strip() or Path(info.path).stem
@@ -72,7 +72,7 @@ class KeyRegistry(QObject):
             None,
         )
         record = KeyRecord(
-            id=existing.id if existing else uuid4().hex,
+            id=existing.id if existing else uuid4().hex, # ถ้าซ้ำใช้ uuid
             label=clean_label,
             path=resolved_path,
             role=info.role,
@@ -81,7 +81,7 @@ class KeyRegistry(QObject):
             container=info.container,
             encrypted=info.encrypted,
             fingerprint=info.fingerprint,
-            added_at=existing.added_at if existing else datetime.now(timezone.utc).isoformat(),
+            added_at=existing.added_at if existing else datetime.now(timezone.utc).isoformat(), # UTC (Coordinated Universal Time) คือ "เวลามาตรฐานสากล"
         )
 
         if existing:
@@ -94,7 +94,7 @@ class KeyRegistry(QObject):
 
     def remove(self, record_id: str) -> bool:
         original_count = len(self._records)
-        self._records = [record for record in self._records if record.id != record_id]
+        self._records = [record for record in self._records if record.id != record_id] # เก็บ Records ทั้งหมดยกเว้น Record ID ที่จะลบ
         if len(self._records) == original_count:
             return False
         self.save()
@@ -109,9 +109,10 @@ class KeyRegistry(QObject):
         clean_label = label.strip()
         if not clean_label:
             raise ValueError("Display name cannot be empty.")
-
-        updated = replace(current, label=clean_label)
-        self._records[self._records.index(current)] = updated
+        
+        # rename ข้อมูลที่ Dataclass frozen เป็น True 
+        updated = replace(current, label=clean_label) # เก็บตัวแปรเดิมที่เปลี่ยน Label แล้ว
+        self._records[self._records.index(current)] = updated # เพิ่มเข้าไปที่เดิม
         self.save()
         self.changed.emit()
         return updated

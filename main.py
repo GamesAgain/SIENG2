@@ -1,40 +1,30 @@
 import sys
 from pathlib import Path
 
-from PyQt6.QtGui import QColor, QFont, QPalette
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import QApplication
 
-from src.gui.main_window import MainWindow
+from src.gui.app.main_window import MainWindow
+from src.path import DEFAULT_QSS_PATH
 
 DEFAULT_FONT = QFont("Segoe UI", 10)
 
-def apply_stylesheet(app: QApplication, style: str = "default.qss"):
-    """Apply a stylesheet to the application."""
-    style_path = Path(__file__).parent / "src" / "gui" / "styles" / style
-    
-    with open(style_path, "r", encoding="utf-8") as f:
-        app.setStyleSheet(f.read())
+def load_stylesheet(style_path: Path) -> str:
+    return style_path.read_text(encoding="utf-8")
 
 
-def main():
+def main() -> int:
     app = QApplication(sys.argv)
-    app.setOrganizationName("SIENG2")
     app.setApplicationName("SIENG2")
     
-    palette = app.palette()
-    palette.setColor(QPalette.ColorRole.WindowText, QColor("#94a3b8"))
-    # palette.setColor(QPalette.ColorRole.Text, QColor("##94a3b8"))
-    # palette.setColor(QPalette.ColorRole.ButtonText, QColor("#94a3b8"))
-    
-    app.setPalette(palette)
     app.setFont(DEFAULT_FONT)
-    apply_stylesheet(app)
-    
+    app.setStyleSheet(load_stylesheet(DEFAULT_QSS_PATH))
+
     window = MainWindow()
     window.show()
-    print("SIENG2 GUI starting...")
-    sys.exit(app.exec())
+
+    return app.exec()
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

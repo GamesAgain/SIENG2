@@ -1,81 +1,175 @@
-/* --- ROOT WIDGET (หน้าต่างหลัก) --- */
-#rootWidget {
-    color: #64748B;
+/* --- Global --- */
+QWidget {
+    font-family: "Segoe UI";
+    font-size: 10pt;
+}
+
+/* --- Text selection context menu --- */
+QMenu {
+    background-color: #252525;
+    color: #FFFFFF;
+    border: 1px solid #343434;
+    border-radius: 6px;
+    padding: 4px;
+}
+
+QMenu::item {
+    color: #FFFFFF;
+    padding: 5px 22px 5px 8px;
+    border-radius: 4px;
+}
+
+QMenu::item:selected {
+    background-color: #1C292F;
+    color: #FFFFFF;
+}
+
+QMenu::separator {
+    height: 1px;
+    background-color: #343434;
+    margin: 4px 6px;
+}
+
+/* --- Dropdown Style (Picture Type / Add Frame) ---*/
+QComboBox {
+    background-color: #252525;
+    border: 1px solid rgba(56, 189, 248, 0.20);
+    border-radius: 6px;
+    padding: 6px 10px;
+    color: #e2e8f0;
+    font-size: 9pt;
+}
+QComboBox:hover {
+    border: 1px solid #38bdf8;
+}
+QComboBox::drop-down {
+    border: none;
+    width: 24px;
+}
+QComboBox::down-arrow {
+    image: url(src/gui/assets/svg/chevron-down.svg);
+    width: 12px;
+    height: 12px;
+    margin-right: 8px;
+}
+QComboBox QAbstractItemView {
+    background-color: #252525;
+    border: 1px solid #343434;
+    selection-background-color: rgba(56, 189, 248, 0.2);
+    color: #e2e8f0;
+    outline: none;
+}
+
+/* -- Check Box Style -- */
+QCheckBox {
+    color: #CBD5E1;
+    spacing: 9px;
+}
+
+QCheckBox::indicator {
+    width: 18px;
+    height: 18px;
+    background-color: #252525;
+    border: 1px solid #3A4650;
+    border-radius: 4px;
+}
+
+QCheckBox::indicator:hover {
+    border-color: #38BDF8;
+}
+
+QCheckBox::indicator:checked {
+    background-color: #38BDF8;
+    border-color: #38BDF8;
+    image: url(src/gui/assets/svg/check.svg);
+}
+
+/* --- Window form --- */
+QFrame#windowForm {
     background-color: #1E1E1E;
     border: 1px solid #282828;     
+    border-radius: 6px; 
+    color: #64748B;
 }
 
-
-
-/* --- Title Bar --- */
-#titleBarContainer {
+/* --- SIENG2 Title Bar --- */
+QFrame#appTitleBar {
     background-color: #181818;
+    border: none;
     border-bottom: 1px solid #1C3039;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
 }
 
-/* Logo */
-#logoMark {
+/* --- SIENG2 Logo --- */
+QLabel#logoMark {
     background-color: transparent;
     border: none;
 }
 
-/* ชื่อแอป SIENG2 */
-#appTitle {
-    font-family: 'Courier New', monospace;
-    font-size: 20px;
+/* --- SIENG2 Title --- */
+QLabel#appTitle {
+    font-family: "Courier New";
+    font-size: 15pt;
     font-weight: 700;
     letter-spacing: 2px;
-    color: #e2e8f0;
-}
-
-/* คำอธิบายย่อย */
-#appSubtitle {
-    font-family: 'Courier New', monospace;
-    font-size: 10px;
-    color: #536072;
-    letter-spacing: 1px;
-}
-
-#windowControlBtn, #windowCloseBtn {
+    color: #E2E8F0;
     background-color: transparent;
     border: none;
-    font-size: 14px;
+}
+
+/* --- SIENG2 SubTitle --- */
+QLabel#appSubtitle {
+    font-family: "Courier New";
+    font-size: 7.5pt;
+    color: #536072;
+    letter-spacing: 1px;
+    background-color: transparent;
+    border: none;
+}
+
+/* --- Window Control Buttons --- */
+QPushButton#controlWindowBtn,
+QPushButton#closeWindowBtn {
+    background-color: transparent;
+    border: none;
     border-radius: 4px;
-    color: #e2e8f0;
+    font-size: 10.5pt;
+    color: #E2E8F0;
 }
 
-#windowControlBtn:hover {
+QPushButton#controlWindowBtn:hover {
     background-color: #2F2F2F;
-    color: #ffffff;
+    color: #FFFFFF;
 }
 
-/* Hover สำหรับ Close (สีแดง) */
-#windowCloseBtn:hover {
-    background-color: #f43f5e;
-    color: #ffffff;
+/* --- Close Button Hover --- */
+QPushButton#closeWindowBtn:hover {
+    background-color: #F43F5E;
+    color: #FFFFFF;
 }
-
 
 /* --- Sidebar ด้านซ้าย --- */
-#sidebarContainer {
+QFrame#sidebar {
     background-color: #181818;
     border-right: 1px solid #282828;
+    border-bottom-left-radius: 6px;
 }
 
-/* Label แบ่ง section (Steganography, Steganalysis) */
-#sectionLabel {
+/* Label แบ่ง section (Steganography, Steganalysis, utility) */
+QLabel#sectionLabel {
     color: #515D6E; 
     font-family: "Courier New", monospace;
-    font-size: 10px; 
+    font-size: 7.5pt; 
     font-weight: bold; 
     letter-spacing: 1px; 
     padding: 0px 6px;
     border: none;
 }
 
-/* ── SIDEBAR BUTTONS ── */
-/* สไตล์ปกติของปุ่มใน sidebar */
-#sidebarButton {
+/* --- SIDEBAR BUTTONS --- */
+/* Normal state */
+QPushButton#sidebarButton {
     font-family: 'Segoe UI', sans-serif;
     text-align: left;
     padding: 7px 10px;
@@ -83,295 +177,25 @@
     border: 1px solid transparent;
     border-radius: 6px;
     color: #818D9F;
-    font-size: 12px;
+    font-size: 9pt;
     font-weight: 500;
 }
 
 /* Hover state */
-#sidebarButton:hover {
+QPushButton#sidebarButton:hover {
     background-color: #252525;
     color: #E2E7EF;
 }
 
 /* Checked/Active state (ใช้ setCheckable(True)) */
-#sidebarButton:checked {
+QPushButton#sidebarButton:checked {
     background-color: #1C292F;
     color: #38BDF8;
     border: 1px solid #224A5B;
 }
 
 
-
-/* --- Embed Page --- */
-#modeSelectionContainer {
-    background-color: #252525;
-    border-radius: 8px;
-    border: 1px solid #343434;
-}
-
-/* Mode Selection Buttons (accentColor: "blue" = Standalone, "orange" = Configurable) */
-#modeOptionBtn {
-    font-family: Arial, sans-serif;
-    background-color: transparent;
-    border: none;
-    color: #94A3B8;
-    font-size: 12px;
-    padding: 7px 12px;
-    font-weight: 500;
-}
-
-#modeOptionBtn:checked[accentColor="blue"] {
-    background-color: #27343A;
-    border: 1px solid #2C6077;
-    border-radius: 6px;
-    color: #38BDF8;
-}
-
-#modeOptionBtn:checked[accentColor="orange"] {
-    background-color: #433622;
-    border: 1px solid #78551A;
-    border-radius: 6px;
-    color: #F59E0F;
-}
-
-
-
-/* --- Encryption Selection --- */
-#encryptSelectionContainer {
-    background-color: #252525;
-    border-radius: 8px;
-    border: 1px solid #343434;
-}
-
-
-/* Encryption Selection Buttons (accentColor: "purple" = Password, "green" = Public Key) */
-#encryptOptionBtn {
-    font-family: Arial, sans-serif;
-    background-color: transparent;
-    border: none;
-    color: #94A3B8;
-    font-size: 12px;
-    padding: 5px 12px;
-    font-weight: 500;
-}
-
-#encryptOptionBtn:checked[accentColor="purple"] {
-    background-color: #3F3B4B;
-    border: 1px solid #7464A2;
-    border-radius: 6px;
-    color: #A78BFA;
-}
-
-#encryptOptionBtn:checked[accentColor="green"] {
-    background-color: #213B33;
-    border: 1px solid #3B8766;
-    border-radius: 6px;
-    color: #34D399;
-}
-
-/* --- Linked Step Toggle (Manual Upload / Linked from Step) --- */
-/* โผล่เฉพาะ cover-file card ตอนเปิดผ่าน Configurable Pipeline เท่านั้น */
-#linkedStepToggleContainer {
-    background-color: #252525;
-    border-radius: 8px;
-    border: 1px solid #343434;
-}
-
-#linkedStepToggleBtn {
-    font-family: Arial, sans-serif;
-    background-color: transparent;
-    border: none;
-    color: #94A3B8;
-    font-size: 11px;
-    padding: 5px 10px;
-    font-weight: 500;
-}
-
-#linkedStepToggleBtn:checked {
-    background-color: #1C292F;
-    border: 1px solid #224A5B;
-    border-radius: 6px;
-    color: #38BDF8;
-}
-
-/* --- Step Output Picker (ตารางเลือก output ของ step ก่อนหน้ามา link แทนอัปโหลดเอง) --- */
-/* หัวตาราง */
-QFrame#stepOutputHeader {
-    background: transparent;
-    border: none;
-    border-bottom: 1px solid #2E2E2E;
-}
-QLabel#stepOutputHeaderCell {
-    color: #64748B;
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-    background: transparent;
-    border: none;
-}
-
-/* แถวข้อมูล */
-QFrame#stepOutputRow {
-    background-color: #262D30;
-    border: 1px solid #343434;
-    border-radius: 6px;
-}
-QFrame#stepOutputRow:hover {
-    border: 1px solid #38BDF8;
-}
-QFrame#stepOutputRow[accentColor="blue"]   { border-left: 3px solid #38BDF8; }
-QFrame#stepOutputRow[accentColor="purple"] { border-left: 3px solid #A78BFA; }
-QFrame#stepOutputRow[accentColor="orange"] { border-left: 3px solid #F59E0F; }
-
-QFrame#stepOutputRow[selected="true"] {
-    background-color: #1C292F;
-    border: 1px solid #38BDF8;
-}
-
-QLabel#stepOutputCellStep {
-    color: #E2E8F0;
-    font-size: 12px;
-    font-weight: 600;
-    background: transparent;
-    border: none;
-}
-QLabel#stepOutputCellModule {
-    font-size: 12px;
-    font-weight: 600;
-    background: transparent;
-    border: none;
-}
-QLabel#stepOutputCellModule[accentColor="blue"]   { color: #38BDF8; }
-QLabel#stepOutputCellModule[accentColor="purple"] { color: #A78BFA; }
-QLabel#stepOutputCellModule[accentColor="orange"] { color: #F59E0F; }
-QLabel#stepOutputCellOutput {
-    color: #94A3B8;
-    font-size: 11px;
-    font-family: 'Courier New', monospace;
-    background: transparent;
-    border: none;
-}
-
-/* --- Extract Configurable Page --- */
-/* แถวไฟล์ทรัพยากรตั้งต้น (Required Initial Resources) */
-QFrame#extractResourceRow {
-    background-color: #262D30;
-    border: 1px solid #343434;
-    border-radius: 6px;
-}
-QFrame#extractResourceRow[attached="true"] {
-    border: 1px solid #3B8766;
-}
-QLabel#extractResourceName {
-    color: #E2E8F0;
-    font-family: 'Courier New', monospace;
-    font-size: 12px;
-    background: transparent;
-    border: none;
-}
-QLabel#extractResourceStatus {
-    color: #34D399;
-    font-size: 10px;
-    background: transparent;
-    border: none;
-}
-
-/* การ์ด step ใน Extract Workflow */
-QFrame#extractStepRow {
-    background-color: #1E1E1E;
-    border: 1px solid #2E2E2E;
-    border-radius: 8px;
-}
-QFrame#extractStepRow[accentColor="blue"]   { border-left: 3px solid #38BDF8; }
-QFrame#extractStepRow[accentColor="purple"] { border-left: 3px solid #A78BFA; }
-QFrame#extractStepRow[accentColor="orange"] { border-left: 3px solid #F59E0F; }
-QLabel#extractStepNo {
-    color: #52525B;
-    font-family: 'Courier New', monospace;
-    font-size: 15px;
-    font-weight: 700;
-    background: transparent;
-    border: none;
-}
-QLabel#extractStepTitle {
-    font-family: 'Courier New', monospace;
-    font-weight: 700;
-    font-size: 13px;
-    background: transparent;
-    border: none;
-}
-QLabel#extractStepTitle[accentColor="blue"]   { color: #38BDF8; }
-QLabel#extractStepTitle[accentColor="purple"] { color: #A78BFA; }
-QLabel#extractStepTitle[accentColor="orange"] { color: #F59E0F; }
-QLabel#extractStepSub {
-    color: #64748B;
-    font-size: 10px;
-    font-family: 'Courier New', monospace;
-    background: transparent;
-    border: none;
-}
-
-/* สถานะแถว step (per-card extract): done=เขียว, ready=ฟ้า(ถอดได้เลย), blocked=ส้ม(รอกรอกรหัส),
-   pending=เทา(รอ step ก่อนหน้า) — ready ต้องแยกจาก pending ให้เห็นชัดว่า 'พร้อมถอดแล้ว' */
-QFrame#extractStepRow[stepStatus="done"] {
-    border: 1px solid #3B8766;
-}
-QFrame#extractStepRow[stepStatus="ready"] {
-    border: 1px solid #38BDF8;
-}
-QFrame#extractStepRow[stepStatus="blocked"] {
-    border: 1px solid #F59E0F;
-}
-QLabel#extractStepStatus {
-    font-size: 10px;
-    font-weight: 600;
-    background: transparent;
-    border: none;
-}
-QFrame#extractStepRow[stepStatus="pending"] QLabel#extractStepStatus  { color: #52525B; }
-QFrame#extractStepRow[stepStatus="ready"]   QLabel#extractStepStatus  { color: #38BDF8; }
-QFrame#extractStepRow[stepStatus="done"]    QLabel#extractStepStatus  { color: #34D399; }
-QFrame#extractStepRow[stepStatus="blocked"] QLabel#extractStepStatus  { color: #F59E0F; }
-
-/* คำใบ้ (guidenote) ที่ผู้ส่งเขียนไว้ตอน embed — โชว์เฉพาะ step ที่มี ไม่ใช่ secret ปลอดภัย */
-QLabel#extractStepGuidenote {
-    color: #94A3B8;
-    font-size: 11px;
-    font-style: italic;
-    background: transparent;
-    border: none;
-}
-
-/* --- Tab Style --- */
-/* เส้นแนวนอนยาวที่ฐานของ Tab */
-QTabWidget::pane {
-    border: none;
-    border-top: 1px solid #2E2E2E; /* เส้นฐานสีเทาจาง */
-    top: -1px; /* ดันให้เส้นทับกับฐานปุ่มพอดี */
-}
-
-/* ปุ่ม Tab สถานะปกติ */
-QTabBar::tab {
-    background: transparent;
-    padding: 8px 14px;
-    font-size: 12px;
-    border: none;
-    border-bottom: 2px solid transparent; /* จองพื้นที่เส้นใต้ไว้ */
-    margin-right: 2px;
-}
-
-/* ปุ่ม Tab ตอนเอาเมาส์ไปชี้ */
-QTabBar::tab:hover {
-    color: #E2E8F0;
-}
-
-QTabBar::tab:selected {
-    color: #38BDF8;
-    border-bottom: 2px solid #38BDF8;
-}
-
-
-/* Card Style */
+/* --- Card Style --- */
 QFrame#card {
     background-color: #252525;
     border: 1px solid #343434;
@@ -380,153 +204,20 @@ QFrame#card {
 
 QLabel#cardTitle {
     font-family: "Segoe UI", sans-serif;
-    font-size: 12px;
+    font-size: 9pt;
     font-weight: 600;
     letter-spacing: 0.5px;
+    color: #CBD5E1;
 }
 
 
-
-/* --- File Drop Widget --- */
-/* 1. สถานะปกติ (Default) - ยังไม่มีไฟล์ และไม่ได้ลากอะไรมาจ่อ */
-QFrame#fileDropZone {
-    background-color: #1E1E1E;
-    border: 1.5px dashed #1E3945;
-    border-radius: 8px;
-}
-/* 2. ตอนเอาเมาส์ชี้ (Hover) - ให้เปลี่ยนสีเฉพาะตอนที่ยัง "ไม่มีไฟล์" */
-QFrame#fileDropZone[hasFile="false"]:hover {
-    background-color: #262D30;
-    border: 1.5px dashed #38BDF8;
-}
-/* 3. สถานะกำลังลากไฟล์มาจ่อ (Drag Enter) */
-QFrame#fileDropZone[isDragging="true"] {
-    background-color: #262D30;
-    border: 1.5px dashed #38BDF8; 
-}
-/* 4. สถานะวางไฟล์สำเร็จแล้ว (Has File) */
-QFrame#fileDropZone[hasFile="true"] {
-    background-color: #1E1E1E;
-    border: 1.5px solid #262D30;
-    border-radius: 8px;
-}
-/* 5. ตอนเอาเมาส์ชี้ (Hover) - ในสถานะที่ "มีไฟล์แล้ว" */
-QFrame#fileDropZone[hasFile="true"]:hover {
-    background-color: #262D30;
-    border: 1.5px solid #38BDF8;
-    border-radius: 8px;
-}
-
-QLabel#mainLabel {
-    font-size: 12px;
-    font-weight: 600;
-}
-
-QLabel#subLabel {
-    font-family: 'Courier New', monospace;
-    font-size: 10px;
-    color: #94A3B8;
-}
-
-
-
-/* --- PlainTextEdit Style --- */
-QPlainTextEdit#payloadTextArea {
-    background-color: #2E2E2E;
-    border: 1px solid #304B57; 
-    border-radius: 6px;
-    padding: 7px 10px;
-    color: #e2e8f0;
-    font-family: 'Courier New', monospace; 
-    font-size: 14px;
-}
-
-/* เวลาผู้ใช้คลิกพิมพ์ให้ขอบเป็นสีฟ้า */
-QPlainTextEdit#payloadTextArea:focus {
-    border: 1px solid #38bdf8;
-}
-
-
-/* สไตล์สำหรับ Label (.form-label) */
-QLabel#formLabel {
-    font-size: 11px;
-    color: #94a3b8;
-    font-weight: 500;
-}
-
-/* สไตล์สำหรับช่องกรอกข้อความ (.form-input) */
-QLineEdit#formInput {
-    background-color: #252525;
-    border: 1px solid rgba(56, 189, 248, 0.20);
-    border-radius: 6px;
-    padding: 7px 10px;
-    color: #e2e8f0;
-    font-size: 12px;
-}
-
-/* สไตล์ตอนที่คลิกพิมพ์ (focus) */
-QLineEdit#formInput:focus {
-    border: 1px solid #38bdf8;
-}
-
-QLabel#keyValidationLabel {
-    font-family: 'Courier New', monospace;
-    font-size: 10px;
-    padding: 2px 0;
-}
-
-QLabel#keyValidationLabel[keyState="valid"] {
-    color: #34D399;
-}
-
-QLabel#keyValidationLabel[keyState="pending"] {
-    color: #F59E0F;
-}
-
-QLabel#keyValidationLabel[keyState="error"] {
-    color: #EF4444;
-}
-
-
-QLabel#capacityLabel {
-    font-family: 'Courier New', monospace;
-    font-size: 10px;
-}
-
-/* ปกติไม่ตั้งสี (ใช้สีตั้งต้นของ QLabel) — มีแค่ 2 สถานะเตือนนี้เท่านั้น */
-QLabel#capacityLabel[capacityState="warning"] {
-    color: #F59E0F;
-}
-
-QLabel#capacityLabel[capacityState="danger"] {
-    color: #f43f5e;
-}
-
-/* Loading Bar Style */
-/* 1. ส่วนกรอบและพื้นหลัง */
-QProgressBar {
-    background-color: #333333;
-    border: 1px solid rgba(56, 189, 248, 0.20);
-    border-radius: 4px;
-}
-
-/* 2. ส่วนแถบสีที่วิ่ง (Chunk) */
-QProgressBar::chunk {
-    background-color: #38bdf8;
-    border-radius: 4px;
-}
-
-QLabel#statusLabel {
-    font-size: 11px;
-}
-
-
-/* ปุ่ม Primary Action (ลงมือทำ action หลักของแต่ละหน้า เช่น Embed Data, Extract Data, Save Metadata) */
+/* --- Primary Action Button ---
+(ลงมือทำ action หลักของแต่ละหน้า เช่น Embed Data, Extract Data, Save Metadata) */
 QPushButton#PrimaryActionBtn {
     background-color: rgba(56, 189, 248, 0.1); /* สีฟ้าโปร่งใส 10% */
     color: #38bdf8; /* ตัวหนังสือสีฟ้า */
     font-weight: 700;
-    font-size: 13px;
+    font-size: 9.75pt;
     padding: 8px 24px;
     border-radius: 6px;
     border: 1px solid rgba(56, 189, 248, 0.5); /* ขอบสีฟ้าจางๆ */
@@ -550,162 +241,14 @@ QPushButton#PrimaryActionBtn:disabled {
 }
 
 
-/* กล่องข้อมูล/คำแนะนำแบบ neutral (ใช้ทั้งตอนแนะนำวิธีใช้งานและตอนแสดงสถานะ disabled) */
-QFrame#GuideBox, QFrame#disabledMode {
-    background-color: #222222;
-    border: 1.5px solid #333333;
-    border-radius: 8px;
-}
-
-
-
-/* --- Multi File Drop Styles --- */
-
-/* Scroll Area ที่ซ่อนเส้นขอบ */
-QScrollArea#fileListScroll {
-    border: none;
-    background-color: transparent;
-}
-QWidget#fileListContainer {
-    background-color: transparent;
-}
-
-/* ปิดสกรอลแนวนอนเฉพาะรายการไฟล์ (เพราะเน้น Scroll แนวตั้งอย่างเดียว) */
-QScrollArea#fileListScroll QScrollBar:horizontal {
-    height: 0px;
-    background: none;
-}
-
-/* กรอบรายชื่อไฟล์ 1 แถว */
-QFrame#fileItemRow {
-    background-color: #2A2A2D; /* เทาเข้มกลางๆ ไม่มีเบลอฟ้า สว่างกว่าพื้นหลังนิดหน่อย */
-    border: 1px solid #3D3D40; /* เทาอ่อนกว่าพื้น ให้ดูเป็นกรอบลอยขึ้นมา */
-    border-radius: 6px;
-}
-
-QFrame#fileItemRow:hover {
-    background-color: #333336; /* เทาสว่างขึ้นอีกนิดตอน hover */
-    border: 1px solid #38BDF8; /* คงสีฟ้า accent ของธีมไว้ตอน hover เพื่อให้ยังรู้สึกว่าคลิกได้ */
-}
-
-/* ตัวหนังสือในรายชื่อไฟล์ */
-QLabel#fileItemName {
-    color: #E2E8F0;
-    font-size: 12px;
-    font-weight: 600;
-}
-QLabel#fileItemSize {
-    color: #94A3B8;
-    font-size: 10px;
-    font-family: 'Courier New', monospace;
-}
-
-/* ปุ่มกากบาทลบไฟล์ */
-QPushButton#btnRemoveFile {
-    background-color: transparent;
-    border: none;
-    border-radius: 4px;
-}
-QPushButton#btnRemoveFile:hover {
-    background-color: rgba(244, 63, 94, 0.1); /* พื้นหลังแดงใสๆ เวลาชี้ */
-    border: 1px solid #7e3340;
-}
-QPushButton#btnRemoveFile:pressed {
-    background-color: rgba(244, 63, 94, 0.2);
-}
-
-
-
-/* --- Metadata: Selected File Info Card --- */
-QFrame#fileInfoCard {
-    background-color: #252525;
-    border: 1px solid #304B57;
-    border-radius: 10px;
-}
-
-/* กรอบไอคอนไฟล์ */
-QFrame#fileInfoIconBox {
-    background-color: rgba(56, 189, 248, 0.1);
-    border: 1px solid rgba(56, 189, 248, 0.3);
-    border-radius: 8px;
-}
-
-/* ชื่อไฟล์ */
-QLabel#fileInfoName {
-    color: #E2E8F0;
-    font-size: 13px;
-    font-weight: 700;
-}
-
-/* บรรทัดรายละเอียด (ขนาด · ระยะเวลา · บิตเรต · เวอร์ชันแท็ก ฯลฯ) */
-QLabel#fileInfoDetail {
-    color: #94A3B8;
-    font-family: 'Courier New', monospace;
-    font-size: 10px;
-}
-
-/* Badge กลาง (สี default = neutral) */
-QLabel#fileInfoBadge {
-    font-family: 'Courier New', monospace;
-    font-size: 10px;
-    font-weight: 600;
-    padding: 3px 8px;
-    border-radius: 5px;
-    background-color: rgba(148, 163, 184, 0.08);
-    border: 1px solid #343434;
-    color: #94A3B8;
-}
-
-/* Badge สีฟ้า เช่น ID3v2.4 / PNG */
-QLabel#fileInfoBadge[badgeColor="blue"] {
-    background-color: rgba(56, 189, 248, 0.1);
-    border: 1px solid rgba(56, 189, 248, 0.5);
-    color: #38BDF8;
-}
-
-/* Badge สีเขียว เช่น UTF-8 */
-QLabel#fileInfoBadge[badgeColor="green"] {
-    background-color: rgba(52, 211, 153, 0.1);
-    border: 1px solid rgba(52, 211, 153, 0.5);
-    color: #34D399;
-}
-
-/* Badge สีม่วง/ส้ม เพิ่มเติม (ใช้ร่วมกับ #fileInfoBadge[badgeColor=...] เดิม) */
-QLabel#fileInfoBadge[badgeColor="purple"] {
-    background-color: rgba(167, 139, 250, 0.1);
-    border: 1px solid rgba(167, 139, 250, 0.5);
-    color: #A78BFA;
-}
-QLabel#fileInfoBadge[badgeColor="orange"] {
-    background-color: rgba(245, 158, 15, 0.1);
-    border: 1px solid rgba(245, 158, 15, 0.5);
-    color: #F59E0F;
-}
-/* Badge สีแดง สำหรับแสดง Error หรือสถานะที่มีปัญหา */                                                                                           
-QLabel#fileInfoBadge[badgeColor="red"] {                                                                                                 
-    background-color: rgba(239, 68, 68, 0.1);                                                                                            
-    border: 1px solid rgba(239, 68, 68, 0.5);                                                                                            
-    color: #EF4444;                                                                                                                      
-}  
-
-
-
-/* --- MP3 Metadata Editor --- */
-
-/* ข้อความ hint เล็กๆ ท้าย header (เช่น "แสดงเสมอไม่ว่าจะมีข้อมูลไหม") */
-QLabel#hintLabel {
-    color: #64748B;
-    font-size: 10px;
-    font-style: italic;
-}
-
-/* ปุ่มรอง (Cancel, Replace, Revert, Add Frame, Change File) */
+/* --- SecondaryButton --- 
+(Cancel, Replace, Revert, Add Frame, Change File) */
 QPushButton#SecondaryBtn {
     background-color: transparent;
     border: 1px solid #343434;
     border-radius: 6px;
     color: #94A3B8;
-    font-size: 11px;
+    font-size: 8.25pt;
     font-weight: 500;
     padding: 7px 14px;
 }
@@ -716,7 +259,8 @@ QPushButton#SecondaryBtn:hover {
 QPushButton#SecondaryBtn:pressed {
     background-color: rgba(56, 189, 248, 0.15);
 }
-QPushButton#SecondaryBtn:disabled {
+QPushButton#SecondaryBtn:disabled,
+QPushButton#DangerBtn:disabled {
     color: #52525B;          /* จางลงให้เห็นชัดว่ากดไม่ได้ (เช่น Save Outputs ก่อน run) */
     border: 1px solid #2A2A2A;
 }
@@ -729,393 +273,80 @@ QPushButton#SecondaryBtn[textColor="white"]:disabled {
     color: #52525B;          /* disabled ชนะ textColor=white — ไม่งั้นจะดูเหมือนกดได้ */
 }
 
-/* --- Pipeline Chip Buttons (ปุ่มเพิ่ม technique / Clear ใน Pipeline Builder) --- */
-/* base shape ใช้ร่วมกันทุกสี ต่างกันแค่ accentColor */
-QPushButton#ChipBtn {
-    font-family: 'Segoe UI', sans-serif;
-    font-size: 11px;
-    font-weight: 600;
-    padding: 5px 12px;
-    border-radius: 14px;
-}
-
-QPushButton#ChipBtn[accentColor="blue"] {
-    background-color: rgba(56, 189, 248, 0.1);
-    border: 1px solid rgba(56, 189, 248, 0.5);
-    color: #38BDF8;
-}
-QPushButton#ChipBtn[accentColor="blue"]:hover {
-    background-color: rgba(56, 189, 248, 0.2);
-    border: 1px solid #38BDF8;
-}
-
-QPushButton#ChipBtn[accentColor="purple"] {
-    background-color: rgba(167, 139, 250, 0.1);
-    border: 1px solid rgba(167, 139, 250, 0.5);
-    color: #A78BFA;
-}
-QPushButton#ChipBtn[accentColor="purple"]:hover {
-    background-color: rgba(167, 139, 250, 0.2);
-    border: 1px solid #A78BFA;
-}
-
-QPushButton#ChipBtn[accentColor="orange"] {
-    background-color: rgba(245, 158, 15, 0.1);
-    border: 1px solid rgba(245, 158, 15, 0.5);
-    color: #F59E0F;
-}
-QPushButton#ChipBtn[accentColor="orange"]:hover {
-    background-color: rgba(245, 158, 15, 0.2);
-    border: 1px solid #F59E0F;
-}
-
-QPushButton#ChipBtn[accentColor="red"] {
-    background-color: rgba(244, 63, 94, 0.1);
-    border: 1px solid rgba(244, 63, 94, 0.5);
-    color: #f43f5e;
-}
-QPushButton#ChipBtn[accentColor="red"]:hover {
-    background-color: rgba(244, 63, 94, 0.2);
-    border: 1px solid #f43f5e;
-}
-
-
-/* --- Pipeline Builder: canvas, step cards, add button --- */
-/* พื้นที่ canvas ที่วาง step cards (ยุบลงจากพื้นการ์ดให้ดูเป็นแท่นวาง) */
-QFrame#pipelineCanvas {
-    background-color: #1E1E1E;
-    border: 1px solid #343434;
-    border-radius: 8px;
-}
-
-QScrollArea#pipelineScroll {
-    border: none;
+/* --- Danger Button ---
+ขอบปุ่มกับตัวหนังสือสีแดง bg โปร่งใส*/
+QPushButton#DangerBtn {
     background-color: transparent;
-}
-QWidget#pipelineScrollContent {
-    background-color: transparent;
-}
-
-QLabel#pipelineSummary {
-    color: #64748B;
-    font-family: 'Courier New', monospace;
-    font-size: 10px;
-}
-
-/* Step card (node) — accentColor กำหนดสีขอบซ้าย */
-QFrame#stepCard {
-    background-color: #252525;
-    border: 1px solid #343434;
-    border-radius: 10px;
-}
-QFrame#stepCard[accentColor="blue"]   { border-left: 3px solid #38BDF8; }
-QFrame#stepCard[accentColor="purple"] { border-left: 3px solid #A78BFA; }
-QFrame#stepCard[accentColor="orange"] { border-left: 3px solid #F59E0F; }
-
-QLabel#stepCardTitle {
-    font-family: 'Courier New', monospace;
-    font-weight: 700;
-    font-size: 13px;
-    background: transparent;
-    border: none;
-}
-QLabel#stepCardTitle[accentColor="blue"]   { color: #38BDF8; }
-QLabel#stepCardTitle[accentColor="purple"] { color: #A78BFA; }
-QLabel#stepCardTitle[accentColor="orange"] { color: #F59E0F; }
-
-QLabel#stepCardSub {
-    color: #94A3B8;
-    font-size: 11px;
-    background: transparent;
-    border: none;
-}
-
-/* จุดสถานะลอยมุมบนซ้าย (state = valid|invalid) */
-QLabel#stepStatusDot {
-    border-radius: 9px;
-    border: 2px solid #1E1E1E;
-}
-QLabel#stepStatusDot[state="valid"]   { background-color: #34D399; }
-QLabel#stepStatusDot[state="invalid"] { background-color: #F59E0F; }
-
-/* ปุ่มปิดลอยมุมบนขวา (โผล่ตอน hover การ์ด) */
-QPushButton#stepCloseBtn {
-    background-color: #f43f5e;
-    border: 2px solid #1E1E1E;
-    border-radius: 11px;
-}
-QPushButton#stepCloseBtn:hover {
-    background-color: #ff5577;
-}
-
-/* ปุ่มวงกลมเส้นประ "เพิ่ม step" */
-QPushButton#addStepBtn {
-    background-color: transparent;
-    border: 1px dashed rgba(56, 189, 248, 0.5);
-    border-radius: 19px;
-}
-QPushButton#addStepBtn:hover {
-    border: 1px dashed #38BDF8;
-    background-color: rgba(56, 189, 248, 0.08);
-}
-
-/* ปุ่มสลับ Step Config UI (Popup Dialog / Inline Panel) */
-QPushButton#stepUiBtn {
-    background-color: #2D2D2D;
-    border: 1px solid #343434;
+    border: 1px solid rgba(244, 63, 94, 0.45);
     border-radius: 6px;
-    color: #94A3B8;
-    font-size: 11px;
-    padding: 5px 12px;
+    color: #FB7185;
+    font-size: 8.25pt;
+    padding: 7px 12px;
 }
-QPushButton#stepUiBtn:checked {
-    background-color: #1C292F;
-    border: 1px solid #224A5B;
-    color: #38BDF8;
+
+QPushButton#DangerBtn:hover {
+    background-color: rgba(244, 63, 94, 0.12);
+    border-color: #F43F5E;
 }
-QPushButton#stepUiBtn:disabled {
-    color: #52525B;
+
+/* --- PlainTextEdit Style --- */
+QPlainTextEdit#payloadTextArea {
+    background-color: #2E2E2E;
+    border: 1px solid #304B57; 
+    border-radius: 6px;
+    padding: 7px 10px;
+    color: #e2e8f0;
+    font-family: 'Courier New', monospace; 
+    font-size: 10.5pt;
+}
+
+/* เวลาผู้ใช้คลิกพิมพ์ให้ขอบเป็นสีฟ้า */
+QPlainTextEdit#payloadTextArea:focus {
+    border: 1px solid #38bdf8;
 }
 
 
-/* ปุ่มลิงก์ข้อความล้วน (+ เพิ่ม instance) */
-QPushButton#LinkBtn {
-    background-color: transparent;
-    border: none;
-    color: #38BDF8;
-    font-size: 11px;
-    font-weight: 600;
-    padding: 4px 0px;
-}
-QPushButton#LinkBtn:hover {
-    color: #7dd3fc;
-    text-decoration: underline;
+/* สไตล์สำหรับ Label (.form-label) */
+QLabel#formLabel {
+    font-size: 8.25pt;
+    color: #94a3b8;
+    font-weight: 500;
 }
 
-/* Dropdown (Picture Type / Add Frame) */
-QComboBox {
+QLabel#dialogFormLabel {
+    color: #e2e8f0;
+}
+
+
+/* สไตล์สำหรับช่องกรอกข้อความ (.form-input) */
+QLineEdit#formInput {
     background-color: #252525;
     border: 1px solid rgba(56, 189, 248, 0.20);
     border-radius: 6px;
-    padding: 6px 10px;
+    padding: 7px 10px;
     color: #e2e8f0;
-    font-size: 12px;
+    font-size: 9pt;
 }
-QComboBox:hover {
+
+/* สไตล์ตอนที่คลิกพิมพ์ (focus) */
+QLineEdit#formInput:focus {
     border: 1px solid #38bdf8;
 }
-QComboBox::drop-down {
-    border: none;
-    width: 24px;
-}
-QComboBox::down-arrow {
-    image: url(src/gui/assets/svg/chevron-down.svg);
-    width: 12px;
-    height: 12px;
-    margin-right: 8px;
-}
-QComboBox QAbstractItemView {
-    background-color: #252525;
-    border: 1px solid #343434;
-    selection-background-color: rgba(56, 189, 248, 0.2);
-    color: #e2e8f0;
-    outline: none;
+
+/* ข้อความ hint เล็ก ๆ  */
+QLabel#hintLabel {
+    color: #64748B;
+    font-size: 7.5pt;
 }
 
-/* การ์ดรูป APIC */
-QFrame#apicCard {
-    background-color: #252525;
-    border: 1px solid #343434;
-    border-radius: 8px;
-}
-
-/* กล่อง preview รูปใน APIC card - สีพื้นหลังหมุนเวียนตาม index กันดูจืดเวลามีหลายรูป */
-QFrame#apicPreview {
-    border-radius: 8px 8px 0px 0px;
-}
-QFrame#apicPreview[tintColor="blue"] { background-color: rgba(56, 189, 248, 0.12); }
-QFrame#apicPreview[tintColor="purple"] { background-color: rgba(167, 139, 250, 0.12); }
-QFrame#apicPreview[tintColor="green"] { background-color: rgba(52, 211, 153, 0.12); }
-QFrame#apicPreview[tintColor="orange"] { background-color: rgba(245, 158, 15, 0.12); }
-
-/* --- Table Styles --- */
-QTableWidget#darkTable {
-    background-color: #1E1E1E; /* สีพื้นหลังให้เนียนไปกับตัวการ์ด */
-    color: #E2E8F0; /* สีตัวหนังสือหลัก */
-    gridline-color: #343434; /* สีเส้นตาราง */
-    font-family: 'Segoe UI', sans-serif;
-    font-size: 12px;
-    border: 1px solid #343434;
-    border-radius: 4px;
-    outline: none; /* เอาเส้นประเวลาคลิกออก */
-}
-
-/* ตอนที่ผู้ใช้คลิกเลือกเซลล์ในตาราง */
-QTableWidget#darkTable::item:selected {
-    background-color: transparent; /* ไม่เปลี่ยนสีพื้นหลัง */
-    color: #38BDF8; /* ตัวหนังสือสีฟ้า */
-    border: 1px solid #38BDF8; /* เพิ่มเส้นขอบสีฟ้า */
-}
-
-/* ส่วนหัวตาราง (Header) */
-QHeaderView::section {
-    background-color: #252525; /* สีพื้นหลังหัวตารางให้เข้มกว่าตัวตารางนิดนึง */
-    color: #94A3B8; /* สีตัวหนังสือหัวตาราง */
-    font-family: 'Segoe UI', sans-serif;
-    font-size: 11px;
-    font-weight: bold;
-    border: none;
-    border-right: 1px solid #343434; /* เส้นคั่นระหว่างคอลัมน์ */
-    border-bottom: 1px solid #343434; /* เส้นคั่นใต้หัวตาราง */
-    padding: 6px;
-}
-
-/* มุมซ้ายบนสุดของตาราง (ตรงที่หัว Row กับหัว Column มาเจอกัน) */
-QTableCornerButton::section {
-    background-color: #1E1E1E;
-    border: none;
-    border-right: 1px solid #343434;
-    border-bottom: 1px solid #343434;
-}
-
-/* ==========================================================================
-   --- Global Floating Web-Style Scrollbars (แนวตั้ง & แนวนอน ทั้งโปรแกรม) ---
-   ========================================================================== */
-
-/* --- Scrollbar แนวตั้ง (Vertical Scrollbar) --- */
-QScrollBar:vertical {
-    background: transparent;
-    width: 12px;
-    margin: 2px 2px 2px 2px; /* เว้นระยะรอบ thumb 2px ให้ thumb กว้าง 8px มนขอบสวยงามทั้ง 4 ด้าน */
-    border: none;
-}
-QScrollBar::handle:vertical {
-    background-color: #4A4A4E;
-    min-height: 32px;
-    border-radius: 4px; /* ครึ่งหนึ่งของความกว้าง thumb (8px) = โค้งมนแคปซูลสมบูรณ์ */
-    border: none;
-}
-QScrollBar::handle:vertical:hover {
-    background-color: #64748B;
-}
-QScrollBar::handle:vertical:pressed {
-    background-color: #94A3B8;
-}
-QScrollBar::add-line:vertical,
-QScrollBar::sub-line:vertical {
-    height: 0px;
-    background: none;
-    border: none;
-}
-QScrollBar::add-page:vertical,
-QScrollBar::sub-page:vertical {
-    background: none;
-}
-
-/* --- Scrollbar แนวนอน (Horizontal Scrollbar) --- */
-QScrollBar:horizontal {
-    background: transparent;
-    height: 12px;
-    margin: 2px 2px 2px 2px;
-    border: none;
-}
-QScrollBar::handle:horizontal {
-    background-color: #4A4A4E;
-    min-width: 32px;
-    border-radius: 4px; /* ครึ่งหนึ่งของความสูง thumb (8px) = โค้งมนแคปซูลสมบูรณ์ */
-    border: none;
-}
-QScrollBar::handle:horizontal:hover {
-    background-color: #64748B;
-}
-QScrollBar::handle:horizontal:pressed {
-    background-color: #94A3B8;
-}
-QScrollBar::add-line:horizontal,
-QScrollBar::sub-line:horizontal {
-    width: 0px;
-    background: none;
-    border: none;
-}
-QScrollBar::add-page:horizontal,
-QScrollBar::sub-page:horizontal {
-    background: none;
-}
-
-/* --- File Structure Tree --- */
-QTreeWidget#structureTree {
-    background-color: #1E1E1E;
+/* --- Key Management --- */
+QLabel#pageTitle {
     color: #E2E8F0;
-    border: 1px solid #343434;
-    border-radius: 4px;
-    outline: none;
-}
-QTreeWidget#structureTree::item:selected {
-    /* background tint only - no `color`, so a row's semantic foreground (red overlay /
-       suspicious chunk) survives selection instead of being overwritten by the highlight. */
-    background-color: rgba(56, 189, 248, 0.22);
-}
-QTreeWidget#structureTree QHeaderView::section {
-    background-color: #252525;
-    color: #94A3B8;
-    border: none;
-    border-right: 1px solid #343434;
-    border-bottom: 1px solid #343434;
-    padding: 4px;
-}
-
-/* --- Binwalk Signatures List --- */
-QListWidget#binwalkList {
-    background-color: #1E1E1E;
-    color: #E2E8F0;
-    border: 1px solid #343434;
-    border-radius: 4px;
-}
-QListWidget#binwalkList::item { 
-    padding: 4px; 
-    border-bottom: 1px solid #343434; 
-}
-
-/* --- File Structure Analysis Summary --- */
-QScrollArea#transparentScroll, QWidget#transparentScrollContent, QScrollArea#pageScrollArea, QScrollArea#pageScrollArea > QWidget > QWidget {
-    background-color: transparent;
-}
-
-QFrame#summaryCard {
-    background-color: #252525;
-    border: 1px solid #343434;
-    border-radius: 10px;
-}
-
-QListWidget#summaryList {
-    background-color: transparent;
-    border: none;
-    color: #E2E8F0;
-    outline: none;
-}
-QListWidget#summaryList::item {
-    padding: 10px 4px;
-    border-bottom: 1px solid #343434;
-}
-
-/* --- RSA Key Management --- */
-QFrame#keyManagementPage {
-    background-color: #1E1E1E;
-}
-
-QLabel#pageTitle, QLabel#dialogTitle {
-    color: #E2E8F0;
-    font-size: 20px;
+    font-size: 15pt;
     font-weight: 700;
 }
 
-QLabel#keyDetailValue {
-    color: #CBD5E1;
-    font-family: 'Courier New', monospace;
-    font-size: 11px;
-}
-
-QListWidget#keyManagementList, QListWidget#keyPickerList {
+QListWidget#keyList{
     background-color: #1E1E1E;
     color: #CBD5E1;
     border: 1px solid #343434;
@@ -1124,16 +355,16 @@ QListWidget#keyManagementList, QListWidget#keyPickerList {
     padding: 4px;
 }
 
-QListWidget#keyManagementList::item, QListWidget#keyPickerList::item {
+QListWidget#keyList::item{
     padding: 10px;
     border-bottom: 1px solid #303030;
 }
 
-QListWidget#keyManagementList::item:hover, QListWidget#keyPickerList::item:hover {
+QListWidget#keyList::item:hover{
     background-color: #252F33;
 }
 
-QListWidget#keyManagementList::item:selected, QListWidget#keyPickerList::item:selected {
+QListWidget#keyList::item:selected{
     background-color: #1C292F;
     color: #38BDF8;
     border: 1px solid #224A5B;
@@ -1145,15 +376,49 @@ QFrame#keyListItemContent {
     border: none;
 }
 
-QLabel#keyListDisplayName {
-    color: #E2E8F0;
-    font-size: 12px;
-    font-weight: 700;
+QLabel#keyDetailValue {
+    color: #CBD5E1;
+    font-family: 'Courier New', monospace;
+    font-size: 8.25pt;
+}
+
+QPushButton#CopyFingerprintBtn {
+    background-color: #252525;
+    border: 1px solid #343434;
+    border-radius: 4px;
+    color: #64748B;
+    font-size: 7.5pt;
+    font-weight: 500;
+    padding: 3px 9px;
+}
+
+QPushButton#CopyFingerprintBtn:hover {
+    background-color: #2A2A2A;
+    border-color: #475569;
+    color: #94A3B8;
+}
+
+QPushButton#CopyFingerprintBtn:pressed {
+    background-color: #1E1E1E;
+    border-color: #38BDF8;
+    color: #CBD5E1;
+}
+
+QPushButton#CopyFingerprintBtn:disabled {
+    background-color: #222222;
+    border-color: #2A2A2A;
+    color: #52525B;
 }
 
 QLabel#keyListSummary {
     color: #64748B;
     font-size: 10px;
+}
+
+QLabel#keyListDisplayName {
+    color: #E2E8F0;
+    font-size: 12px;
+    font-weight: 700;
 }
 
 QLabel#keyListDisplayName[selected="true"] {
@@ -1164,91 +429,10 @@ QLabel#keyListSummary[selected="true"] {
     color: #8FB4C8;
 }
 
-QPushButton#KeyLibraryBtn {
-    background-color: #1C292F;
-    border: 1px solid #224A5B;
-    border-radius: 6px;
-    color: #38BDF8;
-    font-size: 11px;
-    font-weight: 600;
-    padding: 7px 12px;
-}
-
-QPushButton#KeyLibraryBtn:hover {
-    background-color: #21353F;
-    border-color: #38BDF8;
-}
-
-QPushButton#KeyLibraryBtn:pressed {
-    background-color: #17252B;
-}
-
-QPushButton#KeyLibraryBtn:disabled {
-    background-color: transparent;
-    color: #52525B;
-    border-color: #2A2A2A;
-}
-
-QPushButton#DangerBtn {
-    background-color: transparent;
-    border: 1px solid rgba(244, 63, 94, 0.45);
-    border-radius: 6px;
-    color: #FB7185;
-    font-size: 11px;
-    padding: 7px 12px;
-}
-
-QPushButton#DangerBtn:hover {
-    background-color: rgba(244, 63, 94, 0.12);
-    border-color: #F43F5E;
-}
-
-QDialog {
-    background-color: #202020;
-    color: #CBD5E1;
-}
-
 QDialog QLabel {
     color: #CBD5E1;
 }
 
-QDialog QLineEdit {
-    background-color: #252525;
-    border: 1px solid #3A4650;
-    border-radius: 6px;
-    color: #E2E8F0;
-    padding: 7px 9px;
-}
-
-QDialog QLineEdit:focus {
-    border-color: #38BDF8;
-}
-
-QDialog QLineEdit:disabled {
-    background-color: #202020;
-    border-color: #303030;
-    color: #52525B;
-}
-
-QDialog QCheckBox {
+QDialog QPushButton {
     color: #CBD5E1;
-    spacing: 9px;
-}
-
-QDialog QCheckBox::indicator {
-    width: 18px;
-    height: 18px;
-    background-color: #252525;
-    border: 1px solid #3A4650;
-    border-radius: 4px;
-}
-
-QDialog QCheckBox::indicator:hover {
-    border-color: #38BDF8;
-}
-
-QDialog QCheckBox::indicator:checked {
-    background-color: #38BDF8;
-    border-color: #38BDF8;
-    image: url(src/gui/assets/svg/check.svg);
 }
