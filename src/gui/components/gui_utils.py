@@ -42,13 +42,17 @@ def format_file_size(file_size_bytes: int) -> str:
 # ---------------------------------------------------------
 # ฟังก์ชั่นสร้าง Icon state
 # ---------------------------------------------------------
-def create_icon_state(icon_path: str, icon_size: int = 16, color_normal: str = "#94A3B8", color_checked: str = "#38BDF8") -> QIcon:
+def create_icon_state(icon_path: str, icon_size: int = 16, color_normal: str = "#64748B", color_checked: str = "#38BDF8", color_hover: str = "#E2E8F0") -> QIcon:
     icon = QIcon()
     
     # --- Create pixmaps for different states ---
     # Normal State
     pix_normal = create_icon_pixmap(icon_path, color_normal, size=icon_size)
     icon.addPixmap(pix_normal, QIcon.Mode.Normal, QIcon.State.Off)
+
+    # Hover State
+    pix_hover = create_icon_pixmap(icon_path, color_hover, size=icon_size)
+    icon.addPixmap(pix_hover, QIcon.Mode.Active, QIcon.State.Off)
     
     # Checked State
     pix_checked = create_icon_pixmap(icon_path, color_checked, size=icon_size)

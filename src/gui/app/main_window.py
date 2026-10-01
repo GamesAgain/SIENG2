@@ -7,6 +7,7 @@ from src.gui.app.resize_handle import WindowResizeHandler
 from src.gui.app.title_bar import SIENG2TitleBar
 from src.gui.app.sidebar import SIENG2SideBar
 from src.gui.features.key_management.key_manage_page import KeyManagementPage
+from src.gui.features.analyzer.analyzer_page import AnalyzerPage
 from src.gui.services.key_registry import KeyRegistry
 
 
@@ -56,7 +57,7 @@ class MainWindow(QMainWindow):
         self.page_stack.addWidget(QLabel("Emebed"))
         self.page_stack.addWidget(QLabel("Extract"))
         self.page_stack.addWidget(KeyManagementPage(self.key_registry))
-        self.page_stack.addWidget(QLabel("Analyzer"))
+        self.page_stack.addWidget(AnalyzerPage())
         self.page_stack.addWidget(QLabel("Compare"))
         
         # -- Connect sidebar to page container --
@@ -74,4 +75,3 @@ class MainWindow(QMainWindow):
     # --- Event Handlers ---
     def page_chaged(self, index: int):
         self.page_stack.setCurrentIndex(index)
-    

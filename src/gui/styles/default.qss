@@ -273,6 +273,20 @@ QPushButton#SecondaryBtn[textColor="white"]:disabled {
     color: #52525B;          /* disabled ชนะ textColor=white — ไม่งั้นจะดูเหมือนกดได้ */
 }
 
+QPushButton#SecondaryBtn[accent="green"] {
+    color: #34D399;
+    border: 1px solid #2D7655;
+}
+QPushButton#SecondaryBtn[accent="green"]:hover {
+    color: #6EE7B7;
+    border-color: #34D399;
+}
+
+QPushButton#SecondaryBtn[accent="green"]:disabled {
+    color: #52525B;
+    border-color: #2A2A2A;
+}
+
 /* --- Danger Button ---
 ขอบปุ่มกับตัวหนังสือสีแดง bg โปร่งใส*/
 QPushButton#DangerBtn {
@@ -344,6 +358,9 @@ QLabel#pageTitle {
     color: #E2E8F0;
     font-size: 15pt;
     font-weight: 700;
+}
+QLabel#pageTitle[compactTitle="true"] {
+    font-size: 16px;
 }
 
 QListWidget#keyList{
@@ -435,4 +452,697 @@ QDialog QLabel {
 
 QDialog QPushButton {
     color: #CBD5E1;
+}
+
+/* --- Analyzer parameters dialog (scoped to avoid other pages) --- */
+QDialog#analysisParametersDialog {
+    background-color: #252525;
+}
+
+QDialog#analysisParametersDialog QLabel#analysisParameterTitle {
+    color: #E2E8F0;
+    font-size: 17px;
+    font-weight: 700;
+}
+
+QDialog#analysisParametersDialog QLabel#analysisParameterDescription,
+QDialog#analysisParametersDialog QLabel#analysisParameterNote {
+    color: #94A3B8;
+    font-size: 11px;
+}
+
+QDialog#analysisParametersDialog QLabel#analysisParameterLabel {
+    color: #AAB8C8;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+QDialog#analysisParametersDialog QSpinBox#analysisParameterInput,
+QDialog#analysisParametersDialog QDoubleSpinBox#analysisParameterInput {
+    background-color: #292D30;
+    border: 1px solid #40505B;
+    border-radius: 7px;
+    color: #E2E8F0;
+    font-size: 12px;
+    min-height: 24px;
+    padding: 7px 10px;
+    selection-background-color: #24617A;
+}
+
+QDialog#analysisParametersDialog QSpinBox#analysisParameterInput:focus,
+QDialog#analysisParametersDialog QDoubleSpinBox#analysisParameterInput:focus {
+    border-color: #38BDF8;
+}
+
+QDialog#analysisParametersDialog QLabel#analysisParameterError {
+    color: #FB7185;
+    background-color: rgba(244, 63, 94, 0.08);
+    border: 1px solid rgba(244, 63, 94, 0.35);
+    border-radius: 5px;
+    font-size: 11px;
+    padding: 6px 9px;
+}
+
+/* --- Analyzer file selection --- */
+QFrame#fileDropZone {
+    background-color: #1E1E1E;
+    border: 1.5px dashed #1E3945;
+    border-radius: 8px;
+}
+
+QFrame#fileDropZone:hover,
+QFrame#fileDropZone[isDragging="true"] {
+    background-color: #262D30;
+    border: 1.5px dashed #38BDF8;
+}
+
+QLabel#mainLabel {
+    color: #CBD5E1;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+QLabel#subLabel {
+    font-family: 'Courier New', monospace;
+    color: #94A3B8;
+    font-size: 10px;
+}
+
+QFrame#fileInfoCard {
+    background-color: #252525;
+    border: 1px solid #304B57;
+    border-radius: 10px;
+}
+
+QFrame#fileInfoIconBox {
+    background-color: rgba(56, 189, 248, 0.1);
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    border-radius: 8px;
+}
+
+QLabel#fileInfoName {
+    color: #E2E8F0;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+QLabel#fileInfoDetail {
+    color: #94A3B8;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+}
+
+QLabel#fileInfoBadge {
+    color: #94A3B8;
+    background-color: rgba(148, 163, 184, 0.08);
+    border: 1px solid #343434;
+    border-radius: 5px;
+    padding: 3px 8px;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+QLabel#fileInfoBadge[badgeColor="blue"] {
+    color: #38BDF8;
+    background-color: rgba(56, 189, 248, 0.1);
+    border: 1px solid rgba(56, 189, 248, 0.5);
+}
+
+/* --- SIENG2 tabs (opt in with objectName="siengTabs") --- */
+QTabWidget#siengTabs::pane {
+    border: none;
+    border-top: 1px solid #2E2E2E;
+    top: -1px;
+}
+
+QTabWidget#siengTabs QTabBar::tab {
+    background: transparent;
+    color: #94A3B8;
+    padding: 8px 14px;
+    font-size: 12px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-right: 2px;
+}
+
+QTabWidget#siengTabs QTabBar::tab:hover {
+    color: #E2E8F0;
+}
+
+QTabWidget#siengTabs QTabBar::tab:selected {
+    color: #38BDF8;
+    border-bottom: 2px solid #38BDF8;
+}
+
+/* --- Bit Statistics overview --- */
+QScrollArea#transparentScroll,
+QWidget#transparentScrollContent,
+QScrollArea#transparentScroll > QWidget > QWidget {
+    background-color: transparent;
+    border: none;
+}
+
+/* Floating web-style scrollbars shared by the SIENG2 interface. */
+QScrollBar:vertical {
+    background: transparent;
+    width: 12px;
+    margin: 2px;
+    border: none;
+}
+
+QScrollBar::handle:vertical {
+    background-color: #4A4A4E;
+    min-height: 32px;
+    border-radius: 4px;
+    border: none;
+}
+
+QScrollBar::handle:vertical:hover {
+    background-color: #64748B;
+}
+
+QScrollBar::handle:vertical:pressed {
+    background-color: #94A3B8;
+}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0;
+    background: none;
+    border: none;
+}
+
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical {
+    background: none;
+}
+
+QScrollBar:horizontal {
+    background: transparent;
+    height: 12px;
+    margin: 2px;
+    border: none;
+}
+
+QScrollBar::handle:horizontal {
+    background-color: #4A4A4E;
+    min-width: 32px;
+    border-radius: 4px;
+    border: none;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background-color: #64748B;
+}
+
+QScrollBar::handle:horizontal:pressed {
+    background-color: #94A3B8;
+}
+
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {
+    width: 0;
+    background: none;
+    border: none;
+}
+
+QScrollBar::add-page:horizontal,
+QScrollBar::sub-page:horizontal {
+    background: none;
+}
+
+QLabel#statSectionTitle {
+    color: #CBD5E1;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+QPushButton#channelButton {
+    background: transparent;
+    border: none;
+    border-radius: 20px;
+    color: #A3A3A3;
+    font-size: 12px;
+    font-weight: 600;
+    min-height: 40px;
+    padding: 0 22px;
+}
+
+QPushButton#channelButton:hover {
+    color: #E2E8F0;
+    background-color: #303030;
+}
+
+QPushButton#channelButton:checked {
+    color: #E2E8F0;
+    background-color: #3A3A3A;
+}
+
+QFrame#detectorCard {
+    background-color: #1E1E1E;
+    border: 1px solid #343434;
+    border-radius: 10px;
+}
+
+QLabel#detectorTitle {
+    color: #CBD5E1;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+QLabel#detectorValue {
+    color: #F1F5F9;
+    font-family: 'Courier New', monospace;
+    font-size: 36px;
+    font-weight: 700;
+}
+
+QLabel#detectorValue[valueColor="green"] {
+    color: #16A34A;
+}
+
+QLabel#detectorValue[valueColor="blue"] {
+    color: #3B6FF5;
+}
+
+QLabel#detectorDetail {
+    color: #94A3B8;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+}
+
+/* --- Analyzer detector selector --- */
+QPushButton#DetectorBtn {
+    background: #242424;
+    border: 1px solid #434343;
+    border-radius: 9px;
+    padding: 0;
+}
+QPushButton#DetectorBtn:hover {
+    background: #292929;
+}
+QPushButton#DetectorBtn[detectorType="chi"]:checked {
+    border-color: #38BDF8;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #202B30, stop:0.7 #202020);
+}
+QPushButton#DetectorBtn[detectorType="rs"]:checked {
+    border-color: #32CA85;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #212D27, stop:0.7 #202020);
+}
+QPushButton#DetectorBtn[detectorType="spa"]:checked {
+    border-color: #B47AFA;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2B2631, stop:0.7 #202020);
+}
+QPushButton#DetectorBtn QLabel {
+    background: transparent;
+    border: none;
+    padding: 0;
+}
+QPushButton#DetectorBtn QLabel#detectorNameLabel {
+    font-size: 14px;
+    font-weight: 700;
+}
+QPushButton#DetectorBtn QLabel#detectorDescriptionLabel {
+    color: #B5C2D2;
+    font-size: 11px;
+}
+QPushButton#DetectorBtn QLabel#detectorBadge {
+    font-size: 10px;
+    border: 1px solid;
+    border-radius: 9px;
+    padding: 2px 7px;
+}
+QPushButton#DetectorBtn[detectorType="chi"] QLabel#detectorNameLabel,
+QPushButton#DetectorBtn[detectorType="chi"] QLabel#detectorBadge {
+    color: #38BDF8;
+    border-color: #38BDF8;
+}
+QPushButton#DetectorBtn[detectorType="rs"] QLabel#detectorNameLabel,
+QPushButton#DetectorBtn[detectorType="rs"] QLabel#detectorBadge {
+    color: #32CA85;
+    border-color: #32CA85;
+}
+QPushButton#DetectorBtn[detectorType="spa"] QLabel#detectorNameLabel,
+QPushButton#DetectorBtn[detectorType="spa"] QLabel#detectorBadge {
+    color: #B47AFA;
+    border-color: #B47AFA;
+}
+
+/* --- Bit Statistics result layout --- */
+QFrame#bitStatisticsResults {
+    background: transparent;
+    border: none;
+}
+
+QFrame#analysisEmptyState {
+    background-color: transparent;
+    border: none;
+}
+
+QLabel#analysisEmptyTitle {
+    color: #CBD5E1;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+QLabel#analysisEmptyHint {
+    color: #718096;
+    font-size: 11px;
+}
+
+QFrame#analysisDetailPanel,
+QFrame#analysisSummaryCard,
+QFrame#analysisContextCard {
+    background-color: #232323;
+    border: 1px solid #3B3B3B;
+    border-radius: 9px;
+}
+
+QFrame#analysisDetailPanel {
+    border-color: #315064;
+}
+
+QFrame#analysisDetailPanel[detectorType="rs"] {
+    border-color: #295743;
+}
+
+QFrame#analysisDetailPanel[detectorType="spa"] {
+    border-color: #594071;
+}
+
+QLabel#analysisPanelTitle {
+    color: #E2E8F0;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+QLabel#analysisPanelBadge {
+    color: #A8C8D8;
+    background-color: #2B2B2B;
+    border: 1px solid #414141;
+    border-radius: 9px;
+    font-size: 10px;
+    padding: 3px 8px;
+}
+
+QLabel#analysisFilterLabel {
+    color: #B5C2D2;
+    font-size: 11px;
+}
+
+QPushButton#analysisChannelButton {
+    background-color: transparent;
+    border: 1px solid #3B4650;
+    border-radius: 15px;
+    color: #94A3B8;
+    font-size: 11px;
+    font-weight: 600;
+    min-height: 28px;
+    padding: 0 14px;
+}
+
+QPushButton#analysisChannelButton:hover {
+    border-color: #64748B;
+    color: #E2E8F0;
+}
+
+QPushButton#analysisChannelButton:checked {
+    background-color: #17445A;
+    border-color: #38BDF8;
+    color: #E0F2FE;
+}
+
+QFrame#analysisDetailTabs {
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid #3A3A3A;
+}
+
+QFrame#analysisWholeMetrics {
+    background: transparent;
+    border: none;
+}
+
+QLabel#analysisWholeMetricsTitle {
+    color: #DCE6F1;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+QLabel#analysisWholeMetricsScope {
+    color: #8192A5;
+    font-size: 9px;
+}
+
+QPushButton#analysisDetailTab {
+    background-color: #292929;
+    border: 1px solid #3B3B3B;
+    border-bottom: none;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    color: #AAB8C8;
+    font-size: 10px;
+    min-height: 31px;
+    padding: 0 12px;
+}
+
+QPushButton#analysisDetailTab:hover {
+    color: #E2E8F0;
+    border-color: #52606D;
+}
+
+QPushButton#analysisDetailTab:checked {
+    background-color: #20333C;
+    border-color: #38BDF8;
+    color: #38BDF8;
+}
+
+QFrame#analysisPlotPanel {
+    background-color: #1E1E1E;
+    border: 1px solid #363636;
+    border-radius: 7px;
+}
+
+QLabel#analysisPlotTitle,
+QLabel#analysisDataTitle {
+    color: #DCE6F1;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+QLabel#analysisPlotSubtitle,
+QLabel#analysisLegendLabel {
+    color: #8192A5;
+    font-size: 10px;
+}
+
+QLabel#analysisNote {
+    color: #9EB0C2;
+    background-color: #242C31;
+    border: 1px solid #34434C;
+    border-radius: 6px;
+    font-size: 10px;
+    padding: 9px;
+}
+
+QFrame#analysisMetricTile {
+    background-color: #292929;
+    border: 1px solid #3B3B3B;
+    border-radius: 6px;
+}
+
+QLabel#analysisMetricLabel {
+    color: #8192A5;
+    font-size: 9px;
+}
+
+QLabel#analysisMetricValue {
+    color: #E2E8F0;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+QLabel#analysisMetricValue[accent="true"] {
+    color: #38BDF8;
+}
+
+QFrame#analysisDetailPanel[detectorType="rs"] QLabel#analysisMetricValue[accent="true"] {
+    color: #32CA85;
+}
+
+QFrame#analysisDetailPanel[detectorType="spa"] QLabel#analysisMetricValue[accent="true"] {
+    color: #B47AFA;
+}
+
+QTableWidget#analysisRawTable {
+    background-color: #1F1F1F;
+    alternate-background-color: #242424;
+    border: 1px solid #383838;
+    border-radius: 6px;
+    color: #BAC7D5;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    gridline-color: #343434;
+    outline: none;
+}
+
+QTableWidget#analysisRawTable::item {
+    padding: 5px 7px;
+}
+
+QTableWidget#analysisRawTable::item:selected {
+    background-color: #214456;
+    color: #E2E8F0;
+}
+
+QTableWidget#analysisRawTable QHeaderView::section {
+    background-color: #292929;
+    border: none;
+    border-right: 1px solid #3B3B3B;
+    border-bottom: 1px solid #3B3B3B;
+    color: #94A3B8;
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px;
+}
+
+QTableWidget#analysisRawTable QTableCornerButton::section {
+    background-color: #292929;
+    border: none;
+}
+
+QFrame#analysisSummaryColumn {
+    background: transparent;
+    border: none;
+}
+
+QFrame#analysisSummaryCard[detectorType="chi_square"] {
+    border-color: #315064;
+}
+
+QFrame#analysisSummaryCard[detectorType="rs"] {
+    border-color: #295743;
+}
+
+QFrame#analysisSummaryCard[detectorType="spa"] {
+    border-color: #594071;
+}
+
+QLabel#analysisSummaryTitle {
+    color: #DCE6F1;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+QPushButton#analysisOpenDetector {
+    background: transparent;
+    border: 1px solid #3E4650;
+    border-radius: 10px;
+    color: #AAB8C8;
+    font-size: 9px;
+    padding: 3px 8px;
+}
+
+QPushButton#analysisOpenDetector:hover {
+    border-color: #38BDF8;
+    color: #38BDF8;
+}
+
+QLabel#analysisSummaryLabel {
+    color: #8192A5;
+    font-size: 9px;
+}
+
+QLabel#analysisSummaryValue {
+    color: #E2E8F0;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    font-weight: 700;
+}
+
+QLabel#analysisRSSummaryLegend {
+    color: #B8C5D5;
+    font-size: 11px;
+}
+
+QFrame#analysisSummaryMetrics {
+    background: transparent;
+    border: none;
+    border-top: 1px solid #3B3B3B;
+    border-radius: 0;
+}
+
+QFrame#analysisSummaryMetric {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+}
+
+QFrame#analysisSummaryMetric[divider="true"] {
+    border-right: 1px solid #3C3C3C;
+}
+
+QLabel#analysisSummaryMetricLabel {
+    color: #98A8BF;
+    font-size: 10px;
+}
+
+QLabel#analysisSummaryMetricValue {
+    color: #E2E8F0;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 18px;
+    font-weight: 700;
+}
+
+QLabel#analysisSummaryMetricValue[accent="green"] {
+    color: #32CA85;
+}
+
+QLabel#analysisSummaryMetricValue[accent="cyan"] {
+    color: #38BDF8;
+}
+
+QLabel#analysisSummaryMetricValue[accent="purple"] {
+    color: #B47AFA;
+}
+
+QLabel#analysisChiSquareEvidence {
+    color: #8294A6;
+    font-size: 9px;
+}
+
+QLabel#analysisChiSquareEvidence[evidenceState="clear"] {
+    color: #7DD3FC;
+}
+
+QLabel#analysisSummaryPairValue {
+    color: #E2E8F0;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+QLabel#analysisRSSnapshot {
+    color: #AEBED0;
+    background: #2D2D2D;
+    border: 1px solid #434343;
+    border-radius: 7px;
+    padding: 10px;
+    font-size: 11px;
+}
+
+QLabel#analysisSPASummaryLegend,
+QLabel#analysisSummaryHint {
+    color: #8294A6;
+    font-size: 8px;
+}
+
+QLabel#analysisContextText {
+    color: #8FA2B5;
+    font-family: 'Courier New', monospace;
+    font-size: 9px;
+    line-height: 1.4;
 }
