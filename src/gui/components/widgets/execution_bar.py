@@ -2,27 +2,48 @@ from PyQt6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, 
     QProgressBar, QPushButton, QVBoxLayout,
 )
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QIcon
+
+from src.gui.components.gui_utils import create_icon_pixmap
+from src.path import svg_path
 
 
 class ExecutionBar(QFrame):
-    """Standalone status, progress and action controls."""
+    """Shared status, progress and action controls for execution pages."""
     execute_requested = pyqtSignal()
     
-    def __init__(self, parent=None):
+    def __init__(self, text_active_button: str = "Embed Data", parent=None, *, is_config: bool = False):
         super().__init__(parent)
+        self.text_active_button = text_active_button
+        self.is_config = is_config
         self.setup_ui()
 
     def setup_ui(self):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
 
         loading_status_bar = self.build_loading_status_bar()
         layout.addWidget(loading_status_bar, 1)
 
-        self.execute_embed_btn = QPushButton("Embed Data")
+        # Pipeline delivery will enable this button after a successful run.
+        self.save_outputs_btn = QPushButton(" Save Outputs")
+        self.save_outputs_btn.setObjectName("SecondaryBtn")
+        self.save_outputs_btn.setProperty("textColor", "white")
+        self.save_outputs_btn.setFixedHeight(50)
+        self.save_outputs_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.save_outputs_btn.setIcon(QIcon(create_icon_pixmap(svg_path("upload.svg"), "#FFFFFF", size=16)))
+        self.save_outputs_btn.setVisible(self.is_config)
+        self.save_outputs_btn.setEnabled(False)
+        layout.addWidget(self.save_outputs_btn, 0)
+        # TODO: Add a Save Outputs signal when pipeline delivery is implemented.
+        # self.save_outputs_btn.clicked.connect(self.save_outputs_requested.emit)
+
+        self.execute_embed_btn = QPushButton(self.text_active_button)
         self.execute_embed_btn.setFixedHeight(50)
         self.execute_embed_btn.setObjectName("PrimaryActionBtn")
+        self.execute_embed_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         layout.addWidget(self.execute_embed_btn, 0)
         self.execute_embed_btn.clicked.connect(self.execute_requested.emit)
 

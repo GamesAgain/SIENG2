@@ -22,13 +22,14 @@ class MainWindow(QMainWindow):
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setWindowTitle("SIENG2")
-        self.resize(1280, 720)
+        self.resize(1370, 720)
         self.setMinimumSize(1024, 700)
         
         self.setup_ui()
         
         # -- Window Resize Handler --
         self.resize_handler = WindowResizeHandler(self, margin=8)
+        self.center_on_screen()
         
     def setup_ui(self):
         
@@ -76,3 +77,10 @@ class MainWindow(QMainWindow):
     # --- Event Handlers ---
     def page_chaged(self, index: int):
         self.page_stack.setCurrentIndex(index)
+
+    # --- UI Helper ---
+    def center_on_screen(self):
+        available_area = self.screen().availableGeometry()
+        window_rect = self.frameGeometry()
+        window_rect.moveCenter(available_area.center())
+        self.move(window_rect.topLeft())

@@ -1363,3 +1363,183 @@ QLabel#analysisContextText {
     border-radius: 6px;
     color: #34D399;
 }
+
+/* --- Pipeline Chip Buttons (ปุ่มเพิ่ม technique / Clear ใน Pipeline Builder) --- */
+/* base shape ใช้ร่วมกันทุกสี ต่างกันแค่ accentColor */
+QPushButton#ChipBtn {
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 5px 12px;
+    border-radius: 14px;
+}
+
+QPushButton#ChipBtn[accentColor="blue"] {
+    background-color: rgba(56, 189, 248, 0.1);
+    border: 1px solid rgba(56, 189, 248, 0.5);
+    color: #38BDF8;
+}
+QPushButton#ChipBtn[accentColor="blue"]:hover {
+    background-color: rgba(56, 189, 248, 0.2);
+    border: 1px solid #38BDF8;
+}
+
+QPushButton#ChipBtn[accentColor="purple"] {
+    background-color: rgba(167, 139, 250, 0.1);
+    border: 1px solid rgba(167, 139, 250, 0.5);
+    color: #A78BFA;
+}
+QPushButton#ChipBtn[accentColor="purple"]:hover {
+    background-color: rgba(167, 139, 250, 0.2);
+    border: 1px solid #A78BFA;
+}
+
+QPushButton#ChipBtn[accentColor="orange"] {
+    background-color: rgba(245, 158, 15, 0.1);
+    border: 1px solid rgba(245, 158, 15, 0.5);
+    color: #F59E0F;
+}
+QPushButton#ChipBtn[accentColor="orange"]:hover {
+    background-color: rgba(245, 158, 15, 0.2);
+    border: 1px solid #F59E0F;
+}
+
+QPushButton#ChipBtn[accentColor="red"] {
+    background-color: rgba(244, 63, 94, 0.1);
+    border: 1px solid rgba(244, 63, 94, 0.5);
+    color: #f43f5e;
+}
+QPushButton#ChipBtn[accentColor="red"]:hover {
+    background-color: rgba(244, 63, 94, 0.2);
+    border: 1px solid #f43f5e;
+}
+
+
+
+/* --- Configurable Pipeline builder GUI --- */
+QFrame#pipelineCanvas {
+    background-color: #1E1E1E;
+    border: 1px solid #343434;
+    border-radius: 8px;
+}
+
+QScrollArea#pipelineScroll {
+    border: none;
+    background-color: transparent;
+}
+QWidget#pipelineScrollContent {
+    background-color: transparent;
+}
+
+QLabel#stepConfigUI {
+    color: #64748B;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+}
+
+QLabel#pipelineEmpty {
+    color: #64748B;
+    font-size: 12px;
+}
+
+QPushButton#stepUiBtn {
+    background-color: #2D2D2D;
+    border: 1px solid #343434;
+    border-radius: 6px;
+    color: #94A3B8;
+    font-size: 11px;
+    padding: 5px 12px;
+}
+QPushButton#stepUiBtn:checked {
+    background-color: #1C292F;
+    border: 1px solid #224A5B;
+    color: #38BDF8;
+}
+QPushButton#stepUiBtn:disabled {
+    color: #52525B;
+}
+
+
+/* --- Configurable Pipeline StepCards and flow canvas --- */
+QFrame#stepCard {
+    background-color: #252525;
+    border: 1px solid #343434;
+    border-radius: 10px;
+}
+
+QFrame#stepCard[accentColor="blue"]   { border-left: 3px solid #38BDF8; }
+
+QFrame#stepCard[accentColor="purple"] { border-left: 3px solid #A78BFA; }
+
+QFrame#stepCard[accentColor="orange"] { border-left: 3px solid #F59E0F; }
+
+QLabel#stepCardTitle {
+    font-family: 'Courier New', monospace;
+    font-weight: 700;
+    font-size: 14px;
+    background: transparent;
+    border: none;
+}
+
+QLabel#stepCardTitle[accentColor="blue"]   { color: #38BDF8; }
+
+QLabel#stepCardTitle[accentColor="purple"] { color: #A78BFA; }
+
+QLabel#stepCardTitle[accentColor="orange"] { color: #F59E0F; }
+
+QLabel#stepCardNumber {
+    color: #CBD5E1;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    background: transparent;
+    border: none;
+}
+
+QLabel#stepCardStatus {
+    background-color: transparent;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 5px;
+}
+
+QLabel#stepCardStatus[state="setup"] {
+    color: #F59E0F;
+    background-color: rgba(245, 158, 15, 0.08);
+    border: 1px solid rgba(245, 158, 15, 0.65);
+}
+
+QLabel#stepCardSub {
+    color: #94A3B8;
+    font-size: 11px;
+    background: transparent;
+    border: none;
+}
+
+QLabel#pipelineSummary {
+    color: #64748B;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+}
+
+QScrollArea#pipelineCanvasScroll {
+    background-color: transparent;
+    border: none;
+}
+
+QWidget#pipelineCanvasContent {
+    background-color: transparent;
+}
+
+/* Floating StepCard removal button, shown only while hovering the card. */
+QPushButton#stepCloseBtn {
+    background-color: #F43F5E;
+    border: 2px solid #1E1E1E;
+    border-radius: 12px;
+    padding: 0;
+}
+QPushButton#stepCloseBtn:hover {
+    background-color: #FF5577;
+}

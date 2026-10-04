@@ -31,7 +31,7 @@ class LocomotiveStandaloneTab(QFrame):
             key_registry=self.key_registry,
             is_config=False,
         )
-        self.execution_bar = ExecutionBar()
+        self.execution_bar = ExecutionBar("Embed Data")
 
         layout.addWidget(self.inputs, 1)
         layout.addWidget(self.execution_bar, 0)
