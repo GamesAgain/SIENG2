@@ -1,6 +1,6 @@
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QFileInfo, Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+from PyQt6.QtWidgets import QFileIconProvider, QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
 from src.gui.components.gui_utils import create_icon_pixmap
 from src.path import svg_path
@@ -65,6 +65,7 @@ class FileInfoBar(QFrame):
         display_name: str,
         detail: str,
         badges: list[tuple[str, str]],
+        icon_path: str | None = None,
     ) -> None:
         """Update file details and replace its format/status badges."""
         self.file_name.setText(display_name)
@@ -84,9 +85,15 @@ class FileInfoBar(QFrame):
             badge.setProperty("badgeColor", color)
             self.badge_layout.addWidget(badge, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        pixmap = QPixmap(file_path)
+        pixmap = QPixmap() if icon_path else QPixmap(file_path)
+        if pixmap.isNull() and not icon_path:
+            provider = QFileIconProvider()
+            system_pixmap = provider.icon(QFileInfo(file_path)).pixmap(32, 32)
+            if not system_pixmap.isNull():
+                self.file_icon.setPixmap(system_pixmap)
+                return
         if pixmap.isNull():
-            pixmap = create_icon_pixmap(str(svg_path("file-search.svg")), "#38BDF8", 28)
+            pixmap = create_icon_pixmap(icon_path or str(svg_path("file-search.svg")), "#38BDF8", 28)
         self.file_icon.setPixmap(pixmap.scaled(
             40, 40, Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,

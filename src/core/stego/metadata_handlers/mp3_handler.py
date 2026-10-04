@@ -178,7 +178,7 @@ def get_frame_class(frame_id: str):
 
 class MetadataMP3Handler:
     """
-    จัดการ metadata ของไฟล์ MP3 ตามมาตรฐาน ID3v2.4 + UTF-8
+    อ่าน metadata ของไฟล์ MP3 แบบ ID3v2.3/v2.4 และบันทึกเป็น ID3v2.3
     
     ความสามารถหลัก:
     - embed_metadata() → ฝัง metadata ลงไฟล์ MP3

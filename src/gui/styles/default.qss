@@ -664,6 +664,21 @@ QLabel#subLabel {
     font-size: 10px;
 }
 
+/* Attached picture cards (reference styles) */
+QFrame#apicCard {
+    background-color: #252525;
+    border: 1px solid #343434;
+    border-radius: 8px;
+}
+
+QFrame#apicPreview {
+    border-radius: 8px 8px 0px 0px;
+}
+QFrame#apicPreview[tintColor="blue"] { background-color: rgba(56, 189, 248, 0.12); }
+QFrame#apicPreview[tintColor="purple"] { background-color: rgba(167, 139, 250, 0.12); }
+QFrame#apicPreview[tintColor="green"] { background-color: rgba(52, 211, 153, 0.12); }
+QFrame#apicPreview[tintColor="orange"] { background-color: rgba(245, 158, 15, 0.12); }
+
 QFrame#fileInfoCard {
     background-color: #252525;
     border: 1px solid #304B57;
