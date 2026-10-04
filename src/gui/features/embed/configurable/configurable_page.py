@@ -1,13 +1,14 @@
 from PyQt6.QtCore import QEvent, QTimer, Qt
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
-    QButtonGroup, QComboBox, QFrame, QHBoxLayout, QLabel,
+    QButtonGroup, QComboBox, QFrame, QHBoxLayout, QLabel, QMessageBox,
     QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap
 from src.gui.components.widgets.execution_bar import ExecutionBar
 from src.gui.features.embed.configurable.widgets.flow_layout import FlowLayout
+from src.gui.features.embed.configurable.widgets.step_canvas import StepCanvas
 from src.gui.features.embed.configurable.widgets.step_card import (
     CARD_HEIGHT, TECHNIQUE_DISPLAY, StepCard, make_arrow,
 )
@@ -137,8 +138,7 @@ class EmbedConfigurablePage(QFrame):
         self.clear_pipeline_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.clear_pipeline_btn.setIcon(QIcon(create_icon_pixmap(svg_path("trash.svg"), "#F43F5E", size=CHIP_ICON_SIZE)))
         row.addWidget(self.clear_pipeline_btn)
-        # TODO: Confirm and clear steps once the pipeline collection exists.
-        # self.clear_pipeline_btn.clicked.connect(self.confirm_clear_pipeline)
+        self.clear_pipeline_btn.clicked.connect(self.confirm_clear_pipeline)
         return row
 
     def build_canvas(self) -> QFrame:
@@ -160,8 +160,9 @@ class EmbedConfigurablePage(QFrame):
         self.canvas_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.canvas_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.canvas_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.flow_container = QWidget()
+        self.flow_container = StepCanvas(self.step_cards)
         self.flow_container.setObjectName("pipelineCanvasContent")
+        self.flow_container.reorder_requested.connect(self.move_pipeline_step)
         self.flow_layout = FlowLayout(self.flow_container, margin=0, spacing=FLOW_SPACING)
         self.canvas_scroll.setWidget(self.flow_container)
         self.canvas_layout.addWidget(self.canvas_scroll)
@@ -186,15 +187,56 @@ class EmbedConfigurablePage(QFrame):
         self.render_step_cards()
         card.deleteLater()
 
+    def confirm_clear_pipeline(self):
+        if not self.step_cards:
+            return
+        count = len(self.step_cards)
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("Clear Pipeline")
+        dialog.setIcon(QMessageBox.Icon.Question)
+        dialog.setText(f"Clear all {count} {'step' if count == 1 else 'steps'}?")
+        dialog.setInformativeText("This removes every step from the pipeline.")
+        clear_button = dialog.addButton("Clear", QMessageBox.ButtonRole.DestructiveRole)
+        cancel_button = dialog.addButton(QMessageBox.StandardButton.Cancel)
+        dialog.setDefaultButton(cancel_button)
+        dialog.setEscapeButton(cancel_button)
+        dialog.exec()
+        confirmed = dialog.clickedButton() == clear_button
+        dialog.deleteLater()
+        if confirmed:
+            self.clear_pipeline()
+
+    def clear_pipeline(self):
+        removed_cards = list(self.step_cards)
+        # Keep the same list object: StepCanvas also references this collection.
+        self.step_cards.clear()
+        self.flow_container.drop_indicator.hide()
+        self.render_step_cards()
+        for card in removed_cards:
+            card.deleteLater()
+
+    def move_pipeline_step(self, card: StepCard, insertion_index: int):
+        if card not in self.step_cards or not 0 <= insertion_index <= len(self.step_cards):
+            return
+        source_index = self.step_cards.index(card)
+        # The drop slot belongs to the original list, before removing the source.
+        if source_index < insertion_index:
+            insertion_index -= 1
+        if source_index == insertion_index:
+            return
+        self.step_cards.pop(source_index)
+        self.step_cards.insert(insertion_index, card)
+        self.render_step_cards()
+
     def render_step_cards(self):
-        # Remove layout items, keeping the existing cards and their state.
-        # Arrows are disposable decorations and are rebuilt between survivors.
+        #ล้าง layout แต่เก็บ StepCard เดิมไว้ เพื่อไม่ให้ข้อมูลภายในหาย
+        #ส่วนลูกศรลบทิ้งและสร้างใหม่ตอนจัดเรียง
         while self.flow_layout.count():
             item = self.flow_layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
                 widget.hide()
-                if not isinstance(widget, StepCard):
+                if not isinstance(widget, StepCard): # ลูกศรจะถูกลบ
                     widget.deleteLater()
 
         for number, card in enumerate(self.step_cards, start=1):

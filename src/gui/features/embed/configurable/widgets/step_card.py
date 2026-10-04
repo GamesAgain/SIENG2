@@ -1,6 +1,6 @@
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtCore import QMimeData, Qt, pyqtSignal
+from PyQt6.QtGui import QDrag, QIcon
+from PyQt6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from src.gui.components.gui_utils import create_icon_pixmap
 from src.path import svg_path
@@ -11,6 +11,7 @@ CARD_HEIGHT = 160
 ARROW_SIZE = 20
 CLOSE_BUTTON_SIZE = 24
 CLOSE_BUTTON_MARGIN = 6
+STEP_CARD_MIME = "application/sieng2-step-card"
 TECHNIQUE_DISPLAY = {
     "lsbpp": {
         "label": "LSB++", "description": "Embed text in PNG",
@@ -39,6 +40,8 @@ class StepCard(QFrame):
         self.technique = technique
         self.meta = TECHNIQUE_DISPLAY[technique]
         self.summary_labels: dict[str, QLabel] = {}
+        self.drag_start_position = None
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setObjectName("stepCard")
         self.setProperty("accentColor", self.meta["accent"])
         self.setFixedSize(CARD_WIDTH, CARD_HEIGHT)
@@ -114,6 +117,46 @@ class StepCard(QFrame):
     def leaveEvent(self, event):
         self.close_button.hide()
         super().leaveEvent(event)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag_start_position = event.position().toPoint()
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self.drag_start_position is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            distance = (event.position().toPoint() - self.drag_start_position).manhattanLength()
+            if distance >= QApplication.startDragDistance():
+                self.start_drag()
+                event.accept()
+                return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self.drag_start_position = None
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        super().mouseReleaseEvent(event)
+
+    def start_drag(self):
+        # QDrag.source() identifies this exact card, even for duplicate techniques.
+        hotspot = self.drag_start_position
+        self.drag_start_position = None
+        self.close_button.hide()
+        drag = QDrag(self)
+        mime = QMimeData()
+        mime.setData(STEP_CARD_MIME, b"internal")
+        drag.setMimeData(mime)
+        drag.setPixmap(self.grab())
+        drag.setHotSpot(hotspot)
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        try:
+            # Esc/outside drops return IgnoreAction; only the canvas changes order.
+            drag.exec(Qt.DropAction.MoveAction)
+        finally:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def create_row(self, field_name: str, placeholder: str) -> QWidget:
         row = QWidget()
