@@ -4,15 +4,14 @@ import subprocess
 from PyQt6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QInputDialog,
     QLabel, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout)
-from PyQt6.QtCore import QSize, QUrl, Qt
-from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtCore import QSize, Qt
 
 from src.gui.components.dialogs.gen_key_dialog import GenerateKeyDialog
 from src.gui.components.dialogs.import_key_dialog import ImportKeyDialog
 from src.gui.components.dialogs.key_picker_dialog import KeyPickerDialog
 from src.gui.components.dialogs.key_inspection_dialog import inspect_key_with_password_prompt
 from src.gui.components.gui_utils import add_shadow_effect
-from src.gui.components.widgets.key_list_widget import KeyListItemWidget
+from src.gui.components.widgets.key_list import KeyListItemWidget
 from src.gui.services.key_registry import KeyRegistry
 
 KEY_FILTER = "RSA key files (*.pem *.der *.pub *.key);;All files (*.*)"

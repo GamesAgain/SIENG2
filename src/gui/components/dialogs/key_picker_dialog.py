@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QSize, Qt
 
 from src.gui.components.dialogs.key_inspection_dialog import inspect_key_with_password_prompt
-from src.gui.components.widgets.key_list_widget import KeyListItemWidget
+from src.gui.components.widgets.key_list import KeyListItemWidget
 from src.gui.services.key_registry import KeyRegistry
 
 KEY_FILTER = "RSA key files (*.pem *.der *.pub *.key);;All files (*.*)"

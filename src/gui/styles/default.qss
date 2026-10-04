@@ -211,6 +211,49 @@ QLabel#cardTitle {
 }
 
 
+/* --- Standalone execution status and progress --- */
+QProgressBar#loadingIndicator {
+    background-color: #333333;
+    border: 1px solid rgba(56, 189, 248, 0.20);
+    border-radius: 4px;
+}
+
+QProgressBar#loadingIndicator::chunk {
+    background-color: #38bdf8;
+    border-radius: 4px;
+}
+
+QLabel#statusLabel {
+    font-size: 11px;
+    color: #94A3B8;
+}
+
+/* --- Saved key picker (reference styles) --- */
+QPushButton#KeyLibraryBtn {
+    background-color: #1C292F;
+    border: 1px solid #224A5B;
+    border-radius: 6px;
+    color: #38BDF8;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 7px 12px;
+}
+
+QPushButton#KeyLibraryBtn:hover {
+    background-color: #21353F;
+    border-color: #38BDF8;
+}
+
+QPushButton#KeyLibraryBtn:pressed {
+    background-color: #17252B;
+}
+
+QPushButton#KeyLibraryBtn:disabled {
+    background-color: transparent;
+    color: #52525B;
+    border-color: #2A2A2A;
+}
+
 /* --- Primary Action Button ---
 (ลงมือทำ action หลักของแต่ละหน้า เช่น Embed Data, Extract Data, Save Metadata) */
 QPushButton#PrimaryActionBtn {
@@ -317,6 +360,39 @@ QPlainTextEdit#payloadTextArea {
 /* เวลาผู้ใช้คลิกพิมพ์ให้ขอบเป็นสีฟ้า */
 QPlainTextEdit#payloadTextArea:focus {
     border: 1px solid #38bdf8;
+}
+
+/* --- Payload capacity --- */
+QLabel#keyValidationLabel {
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    padding: 2px 0;
+}
+
+QLabel#keyValidationLabel[keyState="valid"] {
+    color: #34D399;
+}
+
+QLabel#keyValidationLabel[keyState="pending"] {
+    color: #F59E0F;
+}
+
+QLabel#keyValidationLabel[keyState="error"] {
+    color: #EF4444;
+}
+
+QLabel#capacityLabel {
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    color: #94A3B8;
+}
+
+QLabel#capacityLabel[capacityState="warning"] {
+    color: #F59E0F;
+}
+
+QLabel#capacityLabel[capacityState="danger"] {
+    color: #f43f5e;
 }
 
 
@@ -510,10 +586,70 @@ QFrame#fileDropZone {
     border-radius: 8px;
 }
 
-QFrame#fileDropZone:hover,
+QFrame#fileDropZone[hasFile="false"]:hover,
 QFrame#fileDropZone[isDragging="true"] {
     background-color: #262D30;
     border: 1.5px dashed #38BDF8;
+}
+
+QFrame#fileDropZone[hasFile="true"] {
+    border: 1.5px solid #262D30;
+}
+
+QFrame#fileDropZone[hasFile="true"]:hover {
+    background-color: #262D30;
+    border: 1.5px solid #38BDF8;
+}
+
+QScrollArea#fileListScroll {
+    border: none;
+    background-color: transparent;
+}
+
+QWidget#fileListContainer {
+    background-color: transparent;
+}
+
+QScrollArea#fileListScroll QScrollBar:horizontal {
+    height: 0px;
+}
+
+QFrame#fileItemRow {
+    background-color: #2A2A2D;
+    border: 1px solid #3D3D40;
+    border-radius: 6px;
+}
+
+QFrame#fileItemRow:hover {
+    background-color: #333336;
+    border: 1px solid #38BDF8;
+}
+
+QLabel#fileItemName {
+    color: #E2E8F0;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+QLabel#fileItemSize {
+    color: #94A3B8;
+    font-size: 10px;
+    font-family: 'Courier New', monospace;
+}
+
+QPushButton#btnRemoveFile {
+    background-color: transparent;
+    border: none;
+    border-radius: 4px;
+}
+
+QPushButton#btnRemoveFile:hover {
+    background-color: rgba(244, 63, 94, 0.1);
+    border: 1px solid #7e3340;
+}
+
+QPushButton#btnRemoveFile:pressed {
+    background-color: rgba(244, 63, 94, 0.2);
 }
 
 QLabel#mainLabel {
@@ -1145,4 +1281,70 @@ QLabel#analysisContextText {
     font-family: 'Courier New', monospace;
     font-size: 9px;
     line-height: 1.4;
+}
+
+#selectionToggle {
+    background-color: #252525;
+    border-radius: 8px;
+    border: 1px solid #343434;
+}
+
+/* Selection toggle variants: standalone, configurable, source, password, public_key */
+#selectionToggleBtn {
+    font-family: Arial, sans-serif;
+    background-color: transparent;
+    border: none;
+    color: #94A3B8;
+    font-size: 12px;
+    padding: 7px 12px;
+    font-weight: 500;
+}
+
+#selectionToggleBtn[variant="source"] {
+    font-family: Arial, sans-serif;
+    background-color: transparent;
+    border: none;
+    color: #94A3B8;
+    font-size: 11px;
+    padding: 5px 10px;
+    font-weight: 500;
+}
+
+#selectionToggle[variant="encryption"] #selectionToggleBtn {
+    padding: 5px 12px;
+}
+
+#selectionToggleBtn:checked[variant="standalone"] {
+    background-color: #27343A;
+    border: 1px solid #2C6077;
+    border-radius: 6px;
+    color: #38BDF8;
+}
+
+#selectionToggleBtn:checked[variant="source"] {
+    background-color: #1C292F;
+    border: 1px solid #224A5B;
+    border-radius: 6px;
+    color: #38BDF8;
+}
+
+#selectionToggleBtn:checked[variant="configurable"] {
+    background-color: #433622;
+    border: 1px solid #78551A;
+    border-radius: 6px;
+    color: #F59E0F;
+}
+
+#selectionToggleBtn:checked[variant="password"] {
+    background-color: #3F3B4B;
+    border: 1px solid #7464A2;
+    border-radius: 6px;
+    color: #A78BFA;
+}
+
+#selectionToggleBtn:checked[variant="public_key"] {
+    background-color: #213B33;
+    border: 1px solid #3B8766;
+    border-radius: 6px;
+    color: #34D399;
 }

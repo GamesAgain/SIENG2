@@ -5,7 +5,7 @@ from PyQt6.QtCore import QSize, pyqtSignal
 from PyQt6.QtWidgets import QFrame, QLabel, QMessageBox, QTabWidget, QVBoxLayout
 
 from src.gui.components.gui_utils import create_icon_state, format_file_size, truncate_text_middle
-from src.gui.components.widgets.file_drop_widget import FileDropWidget
+from src.gui.components.widgets.files_drop import FileDropWidget
 from src.gui.components.widgets.file_info_bar import FileInfoBar
 from src.gui.features.analyzer.analysis_runner import (
     BitStatisticsAnalysisResult,
@@ -38,7 +38,14 @@ class AnalyzerPage(QFrame):
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(10)
 
-        self.drop_zone = FileDropWidget((".png",))
+        self.drop_zone = FileDropWidget(
+            text="Drop file here or click to browse",
+            sub_text="Supported: .png",
+            icon_path=str(svg_path("file.svg")),
+            allowed_extensions=[".png"],
+            show_preview=False,
+        )
+        self.drop_zone.setFixedHeight(100)
         self.drop_zone.file_selected.connect(self.on_file_selected)
         layout.addWidget(self.drop_zone)
 
@@ -79,6 +86,12 @@ class AnalyzerPage(QFrame):
 
     def on_file_selected(self, file_path: str) -> None:
         """Show file details after browse or drop."""
+        if not file_path:
+            self._invalidate_analysis()
+            self.file_path = None
+            self.file_info_bar.hide()
+            self.drop_zone.show()
+            return
         path = Path(file_path).resolve()
         try:
             with Image.open(path) as image:
@@ -111,11 +124,8 @@ class AnalyzerPage(QFrame):
         self.file_info_bar.show()
 
     def on_change_file_clicked(self) -> None:
-        self._invalidate_analysis()
-        self.file_path = None
+        # clear_file emits an empty path; on_file_selected owns the reset.
         self.drop_zone.clear_file()
-        self.file_info_bar.hide()
-        self.drop_zone.show()
 
     def on_run_analysis_clicked(self) -> None:
         """Run all bit-statistics detectors outside the UI thread."""

@@ -1,8 +1,8 @@
 from PyQt6.QtWidgets import QFrame, QVBoxLayout, QLabel
 
 class KeyListItemWidget(QFrame):
-    def __init__(self, display_name: str, detail: str):
-        super().__init__()
+    def __init__(self, display_name: str, detail: str, parent=None):
+        super().__init__(parent)
         self.setObjectName("keyListItemContent")
 
         layout = QVBoxLayout(self)
