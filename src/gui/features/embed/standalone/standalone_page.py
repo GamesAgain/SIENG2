@@ -3,6 +3,7 @@ from PyQt6.QtCore import QSize
 from PyQt6.QtGui import QIcon
 
 from src.gui.components.gui_utils import create_icon_pixmap
+from src.gui.features.embed.standalone.locomotive_tab import LocomotiveStandaloneTab
 from src.gui.features.embed.standalone.lsb_tab import LSBStandaloneTab
 from src.gui.services.key_registry import KeyRegistry
 from src.path import svg_path
@@ -20,7 +21,7 @@ class EmbedStandalonePage(QFrame):
         layout.setContentsMargins(0, 0, 0, 4)
 
         self.tab_lsb = LSBStandaloneTab(key_registry=self.key_registry)
-        self.tab_locomotive = QLabel("Locomotive")
+        self.tab_locomotive = LocomotiveStandaloneTab(key_registry=self.key_registry)
         self.tab_metadata = QLabel("Metadata")
 
         tech_tabs = QTabWidget()

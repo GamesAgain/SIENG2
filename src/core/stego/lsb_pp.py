@@ -127,9 +127,9 @@ class LSBPP:
         public_key_path: str = None,
         password: str = None,
         progress_callback: ProgressCallback = None
-        ) -> tuple[bytes, str]:
+        ) -> tuple[str, bytes]:
         """
-        Embed payload message into cover image using LSB++ algorithm
+        Embed payload message and return (PNG filename, image bytes).
         """
         # 0. Validate encryption mode
         validate_encryption_mode(password, public_key_path)
@@ -176,7 +176,7 @@ class LSBPP:
         stego_file_name = f"{base_file_name}_stego.png"
         update_progress(progress_callback, 100, "Embedding complete.")
 
-        return stego_image_bytes, stego_file_name
+        return stego_file_name, stego_image_bytes
     
 
     def merge_stego_bytes(self, cover_image_path: str, stego_image: Image) -> bytes:

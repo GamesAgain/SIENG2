@@ -17,7 +17,7 @@ class LSBStandaloneTab(QFrame):
         super().__init__(parent)
         self.key_registry = key_registry
         self.embed_worker = None
-        self.last_embed_result: tuple[bytes, str] | None = None
+        self.last_embed_result: tuple[str, bytes] | None = None
         self.pending_embed_result = None
         self.setup_ui()
 
@@ -122,7 +122,7 @@ class LSBStandaloneTab(QFrame):
             self.show_embed_error(str(result["error"]))
         elif (
             isinstance(result, tuple) and len(result) == 2
-            and isinstance(result[0], bytes) and isinstance(result[1], str)
+            and isinstance(result[0], str) and isinstance(result[1], bytes)
         ):
             self.last_embed_result = result
             self.save_embed_result()
@@ -133,7 +133,7 @@ class LSBStandaloneTab(QFrame):
         """Save the latest result; retain its bytes on cancel or write failure."""
         if self.last_embed_result is None:
             return
-        png_bytes, filename = self.last_embed_result
+        filename, png_bytes = self.last_embed_result
         output_path, _ = QFileDialog.getSaveFileName(self, "Save stego image", filename, "PNG image (*.png)")
         if not output_path:
             self.execution_bar.update_progress(100, "Embedding complete; not saved.")
