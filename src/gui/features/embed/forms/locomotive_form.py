@@ -8,12 +8,13 @@ from PIL import Image
 from PyQt6.QtCore import QSignalBlocker
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QScrollArea, QStackedWidget, QTabWidget, QVBoxLayout
 
-from src.core.configurable.step_output import FileSource, StepOutput
+from src.core.configurable.step_output import FileSource, StepOutput, StepOutputInfo
 from src.gui.components.gui_utils import add_password_visibility_toggle, add_shadow_effect, create_icon_pixmap, format_file_size
 from src.gui.components.widgets.files_drop import MultiFileDropWidget
 from src.gui.components.widgets.key_source import KeySourceWidget
 from src.gui.components.widgets.key_validation import KeyValidationLabel, inspect_public_key
 from src.gui.components.widgets.selection_toggle import SelectionToggle
+from src.gui.components.widgets.step_output_picker import StepOutputPicker
 from src.gui.components.widgets.toggle_switch import ToggleSwitch
 from src.gui.components.widgets.visibility_stack import VisibilityStack
 from src.gui.services.key_registry import KeyRegistry
@@ -162,7 +163,7 @@ class LocomotiveInputForm(QFrame):
                 },
             ])
         
-        # self.cover_mode_toggle.mode_changed.connect(self.on_cover_mode_changed) TODO
+        self.cover_mode_toggle.mode_changed.connect(self.on_cover_mode_changed)
 
         drop_zone = MultiFileDropWidget(
             text="Drop PNG files here or click to browse",
@@ -177,6 +178,9 @@ class LocomotiveInputForm(QFrame):
 
         self.cover_source_stack = QStackedWidget()
         self.cover_source_stack.addWidget(drop_zone)
+        self.cover_output_picker = StepOutputPicker(multi_select=True)
+        self.cover_source_stack.addWidget(self.cover_output_picker)
+        self.cover_output_picker.selections_changed.connect(self.on_cover_outputs_selected)
 
         self.cover_summary_label = QLabel("Selected: 0 PNGs")
         self.cover_summary_label.setObjectName("capacityLabel")
@@ -227,7 +231,7 @@ class LocomotiveInputForm(QFrame):
                 "color_checked": "#38BDF8",
             },
         ])
-        # self.payload_mode_toggle.mode_changed.connect(self.on_payload_source_mode_changed) TODO
+        self.payload_mode_toggle.mode_changed.connect(self.on_payload_source_mode_changed)
 
         self.payload_file_drop_zone = MultiFileDropWidget(
             text="Drop files here or click to browse",
@@ -241,6 +245,9 @@ class LocomotiveInputForm(QFrame):
 
         self.payload_source_stack = QStackedWidget()
         self.payload_source_stack.addWidget(self.payload_file_drop_zone)
+        self.payload_output_picker = StepOutputPicker(multi_select=True)
+        self.payload_source_stack.addWidget(self.payload_output_picker)
+        self.payload_output_picker.selections_changed.connect(self.on_payload_outputs_selected)
         self.payload_file_summary_label = QLabel("Files: 0 · Total: 0 B")
         self.payload_file_summary_label.setObjectName("capacityLabel")
 
@@ -366,8 +373,11 @@ class LocomotiveInputForm(QFrame):
         return asymmetric_mode
 
     def get_inputs(self) -> LocomotiveInputsDraft:
+        covers = []
+        for cover in self.locomotive_covers:
+            covers.append(LocomotiveCoverDraft(cover.source, cover.output_key))
         return LocomotiveInputsDraft(
-            covers=[LocomotiveCoverDraft(cover.source, cover.output_key) for cover in self.locomotive_covers],
+            covers=covers,
             payload_mode="files" if self.payload_tabs.currentIndex() == 0 else "text",
             payload_files=list(self.payload_files),
             payload_text=self.payload_text_area.toPlainText(),
@@ -381,28 +391,40 @@ class LocomotiveInputForm(QFrame):
         """Restore independent editor state without regenerating cover output keys."""
         self.cover_mode_toggle.set_mode("Manual")
         self.payload_mode_toggle.set_mode("Manual")
+        manual_covers = []
+        linked_covers = []
+        self.locomotive_covers = []
+        for cover in draft.covers:
+            self.locomotive_covers.append(LocomotiveCoverDraft(cover.source, cover.output_key))
+            if isinstance(cover.source, StepOutput):
+                linked_covers.append(cover.source)
+            elif isinstance(cover.source, str) and Path(cover.source).is_file():
+                manual_covers.append(cover.source)
+
+        manual_files = []
+        linked_files = []
+        for source in draft.payload_files:
+            if isinstance(source, StepOutput):
+                linked_files.append(source)
+            elif isinstance(source, str) and Path(source).is_file():
+                manual_files.append(source)
         # Drop-zone signals normally create cover identities. Restore the saved
         # identities ourselves, and retain missing paths so validation can report them.
         with QSignalBlocker(self.cover_drop_zone):
             self.cover_drop_zone.clear_all()
-            self.cover_drop_zone.add_files([
-                cover.source for cover in draft.covers
-                if isinstance(cover.source, str) and Path(cover.source).is_file()
-            ])
-        self.locomotive_covers = [
-            LocomotiveCoverDraft(cover.source, cover.output_key) for cover in draft.covers
-        ]
+            self.cover_drop_zone.add_files(manual_covers)
         with QSignalBlocker(self.payload_file_drop_zone):
             self.payload_file_drop_zone.clear_all()
-            self.payload_file_drop_zone.add_files([
-                source for source in draft.payload_files
-                if isinstance(source, str) and Path(source).is_file()
-            ])
+            self.payload_file_drop_zone.add_files(manual_files)
         self.payload_files = list(draft.payload_files)
-        if any(isinstance(cover.source, StepOutput) for cover in draft.covers):
+        self.cover_output_picker.set_selected_outputs(linked_covers)
+        self.payload_output_picker.set_selected_outputs(linked_files)
+        if linked_covers:
             self.cover_mode_toggle.set_mode("linked")
-        if any(isinstance(source, StepOutput) for source in draft.payload_files):
+        if linked_files:
             self.payload_mode_toggle.set_mode("linked")
+        self.on_cover_mode_changed(self.cover_mode_toggle.mode())
+        self.on_payload_source_mode_changed(self.payload_mode_toggle.mode())
         self.payload_text_area.setPlainText(draft.payload_text)
         self.payload_tabs.setCurrentIndex(0 if draft.payload_mode == "files" else 1)
         self.encrypt_mode_toggle.set_mode(draft.encryption_mode)
@@ -419,15 +441,18 @@ class LocomotiveInputForm(QFrame):
         self.update_payload_text_summary()
 
     def validate_draft(self) -> bool:
-        """Validate the active manual inputs before committing a pipeline step."""
+        """Check manual files and selected output references before saving."""
         try:
-            if self.cover_mode_toggle.mode() == "linked":
-                raise ValueError("Previous Output selection is not available yet. Select manual PNG covers.")
             if not self.locomotive_covers:
                 raise ValueError("Please select at least one PNG cover image.")
+            selected_covers = self.cover_output_picker.selected_outputs()
             for cover in self.locomotive_covers:
+                if isinstance(cover.source, StepOutput):
+                    if not self.is_config or cover.source not in selected_covers:
+                        raise ValueError("A linked PNG cover is unavailable. Select another output.")
+                    continue  # The generated PNG is checked when the pipeline runs.
                 if not isinstance(cover.source, str):
-                    raise ValueError("Select manual PNG cover images.")
+                    raise ValueError("Select PNG cover images or previous PNG outputs.")
                 path = Path(cover.source)
                 if not path.is_file() or path.suffix.lower() != ".png":
                     raise ValueError(f"PNG cover is unavailable: {path.name}")
@@ -436,12 +461,15 @@ class LocomotiveInputForm(QFrame):
                         raise ValueError(f"Cover is not a PNG image: {path.name}")
                     image.verify()
             if self.payload_tabs.currentIndex() == 0:
-                if self.payload_mode_toggle.mode() == "linked":
-                    raise ValueError("Previous Output selection is not available yet. Select manual payload files.")
                 if not self.payload_files:
                     raise ValueError("Please select at least one payload file.")
-                if not all(isinstance(source, str) and Path(source).is_file() for source in self.payload_files):
-                    raise ValueError("One or more payload files are unavailable.")
+                selected_files = self.payload_output_picker.selected_outputs()
+                for source in self.payload_files:
+                    if isinstance(source, StepOutput):
+                        if not self.is_config or source not in selected_files:
+                            raise ValueError("A linked payload file is unavailable. Select another output.")
+                    elif not isinstance(source, str) or not Path(source).is_file():
+                        raise ValueError("One or more payload files are unavailable.")
             elif not self.payload_text_area.toPlainText().strip():
                 raise ValueError("Please enter a secret message.")
             if self.encrypt_toggle_switch.isChecked():
@@ -471,7 +499,14 @@ class LocomotiveInputForm(QFrame):
     def update_cover_summary(self):
         count = len(self.locomotive_covers)
         noun = "PNG" if count == 1 else "PNGs"
-        self.cover_summary_label.setText(f"Selected: {count} {noun}")
+        summary = f"Selected: {count} {noun}"
+        linked_count = 0
+        for cover in self.locomotive_covers:
+            if isinstance(cover.source, StepOutput):
+                linked_count += 1
+        if linked_count:
+            summary += f" · Manual: {count - linked_count} · Linked: {linked_count}"
+        self.cover_summary_label.setText(summary)
 
     def update_payload_file_summary(self):
         count = len(self.payload_files)
@@ -489,7 +524,8 @@ class LocomotiveInputForm(QFrame):
                 continue
         summary = f"Files: {count} · Total: {format_file_size(total_bytes)}"
         if linked_count:
-            summary += f" · Linked: {linked_count}"
+            # Future output sizes are unknown; show bytes of manual files only.
+            summary = f"Files: {count} · Manual size: {format_file_size(total_bytes)} · Linked: {linked_count}"
         if available_count != count - linked_count:
             summary += f" · Available: {available_count}"
         self.payload_file_summary_label.setText(summary)
@@ -501,13 +537,71 @@ class LocomotiveInputForm(QFrame):
     def on_locomotive_file_selected(self, file_paths: list[str]):
         if self.cover_mode_toggle.mode() == "linked":
             return
-        self.locomotive_covers = link_sources_to_covers(file_paths, self.locomotive_covers)
+        sources = list(file_paths)
+        for cover in self.locomotive_covers:
+            if isinstance(cover.source, StepOutput):
+                sources.append(cover.source)
+        self.locomotive_covers = link_sources_to_covers(sources, self.locomotive_covers)
         self.update_cover_summary()
 
     def on_payload_file_selected(self, file_paths: list[str]):
         if self.payload_mode_toggle.mode() == "linked":
             return
-        self.payload_files = list(file_paths)
+        sources = list(file_paths)
+        for source in self.payload_files:
+            if isinstance(source, StepOutput):
+                sources.append(source)
+        self.payload_files = sources
+        self.update_payload_file_summary()
+
+    def set_available_outputs(self, outputs: list[StepOutputInfo]):
+        png_outputs = []
+        for output in outputs:
+            if output.media_type == "png":
+                png_outputs.append(output)
+        self.cover_output_picker.set_outputs(png_outputs)
+        self.payload_output_picker.set_outputs(outputs)
+
+        linked_covers = []
+        for cover in self.locomotive_covers:
+            if isinstance(cover.source, StepOutput):
+                linked_covers.append(cover.source)
+        self.cover_output_picker.set_selected_outputs(linked_covers)
+        linked_files = []
+        for source in self.payload_files:
+            if isinstance(source, StepOutput):
+                linked_files.append(source)
+        self.payload_output_picker.set_selected_outputs(linked_files)
+
+    def on_cover_mode_changed(self, mode: str):
+        # Switching the view does not remove inputs from the other source.
+        if mode == "linked":
+            self.cover_source_stack.setCurrentWidget(self.cover_output_picker)
+        else:
+            self.cover_source_stack.setCurrentWidget(self.cover_drop_zone)
+
+    def on_payload_source_mode_changed(self, mode: str):
+        if mode == "linked":
+            self.payload_source_stack.setCurrentWidget(self.payload_output_picker)
+        else:
+            self.payload_source_stack.setCurrentWidget(self.payload_file_drop_zone)
+
+    def on_cover_outputs_selected(self, references: list[StepOutput]):
+        sources = []
+        for cover in self.locomotive_covers:
+            if isinstance(cover.source, str):
+                sources.append(cover.source)
+        sources.extend(references)
+        self.locomotive_covers = link_sources_to_covers(sources, self.locomotive_covers)
+        self.update_cover_summary()
+
+    def on_payload_outputs_selected(self, references: list[StepOutput]):
+        sources = []
+        for source in self.payload_files:
+            if isinstance(source, str):
+                sources.append(source)
+        sources.extend(references)
+        self.payload_files = sources
         self.update_payload_file_summary()
 
     def on_encrypt_mode_changed(self, mode: str):

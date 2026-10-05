@@ -1521,6 +1521,35 @@ QFrame#stepCardDivider {
     color: #94A3B8;
 }
 
+/* Previous Output picker: single selection with an internal scrollbar. */
+QListWidget#stepOutputList {
+    background-color: #1F1F1F;
+    color: #94A3B8;
+    border: 1px solid #343434;
+    border-radius: 8px;
+    padding: 4px;
+    font-family: Arial, sans-serif;
+    font-size: 12px;
+}
+QListWidget#stepOutputList::item {
+    padding: 10px;
+    margin: 2px;
+    border-radius: 4px;
+}
+QListWidget#stepOutputList::item:hover {
+    background-color: #292E32;
+}
+QListWidget#stepOutputList::item:selected {
+    background-color: #1D3038;
+    color: #38BDF8;
+}
+
+QLabel#stepCardStatus[state="blocked"] {
+    color: #F87171;
+    background-color: rgba(248, 113, 113, 0.08);
+    border: 1px solid rgba(248, 113, 113, 0.65);
+}
+
 QLabel#stepCardSub {
     color: #94A3B8;
     font-size: 11px;

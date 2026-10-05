@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QLineEdit, QMessageBox, QPlainTextEdit, 
     QScrollArea, QStackedWidget, QTabWidget, QVBoxLayout)
 
-from src.core.configurable.step_output import FileSource, StepOutput
+from src.core.configurable.step_output import FileSource, StepOutput, StepOutputInfo
 from src.core.crypto.sym_encrypt import AES_NONCE_LENGTH, AES_SALT_LENGTH, AES_TAG_LENGTH
 from src.core.stego.lsb_pp import HEADER_BYTES, LSBPP, estimate_overhead_bytes, get_max_message_bytes
 from src.gui.components.gui_utils import (
@@ -19,6 +19,7 @@ from src.gui.components.widgets.files_drop import FileDropWidget
 from src.gui.components.widgets.key_source import KeySourceWidget
 from src.gui.components.widgets.key_validation import KeyValidationLabel, inspect_public_key
 from src.gui.components.widgets.selection_toggle import SelectionToggle
+from src.gui.components.widgets.step_output_picker import StepOutputPicker
 from src.gui.components.widgets.toggle_switch import ToggleSwitch
 from src.gui.components.widgets.visibility_stack import VisibilityStack
 from src.gui.services.key_registry import KeyRegistry
@@ -148,7 +149,7 @@ class LSBInputForm(QFrame):
                 },
             ])
         
-        # self.cover_mode_toggle.mode_changed.connect(self.on_cover_mode_changed) TODO
+        self.cover_mode_toggle.mode_changed.connect(self.on_cover_mode_changed)
         
         drop_zone = FileDropWidget(
             text="Drop cover image here or click to browse",
@@ -162,6 +163,9 @@ class LSBInputForm(QFrame):
 
         self.cover_source_stack = QStackedWidget()
         self.cover_source_stack.addWidget(drop_zone)
+        self.output_picker = StepOutputPicker()
+        self.cover_source_stack.addWidget(self.output_picker)
+        self.output_picker.selection_changed.connect(self.on_cover_output_selected)
 
         cover_file_layout.addWidget(title_container, 0)  # top
         cover_file_layout.addWidget(self.cover_mode_toggle, 0)
@@ -367,8 +371,10 @@ class LSBInputForm(QFrame):
         )
 
     def load_draft(self, draft: LSBInputsDraft) -> None:
-        """Restore a saved manual-input draft into this independent editor."""
+        """Restore manual or linked inputs into this independent editor."""
         self.cover_mode_toggle.set_mode("Manual")
+        self.cover_source_stack.setCurrentWidget(self.cover_drop_zone)
+        self.output_picker.set_selection(None)
         self.cover_drop_zone.clear_all()
         self.payload_text_area.setPlainText(draft.payload_text)
         self.encrypt_mode_toggle.set_mode(draft.encryption_mode)
@@ -383,22 +389,28 @@ class LSBInputForm(QFrame):
             self.public_key_source.select_path(draft.public_key_path)
         if isinstance(draft.cover, str):
             self.cover_drop_zone.add_files([draft.cover])
-        elif draft.cover is not None:
-            # Linked sources are not editable until the output picker is implemented.
+        elif isinstance(draft.cover, StepOutput):
             self.cover_mode_toggle.set_mode("linked")
-            self.cover_source = draft.cover
+            self.cover_source_stack.setCurrentWidget(self.output_picker)
+            self.output_picker.set_selection(draft.cover)
+            self.on_cover_output_selected(draft.cover)
         self.update_capacity_label()
 
     def validate_draft(self) -> bool:
         """Validate saved configuration; execution checks capacity separately."""
         error = None
         if self.cover_mode_toggle.mode() == "linked":
-            error = "Previous Output selection is not available yet. Select a manual cover."
+            if not self.is_config:
+                error = "Previous Output is only available in a pipeline."
+            elif not isinstance(self.cover_source, StepOutput):
+                error = "Please select a previous PNG output."
+            elif self.output_picker.selection() != self.cover_source:
+                error = "The selected output is unavailable. Select another PNG output."
         elif not self.cover_file_path or not Path(self.cover_file_path).is_file():
             error = "Please select an available cover image file."
-        elif not self.payload_text_area.toPlainText().strip():
+        if error is None and not self.payload_text_area.toPlainText().strip():
             error = "Please enter a secret message or load a text file."
-        elif self.encrypt_toggle_switch.isChecked():
+        if error is None and self.encrypt_toggle_switch.isChecked():
             mode = self.encrypt_mode_toggle.mode()
             if mode == "password":
                 if not self.password_input.text():
@@ -424,6 +436,33 @@ class LSBInputForm(QFrame):
         return self.password_input.text() == self.confirm_input.text()
 
     # --- Event handler ---
+    def set_available_outputs(self, outputs: list[StepOutputInfo]):
+        png_outputs = []
+        for output in outputs:
+            if output.media_type == "png":
+                png_outputs.append(output)
+        self.output_picker.set_outputs(png_outputs)
+        if isinstance(self.cover_source, StepOutput):
+            self.output_picker.set_selection(self.cover_source)
+
+    def on_cover_mode_changed(self, mode: str):
+        if mode == "linked":
+            self.cover_source_stack.setCurrentWidget(self.output_picker)
+            self.on_cover_output_selected(self.output_picker.selection())
+        else:
+            self.cover_source_stack.setCurrentWidget(self.cover_drop_zone)
+            self.on_cover_file_selected(self.cover_drop_zone.file_path)
+
+    def on_cover_output_selected(self, reference: StepOutput | None):
+        if self.cover_mode_toggle.mode() != "linked":
+            return
+        # Ignore capacity results still arriving for the previous manual cover.
+        self.capacity_request += 1
+        self.cover_source = reference
+        self.capacity_bits = None
+        self.isCalculating = False
+        self.update_capacity_label()
+
     def on_encrypt_mode_changed(self, mode: str):
         self.encrypt_stack.setCurrentIndex(0 if mode == "password" else 1)
         self.update_capacity_label()
@@ -526,7 +565,7 @@ class LSBInputForm(QFrame):
         text_size = format_file_size(text_size_bytes)
 
         if isinstance(self.cover_source, StepOutput):
-            self.capacity_label.setText(f"Size: {text_size}")
+            self.capacity_label.setText(f"Size: {text_size} / Capacity unknown")
             self.capacity_label.setToolTip(
                 "Linked cover capacity will be checked when the pipeline runs."
             )

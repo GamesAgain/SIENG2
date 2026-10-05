@@ -9,6 +9,7 @@ from typing import Any
 from mutagen.id3 import APIC, ID3, ID3NoHeaderError, TextFrame, UrlFrame
 from PIL import Image
 
+from src.core.configurable.step_output import StepOutput
 from src.core.stego.metadata_handlers.mp3_handler import APIC_TYPES, FRAME_INFO, STANDARD_FRAMES, get_frame_class
 
 
@@ -64,6 +65,8 @@ class MP3AttachedPictureDraft:
     # Preserve undecodable/externally linked pictures loaded from ID3 unchanged.
     original_data: bytes | None = field(default=None, repr=False, compare=False)
     original_mime: str | None = field(default=None, repr=False, compare=False)
+    # Manual pictures keep their bytes; linked pictures wait for a pipeline output.
+    source: StepOutput | None = None
 
 
 def read_attached_picture(file_path: str) -> MP3AttachedPictureDraft:
@@ -77,7 +80,7 @@ def read_attached_picture(file_path: str) -> MP3AttachedPictureDraft:
     return MP3AttachedPictureDraft(mime=mime, data=data, source_name=path.name)
 
 
-def validate_attached_pictures(pictures: list[MP3AttachedPictureDraft]) -> None:
+def validate_attached_pictures(pictures: list[MP3AttachedPictureDraft], *, allow_linked: bool = False) -> None:
     descriptions = set()
     icon_types = set()
     for picture in pictures:
@@ -94,6 +97,11 @@ def validate_attached_pictures(pictures: list[MP3AttachedPictureDraft]) -> None:
             if picture.picture_type in icon_types:
                 raise ValueError(f"Only one picture of type {picture.picture_type} is allowed.")
             icon_types.add(picture.picture_type)
+        if picture.source is not None:
+            if not allow_linked or not isinstance(picture.source, StepOutput):
+                raise ValueError("Resolve the linked picture output before saving an MP3 file.")
+            # Dimensions (including type 1's 32×32 rule) need the actual output at run time.
+            continue
         if unchanged_image and picture.picture_type != 1:
             continue
         try:

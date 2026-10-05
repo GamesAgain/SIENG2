@@ -11,8 +11,12 @@ from PyQt6.QtWidgets import (
 
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, format_file_size
 from src.gui.components.widgets.execution_bar import ExecutionBar
-from src.core.configurable.step_output import StepOutputInfo
-from src.gui.features.embed.configurable.pipeline_links import build_output_catalog as collect_output_catalog
+from src.core.configurable.step_output import StepOutput, StepOutputInfo
+from src.core.stego.metadata_handlers.mp3_handler import APIC_TYPES, FRAME_INFO
+from src.gui.features.embed.configurable.pipeline_links import (
+    build_output_catalog as collect_output_catalog, declared_step_outputs,
+    evaluate_pipeline_statuses, reconcile_links,
+)
 from src.gui.features.embed.forms.lsb_form import LSBInputForm, LSBInputsDraft
 from src.gui.features.embed.forms.locomotive_form import LocomotiveInputForm, LocomotiveInputsDraft
 from src.gui.features.embed.forms.metadata_form import MetadataInputForm, MetadataInputsDraft
@@ -77,6 +81,11 @@ class EmbedConfigurablePage(QFrame):
         content_layout.setSpacing(10)
         self.pipeline_builder_card = self.build_pipeline_builder_card()
         content_layout.addWidget(self.pipeline_builder_card)
+        self.link_notice = QLabel()
+        self.link_notice.setObjectName("hintLabel")
+        self.link_notice.setWordWrap(True)
+        content_layout.addWidget(self.link_notice)
+        self.link_notice.hide()
         # Inline forms belong below the builder, inside the same page scroll.
         self.inline_slot = QVBoxLayout()
         content_layout.addLayout(self.inline_slot)
@@ -227,6 +236,8 @@ class EmbedConfigurablePage(QFrame):
             form_class = {"lsbpp": LSBInputForm, "locomotive": LocomotiveInputForm}[card.technique]
             inputs = form_class(key_registry=self.key_registry, is_config=True)
         draft = self.step_drafts[card.step_key].technique_inputs
+        if isinstance(inputs, (LSBInputForm, LocomotiveInputForm, MetadataInputForm)):
+            inputs.set_available_outputs(self.build_output_catalog(card.step_key))
         if draft is not None:
             inputs.load_draft(draft)
         return inputs
@@ -249,12 +260,118 @@ class EmbedConfigurablePage(QFrame):
         step.description = description.strip()
         step.guidenote = guidenote.strip()
         step.technique_inputs = draft
+        self.refresh_pipeline_dependencies()
         self.render_step_cards()
         return True
 
-    def apply_step_draft_to_card(self, card: StepCard):
+    def refresh_pipeline_dependencies(self):
+        """Run on committed changes, never as a side effect of rendering."""
+        changes = reconcile_links(self.pipeline_steps)
+        # Renumber the open picker after drag/save, even if no link was cleared.
+        if self.active_step_panel is not None:
+            inputs = self.active_step_panel.content_widget
+            if isinstance(inputs, (LSBInputForm, LocomotiveInputForm, MetadataInputForm)):
+                inputs.set_available_outputs(self.build_output_catalog(self.active_step_card.step_key))
+        self.link_notice.setVisible(bool(changes))
+        if not changes:
+            self.link_notice.clear()
+            return
+        self.link_notice.setText(f"Cleared {len(changes)} unavailable linked input(s). Review the affected steps.")
+        notice_details = []
+        for change in changes:
+            notice_details.append(f"{change.role}: {change.reason}")
+        self.link_notice.setToolTip("\n".join(notice_details))
+        panel = self.active_step_panel
+        if panel is None:
+            return
+        affected = []
+        for change in changes:
+            if change.step_key == self.active_step_card.step_key:
+                affected.append(change)
+        if not affected:
+            return
+        inputs = panel.content_widget
+        if isinstance(inputs, MetadataInputForm):
+            invalid_pictures = set()
+            for change in affected:
+                if change.role == "target":
+                    # Target loss also clears unsaved edits belonging to that target.
+                    inputs.reset_target()
+                    break
+                if change.role == "apic":
+                    invalid_pictures.add(change.reference)
+            if invalid_pictures:
+                # A lost upstream cover may still have an expected output in the catalog.
+                available_pictures = []
+                for output in inputs.mp3_form.attached_picture_form.output_catalog:
+                    if output.reference not in invalid_pictures:
+                        available_pictures.append(output)
+                inputs.mp3_form.attached_picture_form.set_available_outputs(available_pictures)
+        elif isinstance(inputs, LSBInputForm):
+            for change in affected:
+                if inputs.cover_source == change.reference:
+                    inputs.cover_source = None
+                    inputs.output_picker.set_selection(None)
+                    inputs.cover_mode_toggle.set_mode("Manual")
+                    inputs.cover_source_stack.setCurrentWidget(inputs.cover_drop_zone)
+                    inputs.capacity_request += 1
+                    inputs.capacity_bits = None
+                    inputs.isCalculating = False
+                    inputs.update_capacity_label()
+        elif isinstance(inputs, LocomotiveInputForm):
+            invalid_covers = set()
+            invalid_payload = set()
+            for change in affected:
+                if change.role == "covers":
+                    invalid_covers.add(change.reference)
+                elif change.role == "payload_files":
+                    invalid_payload.add(change.reference)
+
+            remaining_covers = []
+            has_linked_cover = False
+            for cover in inputs.locomotive_covers:
+                if cover.source not in invalid_covers:
+                    remaining_covers.append(cover)
+                    if isinstance(cover.source, StepOutput):
+                        has_linked_cover = True
+            inputs.locomotive_covers[:] = remaining_covers
+
+            remaining_files = []
+            has_linked_payload = False
+            for source in inputs.payload_files:
+                if source not in invalid_payload:
+                    remaining_files.append(source)
+                    if isinstance(source, StepOutput):
+                        has_linked_payload = True
+            inputs.payload_files[:] = remaining_files
+
+            if not has_linked_cover:
+                inputs.cover_mode_toggle.set_mode("Manual")
+                inputs.on_cover_mode_changed("Manual")
+            if not has_linked_payload:
+                inputs.payload_mode_toggle.set_mode("Manual")
+                inputs.on_payload_source_mode_changed("Manual")
+            inputs.update_cover_summary()
+            inputs.update_payload_file_summary()
+
+    def describe_source(self, source) -> str:
+        if isinstance(source, str):
+            return Path(source).name
+        if isinstance(source, StepOutput):
+            for number, step in enumerate(self.pipeline_steps, start=1):
+                for output in declared_step_outputs(step, number):
+                    if output.reference == source:
+                        technique = TECHNIQUE_DISPLAY[step.technique]["label"]
+                        output_name = output.display_name or "Output"
+                        return f"From STEP {number} {technique}, {output_name}"
+            return "Unavailable output"
+        return "Not selected"
+
+    def apply_step_draft_to_card(self, card: StepCard, status: tuple[str, str] | None = None):
         step = self.step_drafts[card.step_key]
         card.set_description(step.description)
+        card.set_summary(cover="Not selected", payload="Not configured", output="Pending", encryption="Not configured")
+        card.set_status(*(status or evaluate_pipeline_statuses(self.pipeline_steps)[step.key]))
         draft = step.technique_inputs
         if draft is None:
             return
@@ -262,16 +379,25 @@ class EmbedConfigurablePage(QFrame):
             if isinstance(draft.payload, PNGMetadataDraft):
                 count = len(draft.payload.entries)
                 card.set_summary(
-                    cover=Path(draft.cover).name if isinstance(draft.cover, str) else "Not selected",
-                    payload=f"Text fields ×{count}", output="PNG ×1", encryption="None",
+                    cover=self.describe_source(draft.cover),
+                    payload=f"Text fields ×{count}", output="PNG ×1" if draft.cover else "Pending", encryption="None",
                 )
                 card.summary_labels["payload"].setToolTip(
                     "\n".join([f"PNG metadata fields ({count}):", *draft.payload.entries])
                 )
-                card.set_status("ready", "PNG metadata inputs are configured; pipeline has not run yet")
             elif isinstance(draft.payload, MP3MetadataDraft):
                 frames = draft.payload.text_frames.frames
-                frame_count = sum(len(frame.instances) if isinstance(frame, MP3ComplexFrameDraft) else 1 for frame in frames)
+                frame_count = 0
+                frame_lines = []
+                for number, frame in enumerate(frames, start=1):
+                    name = FRAME_INFO.get(frame.frame_id, ("Unknown frame", ""))[0]
+                    if isinstance(frame, MP3ComplexFrameDraft):
+                        instance_count = len(frame.instances)
+                        frame_count += instance_count
+                        frame_lines.append(f"{number}. {frame.frame_id} ×{instance_count} — {name}")
+                    else:
+                        frame_count += 1
+                        frame_lines.append(f"{number}. {frame.frame_id} — {name}")
                 pictures = draft.payload.attached_pictures
                 picture_count = len(pictures)
                 if frame_count and picture_count:
@@ -281,42 +407,98 @@ class EmbedConfigurablePage(QFrame):
                 else:
                     summary = f"Text frames ×{frame_count}"
                 card.set_summary(
-                    cover=Path(draft.cover).name if isinstance(draft.cover, str) else "Not selected",
-                    payload=summary, output="MP3 ×1", encryption="None",
+                    cover=self.describe_source(draft.cover),
+                    payload=summary, output="MP3 ×1" if draft.cover else "Pending", encryption="None",
                 )
                 lines = [f"Text frames ({frame_count}):"]
-                lines.extend(f"{frame.frame_id} ×{len(frame.instances)}" if isinstance(frame, MP3ComplexFrameDraft) else frame.frame_id for frame in frames)
-                lines.append(f"APIC images ({picture_count}):")
-                lines.extend(f"Type {picture.picture_type}: {picture.description}" for picture in pictures)
+                lines.extend(frame_lines)
+                lines.append(f"\nAPIC images ({picture_count}):")
+                for number, picture in enumerate(pictures, start=1):
+                    if picture.source is not None:
+                        source_name = self.describe_source(picture.source)
+                    elif picture.source_name:
+                        source_name = Path(picture.source_name).name
+                    else:
+                        source_name = "Existing image in target MP3"
+                    type_name = APIC_TYPES.get(picture.picture_type, "Unknown picture type")
+                    description = picture.description or "(empty)"
+                    lines.append(f"{number}. {source_name}")
+                    lines.append(f"   Type {picture.picture_type} — {type_name}")
+                    lines.append(f"   Description: {description}")
                 card.summary_labels["payload"].setToolTip("\n".join(lines))
-                card.set_status("ready", "MP3 metadata inputs are configured; pipeline has not run yet")
             return
         encryption = "Off" if not draft.encryption_enabled else (
             "Password" if draft.encryption_mode == "password" else "Public Key"
         )
         if isinstance(draft, LSBInputsDraft):
             card.set_summary(
-                cover=Path(draft.cover).name if isinstance(draft.cover, str) else "Not selected",
+                cover=self.describe_source(draft.cover),
                 payload=f"Text ({format_file_size(len(draft.payload_text.encode('utf-8')))})",
-                output="PNG ×1", encryption=encryption,
+                output="PNG ×1" if draft.cover else "Pending", encryption=encryption,
             )
         elif isinstance(draft, LocomotiveInputsDraft):
             count = len(draft.covers)
-            cover = (
-                Path(draft.covers[0].source).name
-                if count == 1 and isinstance(draft.covers[0].source, str)
-                else f"PNGs ×{count}"
-            )
+            manual_count = 0
+            producer_keys = set()
+            cover_lines = [f"Cover PNGs ({count}):"]
+            for number, item in enumerate(draft.covers, start=1):
+                if isinstance(item.source, StepOutput):
+                    producer_keys.add(item.source.step_key)
+                else:
+                    manual_count += 1
+                cover_lines.append(f"{number}. {self.describe_source(item.source)}")
+
+            if count == 0:
+                cover = "Not selected"
+            elif count == 1:
+                cover = self.describe_source(draft.covers[0].source)
+            elif manual_count == 0 and len(producer_keys) == 1:
+                # Brackets mean selected output count, not an output's index.
+                cover = f"PNGs ×{count}"
+                source_key = draft.covers[0].source.step_key
+                for number, producer in enumerate(self.pipeline_steps, start=1):
+                    if producer.key == source_key:
+                        technique = TECHNIQUE_DISPLAY[producer.technique]["label"]
+                        cover = f"From STEP {number} {technique}, Output [{count}]"
+                        cover_lines.insert(1, cover)
+                        break
+            elif manual_count == 0:
+                cover = f"From {len(producer_keys)} STEPs, PNG [{count}]"
+            else:
+                cover = f"PNGs ×{count}"
+            payload_lines = []
             if draft.payload_mode == "text":
                 payload = f"Text ({format_file_size(len(draft.payload_text.encode('utf-8')))})"
             else:
-                try:
-                    size = sum(Path(source).stat().st_size for source in draft.payload_files)
-                    payload = f"Files ×{len(draft.payload_files)} ({format_file_size(size)})"
-                except (OSError, TypeError):
+                size = 0
+                linked_count = 0
+                missing_file = False
+                payload_lines.append(f"Payload files ({len(draft.payload_files)}):")
+                for number, source in enumerate(draft.payload_files, start=1):
+                    if isinstance(source, StepOutput):
+                        linked_count += 1
+                        payload_lines.append(f"{number}. {self.describe_source(source)}")
+                    else:
+                        file_size = "Unavailable"
+                        try:
+                            source_size = Path(source).stat().st_size
+                            size += source_size
+                            file_size = format_file_size(source_size)
+                        except (OSError, TypeError):
+                            missing_file = True
+                        payload_lines.append(f"{number}. Manual: {self.describe_source(source)} — {file_size}")
+
+                if missing_file:
                     payload = f"Files ×{len(draft.payload_files)} (unavailable)"
-            card.set_summary(cover=cover, payload=payload, output=f"PNG ×{count}", encryption=encryption)
-        card.set_status("ready", f"{card.meta['label']} inputs are configured; pipeline has not run yet")
+                elif linked_count:
+                    payload = f"Files ×{len(draft.payload_files)} · Linked ×{linked_count}"
+                else:
+                    payload = f"Files ×{len(draft.payload_files)} ({format_file_size(size)})"
+            card.set_summary(cover=cover, payload=payload, output=f"PNG ×{count}" if count else "Pending", encryption=encryption)
+            if count > 1:
+                card.summary_labels["cover"].setToolTip("\n".join(cover_lines))
+            if draft.payload_mode == "files":
+                card.summary_labels["payload"].setToolTip("\n".join(payload_lines))
 
     def open_step_configuration(self, card: StepCard):
         if card not in self.step_cards:
@@ -408,6 +590,7 @@ class EmbedConfigurablePage(QFrame):
             self.close_step_config_inline()
         self.step_cards.remove(card)
         self.step_drafts.pop(card.step_key)
+        self.refresh_pipeline_dependencies()
         self.render_step_cards()
         card.deleteLater()
 
@@ -436,6 +619,8 @@ class EmbedConfigurablePage(QFrame):
         # Keep the same list object: StepCanvas also references this collection.
         self.step_cards.clear()
         self.step_drafts.clear()
+        self.link_notice.clear()
+        self.link_notice.hide()
         self.flow_container.drop_indicator.hide()
         self.render_step_cards()
         for card in removed_cards:
@@ -452,6 +637,7 @@ class EmbedConfigurablePage(QFrame):
             return
         self.step_cards.pop(source_index)
         self.step_cards.insert(insertion_index, card)
+        self.refresh_pipeline_dependencies()
         self.render_step_cards()
 
     def render_step_cards(self):
@@ -465,9 +651,10 @@ class EmbedConfigurablePage(QFrame):
                 if not isinstance(widget, StepCard): # ลูกศรจะถูกลบ
                     widget.deleteLater()
 
+        statuses = evaluate_pipeline_statuses(self.pipeline_steps)
         for number, card in enumerate(self.step_cards, start=1):
             card.set_step_number(number)
-            self.apply_step_draft_to_card(card)
+            self.apply_step_draft_to_card(card, statuses[card.step_key])
             if number > 1:
                 self.flow_layout.addWidget(make_arrow())
             self.flow_layout.addWidget(card)
