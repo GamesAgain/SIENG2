@@ -11,6 +11,8 @@ from PyQt6.QtWidgets import (
 
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, format_file_size
 from src.gui.components.widgets.execution_bar import ExecutionBar
+from src.core.configurable.step_output import StepOutputInfo
+from src.gui.features.embed.configurable.pipeline_links import build_output_catalog as collect_output_catalog
 from src.gui.features.embed.forms.lsb_form import LSBInputForm, LSBInputsDraft
 from src.gui.features.embed.forms.locomotive_form import LocomotiveInputForm, LocomotiveInputsDraft
 from src.gui.features.embed.forms.metadata_form import MetadataInputForm, MetadataInputsDraft
@@ -213,6 +215,10 @@ class EmbedConfigurablePage(QFrame):
     def pipeline_steps(self) -> list[PipelineStepDraft]:
         """Read saved drafts in the current card order without a second ordered list."""
         return [self.step_drafts[card.step_key] for card in self.step_cards]
+
+    def build_output_catalog(self, before_step_key: str) -> list[StepOutputInfo]:
+        """Declare outputs using saved drafts and the latest card order."""
+        return collect_output_catalog(self.pipeline_steps, before_step_key)
 
     def create_step_technique_form(self, card: StepCard) -> LSBInputForm | LocomotiveInputForm | MetadataInputForm:
         if card.technique == "metadata":
