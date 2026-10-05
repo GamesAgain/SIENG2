@@ -158,11 +158,17 @@ class MetadataPNGHandler:
             for key, value in merged.items():
                 metadata.add_itxt(key, value, zip=is_compress)
 
-            # เขียนลงไฟล์ชั่วคราวก่อนเสมอ (แม้ save_file_path == file_path ที่กำลังเปิดอ่านอยู่)
-            # กัน PIL เขียนทับไฟล์ต้นฉบับขณะที่ยังถืออ่านอยู่ ซึ่งเสี่ยงไฟล์เสียหาย
-            tmp_path = f"{save_file_path}.tmp"
-            img.save(tmp_path, "PNG", pnginfo=metadata)
-
+        # Replace text only. Re-encoding via Image.save drops unrelated chunks.
+        chunks = self._parse_chunks(Path(file_path).read_bytes())
+        if not chunks or chunks[-1][0] != b"IEND":
+            raise ValueError("PNG is missing its IEND chunk.")
+        kept = [(kind, content) for kind, content in chunks
+                if kind not in {b"tEXt", b"zTXt", b"iTXt", b"stWo", b"IEND"}]
+        for chunk in metadata.chunks:
+            kept.append((chunk[0], chunk[1]))
+        kept.append(chunks[-1])
+        tmp_path = f"{save_file_path}.tmp"
+        Path(tmp_path).write_bytes(self._build_png(kept))
         os.replace(tmp_path, save_file_path)
         print(f"[+] Successfully wrote metadata to: {save_file_path}")
 

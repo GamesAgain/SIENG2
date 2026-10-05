@@ -1,11 +1,11 @@
-from dataclasses import dataclass
 from pathlib import Path
+from copy import deepcopy
 from uuid import uuid4
 
 from PyQt6.QtCore import QEvent, QTimer, Qt
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
-    QButtonGroup, QComboBox, QFrame, QHBoxLayout, QLabel, QMessageBox,
+    QApplication, QButtonGroup, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QMessageBox,
     QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
@@ -16,7 +16,12 @@ from src.core.stego.metadata_handlers.mp3_handler import APIC_TYPES, FRAME_INFO
 from src.gui.features.embed.configurable.pipeline_links import (
     build_output_catalog as collect_output_catalog, declared_step_outputs,
     evaluate_pipeline_statuses, reconcile_links,
+    build_output_usage, validate_output_usage,
 )
+from src.gui.features.embed.configurable.pipeline_draft import PipelineStepDraft
+from src.gui.features.embed.configurable.pipeline_run import PipelineRunContext
+from src.gui.features.embed.configurable.pipeline_execution import run_pipeline
+from src.gui.features.embed.configurable.pipeline_delivery import save_outputs
 from src.gui.features.embed.forms.lsb_form import LSBInputForm, LSBInputsDraft
 from src.gui.features.embed.forms.locomotive_form import LocomotiveInputForm, LocomotiveInputsDraft
 from src.gui.features.embed.forms.metadata_form import MetadataInputForm, MetadataInputsDraft
@@ -29,6 +34,7 @@ from src.gui.features.embed.configurable.widgets.step_card import (
     CARD_HEIGHT, TECHNIQUE_DISPLAY, StepCard, make_arrow,
 )
 from src.gui.services.key_registry import KeyRegistry
+from src.gui.services.worker import FunctionWorker
 from src.path import svg_path
 
 
@@ -40,17 +46,8 @@ FLOW_SPACING = 8
 MAX_VISIBLE_FLOW_HEIGHT = CARD_HEIGHT * 2 + FLOW_SPACING
 
 
-@dataclass
-class PipelineStepDraft:
-    key: str
-    technique: str
-    description: str
-    guidenote: str = ""
-    technique_inputs: LSBInputsDraft | LocomotiveInputsDraft | MetadataInputsDraft | None = None
-
-
 class EmbedConfigurablePage(QFrame):
-    """Pipeline builder with saved technique configuration; execution is pending."""
+    """Pipeline builder and sequential execution of saved technique drafts."""
 
     def __init__(self, key_registry: KeyRegistry | None = None, parent=None):
         super().__init__(parent)
@@ -62,7 +59,14 @@ class EmbedConfigurablePage(QFrame):
         self.active_step_dialog: StepConfigShellDialog | None = None
         self.active_step_panel: StepConfigShellPanel | None = None
         self.active_step_card: StepCard | None = None
+        self.run_worker = None
+        self.run_context = None
+        self.last_run_context = None
+        self.pending_run_result = None
+        self.save_worker = None
+        self.pending_save_result = None
         self.setup_ui()
+        QApplication.instance().aboutToQuit.connect(self.cleanup_run_workspaces)
 
     def setup_ui(self):
         page_layout = QVBoxLayout(self)
@@ -98,8 +102,122 @@ class EmbedConfigurablePage(QFrame):
         self.execution_bar = ExecutionBar(text_active_button="Run Pipeline", is_config=True)
         execution_layout.addWidget(self.execution_bar)
         page_layout.addLayout(execution_layout)
-        # TODO: Connect execution after pipeline inputs and workers are ready.
-        # self.execution_bar.execute_requested.connect(self.on_run_pipeline)
+        self.execution_bar.execute_requested.connect(self.on_run_pipeline)
+        self.execution_bar.save_outputs_requested.connect(self.on_save_outputs)
+
+    def on_run_pipeline(self):
+        if self.run_worker is not None or self.save_worker is not None:
+            return
+        if self.active_step_panel is not None or self.active_step_dialog is not None:
+            self.show_run_error("Save or cancel the open step editor before running the pipeline.")
+            return
+        try:
+            context = PipelineRunContext(self.pipeline_steps)
+        except (OSError, TypeError, ValueError) as error:
+            self.show_run_error(str(error))
+            return
+        # A new run owns new files; previous results survive until this point.
+        self.cleanup_run_workspaces()
+        self.run_context = context
+        self.pending_run_result = None
+        worker = FunctionWorker(run_pipeline, context, report_progress=True)
+        worker.setParent(self)
+        self.run_worker = worker
+        worker.progress.connect(self.execution_bar.update_progress)
+        worker.done.connect(self.on_run_done)
+        worker.finished.connect(self.release_run_worker)
+        self.window().installEventFilter(self)
+        self.page_scroll.widget().setEnabled(False)
+        self.execution_bar.reset()
+        self.execution_bar.set_busy(True)
+        worker.start()
+
+    def on_run_done(self, result):
+        # Wait for finished before opening a modal error dialog.
+        self.pending_run_result = result
+
+    def release_run_worker(self):
+        worker = self.run_worker
+        self.run_worker = None
+        if worker is not None:
+            worker.deleteLater()
+        self.page_scroll.widget().setEnabled(True)
+        self.execution_bar.set_busy(False)
+        result = self.pending_run_result
+        self.pending_run_result = None
+        context = self.run_context
+        self.run_context = None
+        if result is context and context is not None and context.completed:
+            self.last_run_context = context
+            self.execution_bar.set_save_available(True)
+            self.execution_bar.update_progress(100, f"Pipeline complete: {len(context.outputs)} outputs (temporary).")
+        else:
+            if context is not None:
+                context.cleanup()
+            message = str(result["error"]) if isinstance(result, dict) and "error" in result else "Pipeline returned an invalid result."
+            self.show_run_error(message)
+
+    def on_save_outputs(self):
+        if self.run_worker is not None or self.save_worker is not None:
+            return
+        context = self.last_run_context
+        if context is None or context.closed or not context.completed:
+            self.execution_bar.set_save_available(False)
+            return
+        destination = QFileDialog.getExistingDirectory(self, "Save Outputs — choose a destination folder")
+        if not destination:
+            return  # Cancel keeps the successful run available for another attempt.
+        worker = FunctionWorker(save_outputs, context, destination, report_progress=True)
+        worker.setParent(self)
+        self.save_worker = worker
+        self.pending_save_result = None
+        worker.progress.connect(self.execution_bar.update_progress)
+        worker.done.connect(self.on_save_outputs_done)
+        worker.finished.connect(self.release_save_worker)
+        self.window().installEventFilter(self)
+        self.page_scroll.widget().setEnabled(False)
+        self.execution_bar.reset()
+        self.execution_bar.update_progress(0, "Preparing output package…")
+        self.execution_bar.set_busy(True)
+        worker.start()
+
+    def on_save_outputs_done(self, result):
+        self.pending_save_result = result
+
+    def release_save_worker(self):
+        worker = self.save_worker
+        self.save_worker = None
+        if worker is not None:
+            worker.deleteLater()
+        self.page_scroll.widget().setEnabled(True)
+        self.execution_bar.set_busy(False)
+        result = self.pending_save_result
+        self.pending_save_result = None
+        if isinstance(result, Path) and result.is_dir():
+            saved_files = sorted(path.name for path in result.iterdir())
+            self.cleanup_run_workspaces()
+            self.execution_bar.update_progress(100, f"Saved {len(saved_files) - 1} outputs + extract_config.yaml")
+            QMessageBox.information(self, "Save Outputs", f"Saved package to:\n{result}\n\n" + "\n".join(saved_files))
+        else:
+            message = str(result["error"]) if isinstance(result, dict) and "error" in result else "Save Outputs returned an invalid result."
+            # A failed save keeps the run and its enabled Save button for retry.
+            self.show_run_error(message, "Save Outputs")
+
+    def show_run_error(self, message, title="Run Pipeline"):
+        self.execution_bar.status_label.setText(f"Status: {message}")
+        QMessageBox.warning(self, title, message)
+
+    def cleanup_run_workspaces(self):
+        # App shutdown may bypass closeEvent; never remove files under a live worker.
+        if self.run_worker is not None:
+            self.run_worker.wait()
+        if self.save_worker is not None:
+            self.save_worker.wait()
+        for context in (self.run_context, self.last_run_context):
+            if context is not None:
+                context.cleanup()
+        self.last_run_context = None
+        self.execution_bar.set_save_available(False)
 
     def build_pipeline_builder_card(self) -> QFrame:
         card = QFrame()
@@ -209,6 +327,8 @@ class EmbedConfigurablePage(QFrame):
         return self.pipeline_canvas
 
     def add_pipeline_step(self, technique: str):
+        if self.run_worker is not None or self.save_worker is not None:
+            return
         if technique not in TECHNIQUE_DISPLAY:
             raise ValueError(f"Unsupported technique: {technique}")
         key = uuid4().hex
@@ -237,12 +357,38 @@ class EmbedConfigurablePage(QFrame):
             inputs = form_class(key_registry=self.key_registry, is_config=True)
         draft = self.step_drafts[card.step_key].technique_inputs
         if isinstance(inputs, (LSBInputForm, LocomotiveInputForm, MetadataInputForm)):
-            inputs.set_available_outputs(self.build_output_catalog(card.step_key))
+            self.set_form_outputs(card.step_key, inputs)
         if draft is not None:
             inputs.load_draft(draft)
         return inputs
 
+    def available_outputs_for_role(self, key: str, role: str):
+        usage = build_output_usage(self.pipeline_steps)
+        available = []
+        for output in self.build_output_catalog(key):
+            owners = usage.get(output.reference, [])
+            # If invalid saved duplicates exist, the first owner can still edit its source.
+            if not owners or owners[0] == (key, role):
+                available.append(output)
+        return available
+
+    def set_form_outputs(self, key: str, inputs):
+        if isinstance(inputs, LSBInputForm):
+            inputs.set_available_outputs(self.available_outputs_for_role(key, "cover"))
+        elif isinstance(inputs, LocomotiveInputForm):
+            inputs.set_available_outputs(
+                self.available_outputs_for_role(key, "covers"),
+                self.available_outputs_for_role(key, "payload_files"),
+            )
+        elif isinstance(inputs, MetadataInputForm):
+            inputs.set_available_outputs(
+                self.available_outputs_for_role(key, "target"),
+                self.available_outputs_for_role(key, "apic"),
+            )
+
     def save_step_draft(self, key: str, description: str, guidenote: str, inputs: LSBInputForm | LocomotiveInputForm | MetadataInputForm) -> bool:
+        if self.run_worker is not None or self.save_worker is not None:
+            return False
         step = self.step_drafts.get(key)
         if step is None:
             return False
@@ -253,6 +399,12 @@ class EmbedConfigurablePage(QFrame):
             return False
         try:
             draft = inputs.get_inputs()
+            # Check fresh saved ownership before committing, including stale open forms.
+            candidate_steps = deepcopy(self.pipeline_steps)
+            for candidate in candidate_steps:
+                if candidate.key == key:
+                    candidate.technique_inputs = draft
+            validate_output_usage(candidate_steps)
         except (OSError, TypeError, ValueError) as error:
             QMessageBox.warning(inputs, "Invalid Step Inputs", str(error))
             return False
@@ -271,7 +423,7 @@ class EmbedConfigurablePage(QFrame):
         if self.active_step_panel is not None:
             inputs = self.active_step_panel.content_widget
             if isinstance(inputs, (LSBInputForm, LocomotiveInputForm, MetadataInputForm)):
-                inputs.set_available_outputs(self.build_output_catalog(self.active_step_card.step_key))
+                self.set_form_outputs(self.active_step_card.step_key, inputs)
         self.link_notice.setVisible(bool(changes))
         if not changes:
             self.link_notice.clear()
@@ -501,7 +653,7 @@ class EmbedConfigurablePage(QFrame):
                 card.summary_labels["payload"].setToolTip("\n".join(payload_lines))
 
     def open_step_configuration(self, card: StepCard):
-        if card not in self.step_cards:
+        if self.run_worker is not None or self.save_worker is not None or card not in self.step_cards:
             return
         if self.btn_popup.isChecked():
             self.open_step_config_popup(card)
@@ -584,7 +736,7 @@ class EmbedConfigurablePage(QFrame):
         QTimer.singleShot(0, release_when_idle)
 
     def remove_pipeline_step(self, card: StepCard):
-        if card not in self.step_cards:
+        if self.run_worker is not None or self.save_worker is not None or card not in self.step_cards:
             return
         if card is self.active_step_card:
             self.close_step_config_inline()
@@ -595,7 +747,7 @@ class EmbedConfigurablePage(QFrame):
         card.deleteLater()
 
     def confirm_clear_pipeline(self):
-        if not self.step_cards:
+        if self.run_worker is not None or self.save_worker is not None or not self.step_cards:
             return
         count = len(self.step_cards)
         dialog = QMessageBox(self)
@@ -614,6 +766,8 @@ class EmbedConfigurablePage(QFrame):
             self.clear_pipeline()
 
     def clear_pipeline(self):
+        if self.run_worker is not None or self.save_worker is not None:
+            return
         self.close_step_config_inline()
         removed_cards = list(self.step_cards)
         # Keep the same list object: StepCanvas also references this collection.
@@ -627,7 +781,7 @@ class EmbedConfigurablePage(QFrame):
             card.deleteLater()
 
     def move_pipeline_step(self, card: StepCard, insertion_index: int):
-        if card not in self.step_cards or not 0 <= insertion_index <= len(self.step_cards):
+        if self.run_worker is not None or self.save_worker is not None or card not in self.step_cards or not 0 <= insertion_index <= len(self.step_cards):
             return
         source_index = self.step_cards.index(card)
         # The drop slot belongs to the original list, before removing the source.
@@ -670,6 +824,12 @@ class EmbedConfigurablePage(QFrame):
         QTimer.singleShot(0, self.refresh_canvas_height)
 
     def eventFilter(self, watched, event):
+        if watched is self.window() and event.type() == QEvent.Type.Close:
+            if self.run_worker is not None or self.save_worker is not None:
+                event.ignore()
+                self.execution_bar.status_label.setText("Status: Wait for the current operation to finish before closing.")
+                return True
+            self.cleanup_run_workspaces()
         if watched is self.canvas_scroll.viewport() and event.type() == QEvent.Type.Resize:
             QTimer.singleShot(0, self.refresh_canvas_height)
         return super().eventFilter(watched, event)

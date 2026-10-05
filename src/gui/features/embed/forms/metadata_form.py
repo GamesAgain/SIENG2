@@ -199,8 +199,8 @@ class MetadataInputForm(QFrame):
             return False
         return True
 
-    def set_available_outputs(self, outputs: list[StepOutputInfo]):
-        self.mp3_form.attached_picture_form.set_available_outputs(outputs)
+    def set_available_outputs(self, outputs: list[StepOutputInfo], apic_outputs: list[StepOutputInfo] | None = None):
+        self.mp3_form.attached_picture_form.set_available_outputs(outputs if apic_outputs is None else apic_outputs)
         self.output_catalog = []
         for output in outputs:
             if output.media_type in {"png", "mp3"}:

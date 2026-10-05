@@ -83,6 +83,7 @@ def read_attached_picture(file_path: str) -> MP3AttachedPictureDraft:
 def validate_attached_pictures(pictures: list[MP3AttachedPictureDraft], *, allow_linked: bool = False) -> None:
     descriptions = set()
     icon_types = set()
+    linked_sources = set()
     for picture in pictures:
         unchanged_image = (picture.original_data is not None and picture.data == picture.original_data
                            and picture.mime == picture.original_mime)
@@ -100,6 +101,9 @@ def validate_attached_pictures(pictures: list[MP3AttachedPictureDraft], *, allow
         if picture.source is not None:
             if not allow_linked or not isinstance(picture.source, StepOutput):
                 raise ValueError("Resolve the linked picture output before saving an MP3 file.")
+            if picture.source in linked_sources:
+                raise ValueError("A linked output is already used by another attached picture.")
+            linked_sources.add(picture.source)
             # Dimensions (including type 1's 32×32 rule) need the actual output at run time.
             continue
         if unchanged_image and picture.picture_type != 1:

@@ -554,13 +554,13 @@ class LocomotiveInputForm(QFrame):
         self.payload_files = sources
         self.update_payload_file_summary()
 
-    def set_available_outputs(self, outputs: list[StepOutputInfo]):
+    def set_available_outputs(self, outputs: list[StepOutputInfo], payload_outputs: list[StepOutputInfo] | None = None):
         png_outputs = []
         for output in outputs:
             if output.media_type == "png":
                 png_outputs.append(output)
         self.cover_output_picker.set_outputs(png_outputs)
-        self.payload_output_picker.set_outputs(outputs)
+        self.payload_output_picker.set_outputs(outputs if payload_outputs is None else payload_outputs)
 
         linked_covers = []
         for cover in self.locomotive_covers:

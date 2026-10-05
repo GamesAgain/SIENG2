@@ -114,6 +114,8 @@ class MP3AttachedPictureForm(QFrame):
         self.cards: list[AttachedPictureCard] = []
         self.pending_picture = None
         self.editing_index = None
+        self.editing_source = None
+        self.saved_sources = set()
         self.output_catalog: list[StepOutputInfo] = []
         self.setObjectName("fileListContainer")
         layout = QVBoxLayout(self)
@@ -269,6 +271,8 @@ class MP3AttachedPictureForm(QFrame):
         self.reset_editor()
         self.editing_index = index
         picture = self.pictures[index]
+        self.editing_source = picture.source
+        self.refresh_output_picker()
         self.pending_picture = deepcopy(picture)
         if self.pending_picture.source is not None:
             self.output_picker.set_selection(self.pending_picture.source)
@@ -308,6 +312,7 @@ class MP3AttachedPictureForm(QFrame):
 
     def reset_editor(self) -> None:
         self.editing_index = None
+        self.editing_source = None
         self.pending_picture = None
         self.output_picker.set_selection(None)
         self.image_drop_zone.blockSignals(True)
@@ -326,12 +331,14 @@ class MP3AttachedPictureForm(QFrame):
         self.description_input.setText(description)
         self.editor_title.setText("Add New Image")
         self.confirm_button.setText("+ Add Image")
+        self.refresh_output_picker()
 
     def clear_all(self) -> None:
         self.load_draft([])
 
     def load_draft(self, pictures: list[MP3AttachedPictureDraft]) -> None:
         self.pictures = deepcopy(pictures)
+        self.saved_sources = {picture.source for picture in pictures if picture.source is not None}
         self.reset_editor()
         self.set_available_outputs(self.output_catalog)
 
@@ -342,7 +349,7 @@ class MP3AttachedPictureForm(QFrame):
             if output.media_type == "png":
                 self.output_catalog.append(output)
                 available.add(output.reference)
-        self.output_picker.set_outputs(self.output_catalog)
+        self.saved_sources.intersection_update(available)
 
         # Remove only lost linked pictures; preserve manual images and other edits.
         remaining = []
@@ -364,6 +371,19 @@ class MP3AttachedPictureForm(QFrame):
         elif self.pending_picture is not None and self.pending_picture.source is not None:
             self.output_picker.set_selection(self.pending_picture.source)
         self.refresh_cards()
+        self.refresh_output_picker()
+
+    def refresh_output_picker(self) -> None:
+        # Add cannot reuse another row's image; Edit may retain its own source.
+        used = self.saved_sources - {self.editing_source}
+        for index, picture in enumerate(self.pictures):
+            if index != self.editing_index and picture.source is not None:
+                used.add(picture.source)
+        candidates = []
+        for output in self.output_catalog:
+            if output.reference not in used:
+                candidates.append(output)
+        self.output_picker.set_outputs(candidates)
 
     def get_inputs(self) -> list[MP3AttachedPictureDraft]:
         if self.pending_picture is not None or self.editing_index is not None:

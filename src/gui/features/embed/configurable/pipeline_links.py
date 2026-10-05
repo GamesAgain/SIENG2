@@ -15,7 +15,7 @@ from src.gui.features.embed.forms.metadata.mp3_draft import MP3MetadataDraft, va
 from src.gui.features.embed.forms.metadata.png_form import PNGMetadataDraft
 
 if TYPE_CHECKING:
-    from src.gui.features.embed.configurable.configurable_page import PipelineStepDraft
+    from src.gui.features.embed.configurable.pipeline_draft import PipelineStepDraft
 
 
 def declared_step_outputs(step: PipelineStepDraft, step_number: int) -> list[StepOutputInfo]:
@@ -72,6 +72,44 @@ class ClearedLink:
     role: str
     reference: StepOutput
     reason: str
+
+
+def build_output_usage(steps: Iterable[PipelineStepDraft]) -> dict[StepOutput, list[tuple[str, str]]]:
+    """Read saved owners across all roles; never reserve a user's pending selection."""
+    usage = {}
+    for step in steps:
+        draft = step.technique_inputs
+        sources = []
+        if isinstance(draft, LSBInputsDraft):
+            sources.append((draft.cover, "cover"))
+        elif isinstance(draft, LocomotiveInputsDraft):
+            for cover in draft.covers:
+                sources.append((cover.source, "covers"))
+            for source in draft.payload_files:
+                sources.append((source, "payload_files"))
+        elif isinstance(draft, MetadataInputsDraft):
+            sources.append((draft.cover, "target"))
+            if isinstance(draft.payload, MP3MetadataDraft):
+                for picture in draft.payload.attached_pictures:
+                    sources.append((picture.source, "apic"))
+        for source, role in sources:
+            if isinstance(source, StepOutput):
+                usage.setdefault(source, []).append((step.key, role))
+    return usage
+
+
+def validate_output_usage(steps: Iterable[PipelineStepDraft]) -> None:
+    steps = list(steps)
+    usage = build_output_usage(steps)
+    numbers = {step.key: number for number, step in enumerate(steps, start=1)}
+    for owners in usage.values():
+        if len(owners) > 1:
+            first_key, first_role = owners[0]
+            second_key, second_role = owners[1]
+            raise ValueError(
+                f"Step {numbers[second_key]} ({second_role}): output is already used by "
+                f"Step {numbers[first_key]} ({first_role}). Select another output."
+            )
 
 
 def reconcile_links(steps: Iterable[PipelineStepDraft]) -> list[ClearedLink]:
@@ -174,6 +212,8 @@ def reconcile_links(steps: Iterable[PipelineStepDraft]) -> list[ClearedLink]:
 
 def evaluate_pipeline_statuses(steps: Iterable[PipelineStepDraft]) -> dict[str, tuple[str, str]]:
     """Read current status without changing drafts during a UI render."""
+    steps = list(steps)
+    usage = build_output_usage(steps)
     available_outputs = {}
     statuses = {}
     for number, step in enumerate(steps, start=1):
@@ -274,6 +314,13 @@ def evaluate_pipeline_statuses(steps: Iterable[PipelineStepDraft]) -> dict[str, 
                 if statuses[source.step_key][0] != "ready":
                     state = "blocked"
                     detail = "A preceding source step is not ready."
+                    break
+        if error is None:
+            for owners in usage.values():
+                own_count = sum(owner_key == step.key for owner_key, role in owners)
+                if own_count and (own_count > 1 or owners[0][0] != step.key):
+                    state = "blocked"
+                    detail = "An output is already used by another input. Select another output."
                     break
         statuses[step.key] = (state, detail)
 

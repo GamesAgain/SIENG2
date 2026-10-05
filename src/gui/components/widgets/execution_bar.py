@@ -12,11 +12,14 @@ from src.path import svg_path
 class ExecutionBar(QFrame):
     """Shared status, progress and action controls for execution pages."""
     execute_requested = pyqtSignal()
+    save_outputs_requested = pyqtSignal()
     
     def __init__(self, text_active_button: str = "Embed Data", parent=None, *, is_config: bool = False):
         super().__init__(parent)
         self.text_active_button = text_active_button
         self.is_config = is_config
+        self.save_available = False
+        self.is_busy = False
         self.setup_ui()
 
     def setup_ui(self):
@@ -37,8 +40,7 @@ class ExecutionBar(QFrame):
         self.save_outputs_btn.setEnabled(False)
         layout.addWidget(self.save_outputs_btn, 0)
         self.save_outputs_btn.setVisible(self.is_config)
-        # TODO: Add a Save Outputs signal when pipeline delivery is implemented.
-        # self.save_outputs_btn.clicked.connect(self.save_outputs_requested.emit)
+        self.save_outputs_btn.clicked.connect(self.save_outputs_requested.emit)
 
         self.execute_embed_btn = QPushButton(self.text_active_button)
         self.execute_embed_btn.setFixedHeight(50)
@@ -71,7 +73,13 @@ class ExecutionBar(QFrame):
         self.status_label.setText(f"Status: {message}")
 
     def set_busy(self, busy):
+        self.is_busy = busy
         self.execute_embed_btn.setEnabled(not busy)
+        self.save_outputs_btn.setEnabled(self.is_config and self.save_available and not busy)
+
+    def set_save_available(self, available: bool):
+        self.save_available = available
+        self.save_outputs_btn.setEnabled(self.is_config and available and not self.is_busy)
 
     def reset(self):
         self.loading_bar.setValue(0)
