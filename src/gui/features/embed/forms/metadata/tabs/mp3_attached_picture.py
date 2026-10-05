@@ -134,7 +134,7 @@ class MP3AttachedPictureForm(QFrame):
         title_row = QHBoxLayout()
         self.editor_icon = QLabel()
         self.editor_icon.setPixmap(create_icon_pixmap(svg_path("photo.svg"), size=16))
-        self.editor_title = QLabel("Add New Image")
+        self.editor_title = QLabel("Add New Picture")
         self.editor_title.setObjectName("cardTitle")
         title_row.addWidget(self.editor_icon)
         title_row.addWidget(self.editor_title)
@@ -178,10 +178,6 @@ class MP3AttachedPictureForm(QFrame):
         self.description_input.setObjectName("formInput")
         self.description_input.setPlaceholderText("Unique description for this picture")
         settings.addWidget(self.description_input)
-        self.editing_image_label = QLabel()
-        self.editing_image_label.setObjectName("hintLabel")
-        self.editing_image_label.setWordWrap(True)
-        settings.addWidget(self.editing_image_label)
         settings.addStretch()
         buttons = QHBoxLayout()
         buttons.addStretch()
@@ -207,13 +203,10 @@ class MP3AttachedPictureForm(QFrame):
 
     def on_image_selected(self, file_path: str) -> None:
         if not file_path:
-            self.pending_picture = (deepcopy(self.pictures[self.editing_index])
-                                    if self.editing_index is not None else None)
-            self.editing_image_label.setText("Current image is retained." if self.editing_index is not None else "")
+            self.pending_picture = (deepcopy(self.pictures[self.editing_index]) if self.editing_index is not None else None)
             return
         try:
             self.pending_picture = read_attached_picture(file_path)
-            self.editing_image_label.setText(self.pending_picture.source_name or "")
         except (OSError, ValueError) as error:
             self.image_drop_zone.blockSignals(True)
             self.image_drop_zone.clear_file()
@@ -257,7 +250,6 @@ class MP3AttachedPictureForm(QFrame):
         self.description_input.setText(self.pending_picture.description)
         self.editor_title.setText("Edit Picture")
         self.confirm_button.setText("Update Image")
-        self.editing_image_label.setText("Current image is retained unless you select a replacement.")
         self.edit_started.emit()
 
     def remove_picture(self, card: AttachedPictureCard) -> None:
@@ -300,7 +292,6 @@ class MP3AttachedPictureForm(QFrame):
         self.description_input.setText(description)
         self.editor_title.setText("Add New Image")
         self.confirm_button.setText("+ Add Image")
-        self.editing_image_label.clear()
 
     def clear_all(self) -> None:
         self.load_draft([])

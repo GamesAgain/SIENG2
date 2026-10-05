@@ -3,7 +3,7 @@ from PyQt6.QtCore import QEvent, QFileInfo, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QMouseEvent, QPixmap
 from PyQt6.QtWidgets import (
     QFileDialog, QFileIconProvider, QFrame, QLabel,
-    QVBoxLayout, QHBoxLayout, QPushButton, QScrollArea, QWidget, QMessageBox
+    QVBoxLayout, QHBoxLayout, QPushButton, QScrollArea, QWidget, QMessageBox, QSizePolicy
 )
 
 from src.gui.components.gui_utils import create_icon_pixmap, format_file_size, truncate_text_middle
@@ -444,6 +444,8 @@ class FilesDropWidget(QFrame):
 
     def restore_default_drop_zone(self):
         self.drop_layout.setContentsMargins(10, 10, 10, 10)
+        self.drop_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.icon_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         self.icon_label.setMaximumSize(16777215, 16777215)
         self.icon_label.setPixmap(create_icon_pixmap(self.default_icon_path, size=30))
         self.main_label.setText(self.default_text)
@@ -457,10 +459,15 @@ class FilesDropWidget(QFrame):
         self.icon_label.setMaximumSize(16777215, 16777215)
 
         if self._preview_pixmap is not None:
+            # The scaled image must follow the layout, not change its size hint.
+            self.icon_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+            self.drop_layout.setAlignment(Qt.AlignmentFlag(0))
             self.main_label.hide()
             self.sub_label.hide()
             self._scale_preview()
         else:
+            self.icon_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+            self.drop_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.main_label.show()
             self.sub_label.show()
 
