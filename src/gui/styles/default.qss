@@ -1511,6 +1511,16 @@ QLabel#stepCardStatus[state="setup"] {
     border: 1px solid rgba(245, 158, 15, 0.65);
 }
 
+QLabel#stepCardStatus[state="ready"] {
+    color: #4ADE80;
+    background-color: rgba(74, 222, 128, 0.08);
+    border: 1px solid rgba(74, 222, 128, 0.65);
+}
+
+QFrame#stepCardDivider {
+    color: #94A3B8;
+}
+
 QLabel#stepCardSub {
     color: #94A3B8;
     font-size: 11px;
@@ -1543,3 +1553,17 @@ QPushButton#stepCloseBtn {
 QPushButton#stepCloseBtn:hover {
     background-color: #FF5577;
 }
+
+/* Step configuration popup; other dialogs retain their existing backgrounds. */
+QDialog#stepConfigShellDialog {
+    background-color: #1E1E1E;
+}
+
+QLabel#stepConfigTechnique {
+    font-weight: 700;
+    background: transparent;
+    border: none;
+}
+QLabel#stepConfigTechnique[accentColor="blue"] { color: #38BDF8; }
+QLabel#stepConfigTechnique[accentColor="purple"] { color: #A78BFA; }
+QLabel#stepConfigTechnique[accentColor="orange"] { color: #F59E0F; }

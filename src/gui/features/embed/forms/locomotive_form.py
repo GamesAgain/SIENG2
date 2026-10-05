@@ -4,7 +4,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import uuid4
 
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QScrollArea, QStackedWidget, QTabWidget, QVBoxLayout
+from PIL import Image
+from PyQt6.QtCore import QSignalBlocker
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QScrollArea, QStackedWidget, QTabWidget, QVBoxLayout
 
 from src.core.configurable.step_output import FileSource, StepOutput
 from src.gui.components.gui_utils import add_password_visibility_toggle, add_shadow_effect, create_icon_pixmap, format_file_size
@@ -160,8 +162,6 @@ class LocomotiveInputForm(QFrame):
                 },
             ])
         
-        self.cover_mode_toggle.setVisible(self.is_config)
-        
         # self.cover_mode_toggle.mode_changed.connect(self.on_cover_mode_changed) TODO
 
         drop_zone = MultiFileDropWidget(
@@ -183,6 +183,7 @@ class LocomotiveInputForm(QFrame):
 
         locomotive_file_layout.addWidget(title_container, 0)  # top
         locomotive_file_layout.addWidget(self.cover_mode_toggle, 0)
+        self.cover_mode_toggle.setVisible(self.is_config)
         locomotive_file_layout.addWidget(self.cover_source_stack, 1)
         locomotive_file_layout.addWidget(self.cover_summary_label)
 
@@ -226,7 +227,6 @@ class LocomotiveInputForm(QFrame):
                 "color_checked": "#38BDF8",
             },
         ])
-        self.payload_mode_toggle.setVisible(self.is_config)
         # self.payload_mode_toggle.mode_changed.connect(self.on_payload_source_mode_changed) TODO
 
         self.payload_file_drop_zone = MultiFileDropWidget(
@@ -235,7 +235,8 @@ class LocomotiveInputForm(QFrame):
             icon_path=str(svg_path("file-plus.svg")),
             allowed_extensions="*",
         )
-        self.payload_file_drop_zone.setMinimumHeight(115)
+        # Keep the preview readable; the file list adds its own height below it.
+        self.payload_file_drop_zone.drop_zone.setMinimumHeight(115)
         self.payload_file_drop_zone.files_changed.connect(self.on_payload_file_selected)
 
         self.payload_source_stack = QStackedWidget()
@@ -244,6 +245,7 @@ class LocomotiveInputForm(QFrame):
         self.payload_file_summary_label.setObjectName("capacityLabel")
 
         file_layout.addWidget(self.payload_mode_toggle)
+        self.payload_mode_toggle.setVisible(self.is_config)
         file_layout.addWidget(self.payload_source_stack, 1)
         file_layout.addWidget(self.payload_file_summary_label)
 
@@ -374,6 +376,94 @@ class LocomotiveInputForm(QFrame):
             password=self.password_input.text(),
             public_key_path=self.public_key_path,
         )
+
+    def load_draft(self, draft: LocomotiveInputsDraft) -> None:
+        """Restore independent editor state without regenerating cover output keys."""
+        self.cover_mode_toggle.set_mode("Manual")
+        self.payload_mode_toggle.set_mode("Manual")
+        # Drop-zone signals normally create cover identities. Restore the saved
+        # identities ourselves, and retain missing paths so validation can report them.
+        with QSignalBlocker(self.cover_drop_zone):
+            self.cover_drop_zone.clear_all()
+            self.cover_drop_zone.add_files([
+                cover.source for cover in draft.covers
+                if isinstance(cover.source, str) and Path(cover.source).is_file()
+            ])
+        self.locomotive_covers = [
+            LocomotiveCoverDraft(cover.source, cover.output_key) for cover in draft.covers
+        ]
+        with QSignalBlocker(self.payload_file_drop_zone):
+            self.payload_file_drop_zone.clear_all()
+            self.payload_file_drop_zone.add_files([
+                source for source in draft.payload_files
+                if isinstance(source, str) and Path(source).is_file()
+            ])
+        self.payload_files = list(draft.payload_files)
+        if any(isinstance(cover.source, StepOutput) for cover in draft.covers):
+            self.cover_mode_toggle.set_mode("linked")
+        if any(isinstance(source, StepOutput) for source in draft.payload_files):
+            self.payload_mode_toggle.set_mode("linked")
+        self.payload_text_area.setPlainText(draft.payload_text)
+        self.payload_tabs.setCurrentIndex(0 if draft.payload_mode == "files" else 1)
+        self.encrypt_mode_toggle.set_mode(draft.encryption_mode)
+        self.on_encrypt_mode_changed(draft.encryption_mode)
+        self.encrypt_toggle_switch.setChecked(draft.encryption_enabled)
+        self.update_encryption_state(draft.encryption_enabled)
+        self.password_input.setText(draft.password)
+        self.confirm_input.setText(draft.password)
+        self.public_key_drop_zone.clear_all()
+        if draft.public_key_path and Path(draft.public_key_path).is_file():
+            self.public_key_source.select_path(draft.public_key_path)
+        self.update_cover_summary()
+        self.update_payload_file_summary()
+        self.update_payload_text_summary()
+
+    def validate_draft(self) -> bool:
+        """Validate the active manual inputs before committing a pipeline step."""
+        try:
+            if self.cover_mode_toggle.mode() == "linked":
+                raise ValueError("Previous Output selection is not available yet. Select manual PNG covers.")
+            if not self.locomotive_covers:
+                raise ValueError("Please select at least one PNG cover image.")
+            for cover in self.locomotive_covers:
+                if not isinstance(cover.source, str):
+                    raise ValueError("Select manual PNG cover images.")
+                path = Path(cover.source)
+                if not path.is_file() or path.suffix.lower() != ".png":
+                    raise ValueError(f"PNG cover is unavailable: {path.name}")
+                with Image.open(path) as image:
+                    if image.format != "PNG":
+                        raise ValueError(f"Cover is not a PNG image: {path.name}")
+                    image.verify()
+            if self.payload_tabs.currentIndex() == 0:
+                if self.payload_mode_toggle.mode() == "linked":
+                    raise ValueError("Previous Output selection is not available yet. Select manual payload files.")
+                if not self.payload_files:
+                    raise ValueError("Please select at least one payload file.")
+                if not all(isinstance(source, str) and Path(source).is_file() for source in self.payload_files):
+                    raise ValueError("One or more payload files are unavailable.")
+            elif not self.payload_text_area.toPlainText().strip():
+                raise ValueError("Please enter a secret message.")
+            if self.encrypt_toggle_switch.isChecked():
+                mode = self.encrypt_mode_toggle.mode()
+                if mode == "password":
+                    if not self.password_input.text():
+                        raise ValueError("Please enter a password for encryption.")
+                    if not self.passwords_match():
+                        raise ValueError("Passwords do not match.")
+                elif mode == "public_key":
+                    if not self.public_key_path:
+                        raise ValueError("Please select a valid public key for encryption.")
+                    result = inspect_public_key(self.public_key_path)
+                    self.public_key_status.set_result(result)
+                    if not result.valid:
+                        raise ValueError(result.message)
+                else:
+                    raise ValueError("Please select an encryption mode.")
+        except (OSError, TypeError, ValueError) as error:
+            QMessageBox.warning(self, "Invalid Step Inputs", str(error))
+            return False
+        return True
 
     def passwords_match(self) -> bool:
         return self.password_input.text() == self.confirm_input.text()

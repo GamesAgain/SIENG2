@@ -9,8 +9,9 @@ class VisibilityStack(QWidget):
         self._layout.setContentsMargins(0, 0, 0, 0)
 
     def addWidget(self, widget: QWidget):
-        widget.setVisible(len(self._pages) == 0)
         self._layout.addWidget(widget)
+        # Parent the page before showing it to avoid a temporary top-level window.
+        widget.setVisible(len(self._pages) == 0)
         self._pages.append(widget)
         return len(self._pages) - 1
 

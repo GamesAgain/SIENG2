@@ -1,5 +1,5 @@
 from pathlib import Path
-from PyQt6.QtCore import QFileInfo, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QFileInfo, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QMouseEvent, QPixmap
 from PyQt6.QtWidgets import (
     QFileDialog, QFileIconProvider, QFrame, QLabel,
@@ -174,6 +174,7 @@ class FilesDropWidget(QFrame):
 
         # 1. Drop Zone (คลิก/ลากวางได้เสมอ)
         self.drop_zone = QFrame()
+        self.drop_zone.installEventFilter(self)
         self.drop_zone.setObjectName("fileDropZone")
         self.drop_zone.setCursor(Qt.CursorShape.PointingHandCursor)
         # ผูก Event คลิกเฉพาะที่กรอบ Drop Zone
@@ -285,7 +286,8 @@ class FilesDropWidget(QFrame):
 
             if self.is_single_mode and self._single_item_widget:
                 # Single mode: ลบ widget ที่อยู่ตรงๆ ใน main_layout
-                self._single_item_widget.setParent(None)
+                self.main_layout.removeWidget(self._single_item_widget)
+                self._single_item_widget.hide()
                 self._single_item_widget.deleteLater()
                 self._single_item_widget = None
             else:
@@ -293,7 +295,8 @@ class FilesDropWidget(QFrame):
                 for i in range(self.list_layout.count()):
                     widget = self.list_layout.itemAt(i).widget()
                     if isinstance(widget, FileItemWidget) and widget.file_path == file_path:
-                        widget.setParent(None)
+                        self.list_layout.removeWidget(widget)
+                        widget.hide()
                         widget.deleteLater()
                         break
 
@@ -323,7 +326,8 @@ class FilesDropWidget(QFrame):
     def _clear_list_widgets(self):
         # ล้าง Single mode widget (ถ้ามี)
         if self._single_item_widget:
-            self._single_item_widget.setParent(None)
+            self.main_layout.removeWidget(self._single_item_widget)
+            self._single_item_widget.hide()
             self._single_item_widget.deleteLater()
             self._single_item_widget = None
 
@@ -332,7 +336,7 @@ class FilesDropWidget(QFrame):
             item = self.list_layout.takeAt(0)
             widget = item.widget()
             if widget:
-                widget.setParent(None)
+                widget.hide()
                 widget.deleteLater()
 
     def _emit_signals(self):
@@ -341,10 +345,11 @@ class FilesDropWidget(QFrame):
         self.file_selected.emit(self.file_path)
 
     # --- Event Overrides ---
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if self._preview_pixmap is not None:
-            self._scale_preview()
+    def eventFilter(self, watched, event):
+        if watched is self.drop_zone and event.type() == QEvent.Type.Resize and self._preview_pixmap is not None:
+            # The child layout must settle before measuring its preview area.
+            QTimer.singleShot(0, self._scale_preview)
+        return super().eventFilter(watched, event)
 
     def open_file_dialog(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -471,8 +476,13 @@ class FilesDropWidget(QFrame):
 
     def _scale_preview(self):
         """Resize only the cached image; do not read file metadata on resize."""
-        target_w = max(1, self.drop_zone.width() - 20)
-        target_h = max(1, self.drop_zone.height() - 20)
+        if self._preview_pixmap is None:
+            return
+        margins = self.drop_layout.contentsMargins()
+        # contentsRect excludes the styled border; margins belong to the layout.
+        content = self.drop_zone.contentsRect()
+        target_w = max(1, content.width() - margins.left() - margins.right())
+        target_h = max(1, content.height() - margins.top() - margins.bottom())
         self.icon_label.setMaximumSize(target_w, target_h)
         self.icon_label.setPixmap(self._preview_pixmap.scaled(
             target_w, target_h, Qt.AspectRatioMode.KeepAspectRatio,

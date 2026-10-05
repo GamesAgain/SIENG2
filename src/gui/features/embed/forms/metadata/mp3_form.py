@@ -45,7 +45,10 @@ class MP3MetadataForm(QFrame):
             lambda: self.picture_scroll.ensureWidgetVisible(self.attached_picture_form.editor_title)
         )
         self.tabs.addTab(self.text_scroll, create_icon_state(str(svg_path("text-size.svg"))), "Text Frames")
-        self.tabs.addTab(self.picture_scroll, create_icon_state(str(svg_path("photo.svg"))), "Attached Picture")
+        self.tabs.addTab(self.picture_scroll, create_icon_state(str(svg_path("photo.svg"))), "Attached Pictures [0]")
+        self.attached_picture_form.count_changed.connect(
+            lambda count: self.tabs.setTabText(1, f"Attached Pictures [{count}]")
+        )
         layout.addWidget(self.tabs, 1)
 
     def clear_all(self) -> None:

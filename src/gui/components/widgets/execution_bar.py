@@ -34,9 +34,9 @@ class ExecutionBar(QFrame):
         self.save_outputs_btn.setFixedHeight(50)
         self.save_outputs_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.save_outputs_btn.setIcon(QIcon(create_icon_pixmap(svg_path("upload.svg"), "#FFFFFF", size=16)))
-        self.save_outputs_btn.setVisible(self.is_config)
         self.save_outputs_btn.setEnabled(False)
         layout.addWidget(self.save_outputs_btn, 0)
+        self.save_outputs_btn.setVisible(self.is_config)
         # TODO: Add a Save Outputs signal when pipeline delivery is implemented.
         # self.save_outputs_btn.clicked.connect(self.save_outputs_requested.emit)
 

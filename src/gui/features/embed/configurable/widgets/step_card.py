@@ -2,7 +2,7 @@ from PyQt6.QtCore import QMimeData, Qt, pyqtSignal
 from PyQt6.QtGui import QDrag, QIcon
 from PyQt6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
-from src.gui.components.gui_utils import create_icon_pixmap
+from src.gui.components.gui_utils import create_icon_pixmap, truncate_text_middle
 from src.path import svg_path
 
 
@@ -12,6 +12,7 @@ ARROW_SIZE = 20
 CLOSE_BUTTON_SIZE = 24
 CLOSE_BUTTON_MARGIN = 6
 STEP_CARD_MIME = "application/sieng2-step-card"
+COVER_FILENAME_MAX_LENGTH = 36
 TECHNIQUE_DISPLAY = {
     "lsbpp": {
         "label": "LSB++", "description": "Embed text in PNG",
@@ -31,12 +32,14 @@ TECHNIQUE_DISPLAY = {
 class StepCard(QFrame):
     """Visual summary of one step; inputs and configuration are not connected yet."""
     remove_requested = pyqtSignal()
+    clicked = pyqtSignal()
 
-    def __init__(self, step_number: int, technique: str, parent=None):
+    def __init__(self, step_number: int, technique: str, parent=None, *, step_key: str = ""):
         super().__init__(parent)
         if technique not in TECHNIQUE_DISPLAY:
             raise ValueError(f"Unsupported technique: {technique}")
         self.step_number = step_number
+        self.step_key = step_key
         self.technique = technique
         self.meta = TECHNIQUE_DISPLAY[technique]
         self.summary_labels: dict[str, QLabel] = {}
@@ -75,6 +78,7 @@ class StepCard(QFrame):
         layout.addLayout(header)
 
         description_label = QLabel(self.meta["description"])
+        self.description_label = description_label
         description_label.setObjectName("stepCardSub")
         description_label.setToolTip(self.meta["description"])
         layout.addWidget(description_label)
@@ -84,13 +88,13 @@ class StepCard(QFrame):
         layout.addWidget(self.create_row("Cover", "Not selected"))
         layout.addWidget(self.create_row("Payload", "Not configured"))
         divider = QFrame()
+        divider.setObjectName("stepCardDivider")
         divider.setFrameShape(QFrame.Shape.HLine)
         divider.setFrameShadow(QFrame.Shadow.Plain)
         layout.addWidget(divider)
         layout.addWidget(self.create_row("Output", "Pending"))
         layout.addWidget(self.create_row("Encryption", "Not configured"))
         layout.addStretch()
-        # TODO: Add click-to-configure in a separate increment.
 
     def build_close_button(self):
         self.close_button = QPushButton(self)
@@ -136,8 +140,16 @@ class StepCard(QFrame):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        start = self.drag_start_position
         self.drag_start_position = None
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        # start_drag() clears the press position, so its release cannot click.
+        if event.button() == Qt.MouseButton.LeftButton and start is not None:
+            position = event.position().toPoint()
+            if self.rect().contains(position) and (position - start).manhattanLength() < QApplication.startDragDistance():
+                event.accept()
+                self.clicked.emit()
+                return
         super().mouseReleaseEvent(event)
 
     def start_drag(self):
@@ -157,6 +169,23 @@ class StepCard(QFrame):
             drag.exec(Qt.DropAction.MoveAction)
         finally:
             self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def set_description(self, description: str):
+        self.description_label.setText(description)
+        self.description_label.setToolTip(description)
+
+    def set_summary(self, **values: str):
+        for name, value in values.items():
+            label = self.summary_labels[name]
+            label.setText(truncate_text_middle(value, COVER_FILENAME_MAX_LENGTH) if name == "cover" else value)
+            label.setToolTip(value)
+
+    def set_status(self, state: str, detail: str):
+        self.status_label.setText(state.upper())
+        self.status_label.setProperty("state", state)
+        self.status_label.setToolTip(detail)
+        self.status_label.style().unpolish(self.status_label)
+        self.status_label.style().polish(self.status_label)
 
     def create_row(self, field_name: str, placeholder: str) -> QWidget:
         row = QWidget()

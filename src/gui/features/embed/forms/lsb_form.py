@@ -148,8 +148,6 @@ class LSBInputForm(QFrame):
                 },
             ])
         
-        self.cover_mode_toggle.setVisible(self.is_config)
-        
         # self.cover_mode_toggle.mode_changed.connect(self.on_cover_mode_changed) TODO
         
         drop_zone = FileDropWidget(
@@ -167,6 +165,7 @@ class LSBInputForm(QFrame):
 
         cover_file_layout.addWidget(title_container, 0)  # top
         cover_file_layout.addWidget(self.cover_mode_toggle, 0)
+        self.cover_mode_toggle.setVisible(self.is_config)
         cover_file_layout.addWidget(self.cover_source_stack, 1)
 
         return cover_file_card
@@ -366,6 +365,60 @@ class LSBInputForm(QFrame):
             password=self.password_input.text(),
             public_key_path=self.public_key_path,
         )
+
+    def load_draft(self, draft: LSBInputsDraft) -> None:
+        """Restore a saved manual-input draft into this independent editor."""
+        self.cover_mode_toggle.set_mode("Manual")
+        self.cover_drop_zone.clear_all()
+        self.payload_text_area.setPlainText(draft.payload_text)
+        self.encrypt_mode_toggle.set_mode(draft.encryption_mode)
+        # set_mode changes selection without emitting mode_changed.
+        self.on_encrypt_mode_changed(draft.encryption_mode)
+        self.encrypt_toggle_switch.setChecked(draft.encryption_enabled)
+        self.encrypt_stack.setVisible(draft.encryption_enabled)
+        self.password_input.setText(draft.password)
+        self.confirm_input.setText(draft.password)
+        self.public_key_drop_zone.clear_all()
+        if draft.public_key_path and Path(draft.public_key_path).is_file():
+            self.public_key_source.select_path(draft.public_key_path)
+        if isinstance(draft.cover, str):
+            self.cover_drop_zone.add_files([draft.cover])
+        elif draft.cover is not None:
+            # Linked sources are not editable until the output picker is implemented.
+            self.cover_mode_toggle.set_mode("linked")
+            self.cover_source = draft.cover
+        self.update_capacity_label()
+
+    def validate_draft(self) -> bool:
+        """Validate saved configuration; execution checks capacity separately."""
+        error = None
+        if self.cover_mode_toggle.mode() == "linked":
+            error = "Previous Output selection is not available yet. Select a manual cover."
+        elif not self.cover_file_path or not Path(self.cover_file_path).is_file():
+            error = "Please select an available cover image file."
+        elif not self.payload_text_area.toPlainText().strip():
+            error = "Please enter a secret message or load a text file."
+        elif self.encrypt_toggle_switch.isChecked():
+            mode = self.encrypt_mode_toggle.mode()
+            if mode == "password":
+                if not self.password_input.text():
+                    error = "Please enter a password for encryption."
+                elif not self.passwords_match():
+                    error = "Passwords do not match."
+            elif mode == "public_key":
+                if not self.public_key_path:
+                    error = "Please select a valid public key for encryption."
+                else:
+                    result = inspect_public_key(self.public_key_path)
+                    self.public_key_status.set_result(result)
+                    if not result.valid:
+                        error = result.message
+            else:
+                error = "Please select an encryption mode."
+        if error:
+            QMessageBox.warning(self, "Invalid Step Inputs", error)
+            return False
+        return True
 
     def passwords_match(self) -> bool:
         return self.password_input.text() == self.confirm_input.text()

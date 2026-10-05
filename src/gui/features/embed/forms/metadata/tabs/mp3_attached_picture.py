@@ -34,11 +34,15 @@ class AttachedPictureCard(QFrame):
         preview.setProperty("tintColor", ["blue", "purple", "green", "orange"][(number - 1) % 4])
         preview.setFixedHeight(120)
         preview_layout = QVBoxLayout(preview)
+        preview_layout.setContentsMargins(8, 8, 8, 8)
         badge = QLabel(f"Type {picture.picture_type} — {APIC_TYPES.get(picture.picture_type, 'Unknown')}")
         badge.setObjectName("fileInfoBadge")
         badge.setProperty("badgeColor", "blue")
-        badge.setWordWrap(True)
-        preview_layout.addWidget(badge, alignment=Qt.AlignmentFlag.AlignLeft)
+        badge.setWordWrap(False)
+        type_row = QHBoxLayout()
+        type_row.addWidget(badge)
+        type_row.addStretch()
+        preview_layout.addLayout(type_row)
         image = QLabel()
         image.setAlignment(Qt.AlignmentFlag.AlignCenter)
         pixmap = QPixmap()
@@ -86,6 +90,7 @@ class AttachedPictureCard(QFrame):
 
 class MP3AttachedPictureForm(QFrame):
     edit_started = pyqtSignal()
+    count_changed = pyqtSignal(int)
 
     def __init__(self, is_config: bool = False, parent=None):
         super().__init__(parent)
@@ -96,10 +101,13 @@ class MP3AttachedPictureForm(QFrame):
         self.editing_index = None
         self.setObjectName("fileListContainer")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 12, 0, 0)
+        layout.setContentsMargins(4, 12, 4, 4)
         layout.setSpacing(12)
         header = QHBoxLayout()
-        title = QLabel("Attached Pictures")
+        title_icon = QLabel()
+        title_icon.setPixmap(create_icon_pixmap(svg_path("photo.svg"), size=16))
+        header.addWidget(title_icon)
+        title = QLabel("Attached Pictures (APIC)")
         title.setObjectName("cardTitle")
         self.count_badge = QLabel("0")
         self.count_badge.setObjectName("fileInfoBadge")
@@ -123,16 +131,23 @@ class MP3AttachedPictureForm(QFrame):
         card = QFrame()
         card.setObjectName("card")
         layout = QVBoxLayout(card)
-        self.editor_title = QLabel("Add Picture")
+        title_row = QHBoxLayout()
+        self.editor_icon = QLabel()
+        self.editor_icon.setPixmap(create_icon_pixmap(svg_path("photo.svg"), size=16))
+        self.editor_title = QLabel("Add New Image")
         self.editor_title.setObjectName("cardTitle")
-        layout.addWidget(self.editor_title)
+        title_row.addWidget(self.editor_icon)
+        title_row.addWidget(self.editor_title)
+        title_row.addStretch()
+        layout.addLayout(title_row)
         self.source_toggle = SelectionToggle([
             {"text": "Manual File", "value": "manual", "variant": "source"},
             {"text": "Previous Output", "value": "linked", "variant": "source"},
         ])
-        self.source_toggle.setVisible(self.is_config)
         layout.addWidget(self.source_toggle)
+        self.source_toggle.setVisible(self.is_config)
         row = QHBoxLayout()
+        row.setSpacing(16)
         self.source_stack = QStackedWidget()
         self.image_drop_zone = FileDropWidget(
             "Drop cover image here or click to browse", "Supports PNG and JPEG",
@@ -148,6 +163,7 @@ class MP3AttachedPictureForm(QFrame):
         # TODO: replace placeholder with pipeline output picker and resolve linked image bytes.
         row.addWidget(self.source_stack, 1)
         settings = QVBoxLayout()
+        settings.setSpacing(8)
         type_label = QLabel("Picture Type")
         type_label.setObjectName("formLabel")
         settings.addWidget(type_label)
@@ -168,6 +184,7 @@ class MP3AttachedPictureForm(QFrame):
         settings.addWidget(self.editing_image_label)
         settings.addStretch()
         buttons = QHBoxLayout()
+        buttons.addStretch()
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.setObjectName("SecondaryBtn")
         self.cancel_button.clicked.connect(self.reset_editor)
@@ -262,6 +279,7 @@ class MP3AttachedPictureForm(QFrame):
             self.cards_layout.addWidget(card, index // 2, index % 2)
         self.count_badge.setText(str(len(self.pictures)))
         self.empty_label.setVisible(not self.pictures)
+        self.count_changed.emit(len(self.pictures))
 
     def reset_editor(self) -> None:
         self.editing_index = None
@@ -280,7 +298,7 @@ class MP3AttachedPictureForm(QFrame):
             description = f"{base} ({suffix})"
             suffix += 1
         self.description_input.setText(description)
-        self.editor_title.setText("Add Picture")
+        self.editor_title.setText("Add New Image")
         self.confirm_button.setText("+ Add Image")
         self.editing_image_label.clear()
 
