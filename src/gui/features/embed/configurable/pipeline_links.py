@@ -210,6 +210,86 @@ def reconcile_links(steps: Iterable[PipelineStepDraft]) -> list[ClearedLink]:
     return cleared_links
 
 
+def inspect_step_inputs(draft) -> tuple[str | None, list]:
+    """Read one step's inputs and active sources without changing its saved draft."""
+    error = None
+    sources = []  # Each entry contains an input and its accepted media types.
+
+    # Check required fields and collect only inputs used by the active mode.
+    if draft is None:
+        error = "Configure this step."
+    elif isinstance(draft, LSBInputsDraft):
+        if not draft.cover:
+            error = "Select a cover image."
+        elif not draft.payload_text.strip():
+            error = "Enter a payload message."
+        sources.append((draft.cover, {"png"}))
+    elif isinstance(draft, LocomotiveInputsDraft):
+        if not draft.covers:
+            error = "Select at least one PNG cover."
+        elif draft.payload_mode == "files":
+            if not draft.payload_files:
+                error = "Select at least one payload file."
+        elif draft.payload_mode == "text":
+            if not draft.payload_text.strip():
+                error = "Enter a payload message."
+        else:
+            error = "Select a valid payload mode."
+        for cover in draft.covers:
+            sources.append((cover.source, {"png"}))
+        if draft.payload_mode == "files":
+            for source in draft.payload_files:
+                sources.append((source, None))
+    elif isinstance(draft, MetadataInputsDraft):
+        accepted_media = {"png", "mp3"}
+        if not draft.cover or draft.payload is None:
+            error = "Select a metadata target and configure its form."
+        elif isinstance(draft.payload, PNGMetadataDraft):
+            accepted_media = {"png"}
+        elif isinstance(draft.payload, MP3MetadataDraft):
+            accepted_media = {"mp3"}
+        else:
+            error = "Select a valid metadata format."
+        if error is None and isinstance(draft.cover, str):
+            extension = Path(draft.cover).suffix.lower()[1:]
+            if extension not in accepted_media:
+                error = "Metadata payload does not match the target format."
+        sources.append((draft.cover, accepted_media))
+        if isinstance(draft.payload, MP3MetadataDraft):
+            try:
+                validate_attached_pictures(draft.payload.attached_pictures, allow_linked=True)
+            except ValueError as picture_error:
+                error = str(picture_error)
+            for picture in draft.payload.attached_pictures:
+                if picture.source is not None:
+                    sources.append((picture.source, {"png"}))
+    else:
+        error = "Unsupported step inputs."
+
+    # A missing manual file changes status, but never clears the saved path.
+    if error is None:
+        for source, accepted_media in sources:
+            if not isinstance(source, (str, StepOutput)) or not source:
+                error = "Select an input source."
+                break
+            if isinstance(source, str) and not Path(source).is_file():
+                error = "A manual input file is unavailable; select it again."
+                break
+
+    if error is None and isinstance(draft, (LSBInputsDraft, LocomotiveInputsDraft)):
+        if draft.encryption_enabled:
+            if draft.encryption_mode == "password":
+                if not draft.password:
+                    error = "Enter an encryption password."
+            elif draft.encryption_mode == "public_key":
+                if not draft.public_key_path or not Path(draft.public_key_path).is_file():
+                    error = "Select an available public key."
+            else:
+                error = "Select a valid encryption mode."
+
+    return error, sources
+
+
 def evaluate_pipeline_statuses(steps: Iterable[PipelineStepDraft]) -> dict[str, tuple[str, str]]:
     """Read current status without changing drafts during a UI render."""
     steps = list(steps)
@@ -218,81 +298,10 @@ def evaluate_pipeline_statuses(steps: Iterable[PipelineStepDraft]) -> dict[str, 
     statuses = {}
     for number, step in enumerate(steps, start=1):
         draft = step.technique_inputs
-        error = None
-        sources = []  # Each entry contains an input and its accepted media types.
+        # 1. Check this step's own fields and manual files.
+        error, sources = inspect_step_inputs(draft)
 
-        # Check required fields and collect only inputs used by the active mode.
-        if draft is None:
-            error = "Configure this step."
-        elif isinstance(draft, LSBInputsDraft):
-            if not draft.cover:
-                error = "Select a cover image."
-            elif not draft.payload_text.strip():
-                error = "Enter a payload message."
-            sources.append((draft.cover, {"png"}))
-        elif isinstance(draft, LocomotiveInputsDraft):
-            if not draft.covers:
-                error = "Select at least one PNG cover."
-            elif draft.payload_mode == "files":
-                if not draft.payload_files:
-                    error = "Select at least one payload file."
-            elif draft.payload_mode == "text":
-                if not draft.payload_text.strip():
-                    error = "Enter a payload message."
-            else:
-                error = "Select a valid payload mode."
-            for cover in draft.covers:
-                sources.append((cover.source, {"png"}))
-            if draft.payload_mode == "files":
-                for source in draft.payload_files:
-                    sources.append((source, None))
-        elif isinstance(draft, MetadataInputsDraft):
-            accepted_media = {"png", "mp3"}
-            if not draft.cover or draft.payload is None:
-                error = "Select a metadata target and configure its form."
-            elif isinstance(draft.payload, PNGMetadataDraft):
-                accepted_media = {"png"}
-            elif isinstance(draft.payload, MP3MetadataDraft):
-                accepted_media = {"mp3"}
-            else:
-                error = "Select a valid metadata format."
-            if error is None and isinstance(draft.cover, str):
-                extension = Path(draft.cover).suffix.lower()[1:]
-                if extension not in accepted_media:
-                    error = "Metadata payload does not match the target format."
-            sources.append((draft.cover, accepted_media))
-            if isinstance(draft.payload, MP3MetadataDraft):
-                try:
-                    validate_attached_pictures(draft.payload.attached_pictures, allow_linked=True)
-                except ValueError as picture_error:
-                    error = str(picture_error)
-                for picture in draft.payload.attached_pictures:
-                    if picture.source is not None:
-                        sources.append((picture.source, {"png"}))
-        else:
-            error = "Unsupported step inputs."
-
-        # A missing manual file changes status, but never clears the saved path.
-        if error is None:
-            for source, accepted_media in sources:
-                if not isinstance(source, (str, StepOutput)) or not source:
-                    error = "Select an input source."
-                    break
-                if isinstance(source, str) and not Path(source).is_file():
-                    error = "A manual input file is unavailable; select it again."
-                    break
-
-        if error is None and isinstance(draft, (LSBInputsDraft, LocomotiveInputsDraft)):
-            if draft.encryption_enabled:
-                if draft.encryption_mode == "password":
-                    if not draft.password:
-                        error = "Enter an encryption password."
-                elif draft.encryption_mode == "public_key":
-                    if not draft.public_key_path or not Path(draft.public_key_path).is_file():
-                        error = "Select an available public key."
-                else:
-                    error = "Select a valid encryption mode."
-
+        # 2. Check linked sources against preceding producers and their status.
         state = "ready"
         detail = "Inputs are configured; the pipeline has not run yet."
         if error:
@@ -315,9 +324,13 @@ def evaluate_pipeline_statuses(steps: Iterable[PipelineStepDraft]) -> dict[str, 
                     state = "blocked"
                     detail = "A preceding source step is not ready."
                     break
+        # 3. An output can only be reserved by one input, including inactive file inputs.
         if error is None:
             for owners in usage.values():
-                own_count = sum(owner_key == step.key for owner_key, role in owners)
+                own_count = 0
+                for owner_key, role in owners:
+                    if owner_key == step.key:
+                        own_count += 1
                 if own_count and (own_count > 1 or owners[0][0] != step.key):
                     state = "blocked"
                     detail = "An output is already used by another input. Select another output."

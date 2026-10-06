@@ -373,6 +373,7 @@ class LocomotiveInputForm(QFrame):
         return asymmetric_mode
 
     def get_inputs(self) -> LocomotiveInputsDraft:
+        """Copy the draft, preserving output keys and inactive input values."""
         covers = []
         for cover in self.locomotive_covers:
             covers.append(LocomotiveCoverDraft(cover.source, cover.output_key))
@@ -389,6 +390,7 @@ class LocomotiveInputForm(QFrame):
 
     def load_draft(self, draft: LocomotiveInputsDraft) -> None:
         """Restore independent editor state without regenerating cover output keys."""
+        # 1. Separate manual paths and references, retaining the saved cover keys.
         self.cover_mode_toggle.set_mode("Manual")
         self.payload_mode_toggle.set_mode("Manual")
         manual_covers = []
@@ -408,8 +410,8 @@ class LocomotiveInputForm(QFrame):
                 linked_files.append(source)
             elif isinstance(source, str) and Path(source).is_file():
                 manual_files.append(source)
-        # Drop-zone signals normally create cover identities. Restore the saved
-        # identities ourselves, and retain missing paths so validation can report them.
+        # 2. Fill the selectors. Block drop-zone signals so they cannot replace saved keys.
+        # Missing paths stay in the draft so validation can report them.
         with QSignalBlocker(self.cover_drop_zone):
             self.cover_drop_zone.clear_all()
             self.cover_drop_zone.add_files(manual_covers)
@@ -423,8 +425,11 @@ class LocomotiveInputForm(QFrame):
             self.cover_mode_toggle.set_mode("linked")
         if linked_files:
             self.payload_mode_toggle.set_mode("linked")
+        # set_mode does not emit mode_changed; update the visible pages explicitly.
         self.on_cover_mode_changed(self.cover_mode_toggle.mode())
         self.on_payload_source_mode_changed(self.payload_mode_toggle.mode())
+
+        # 3. Restore payload and encryption, including values in inactive modes.
         self.payload_text_area.setPlainText(draft.payload_text)
         self.payload_tabs.setCurrentIndex(0 if draft.payload_mode == "files" else 1)
         self.encrypt_mode_toggle.set_mode(draft.encryption_mode)
@@ -436,17 +441,21 @@ class LocomotiveInputForm(QFrame):
         self.public_key_drop_zone.clear_all()
         if draft.public_key_path and Path(draft.public_key_path).is_file():
             self.public_key_source.select_path(draft.public_key_path)
+
+        # 4. Refresh all summaries after restoring the form.
         self.update_cover_summary()
         self.update_payload_file_summary()
         self.update_payload_text_summary()
 
     def validate_draft(self) -> bool:
         """Check manual files and selected output references before saving."""
+        inputs = self.get_inputs()
         try:
-            if not self.locomotive_covers:
+            # Covers: manual files must exist; references must remain in the picker.
+            if not inputs.covers:
                 raise ValueError("Please select at least one PNG cover image.")
             selected_covers = self.cover_output_picker.selected_outputs()
-            for cover in self.locomotive_covers:
+            for cover in inputs.covers:
                 if isinstance(cover.source, StepOutput):
                     if not self.is_config or cover.source not in selected_covers:
                         raise ValueError("A linked PNG cover is unavailable. Select another output.")
@@ -460,29 +469,32 @@ class LocomotiveInputForm(QFrame):
                     if image.format != "PNG":
                         raise ValueError(f"Cover is not a PNG image: {path.name}")
                     image.verify()
-            if self.payload_tabs.currentIndex() == 0:
-                if not self.payload_files:
+
+            # Validate only the selected payload tab.
+            if inputs.payload_mode == "files":
+                if not inputs.payload_files:
                     raise ValueError("Please select at least one payload file.")
                 selected_files = self.payload_output_picker.selected_outputs()
-                for source in self.payload_files:
+                for source in inputs.payload_files:
                     if isinstance(source, StepOutput):
                         if not self.is_config or source not in selected_files:
                             raise ValueError("A linked payload file is unavailable. Select another output.")
                     elif not isinstance(source, str) or not Path(source).is_file():
                         raise ValueError("One or more payload files are unavailable.")
-            elif not self.payload_text_area.toPlainText().strip():
+            elif not inputs.payload_text.strip():
                 raise ValueError("Please enter a secret message.")
-            if self.encrypt_toggle_switch.isChecked():
-                mode = self.encrypt_mode_toggle.mode()
-                if mode == "password":
-                    if not self.password_input.text():
+
+            # Ignore inactive credentials when checking, but keep them in the draft.
+            if inputs.encryption_enabled:
+                if inputs.encryption_mode == "password":
+                    if not inputs.password:
                         raise ValueError("Please enter a password for encryption.")
                     if not self.passwords_match():
                         raise ValueError("Passwords do not match.")
-                elif mode == "public_key":
-                    if not self.public_key_path:
+                elif inputs.encryption_mode == "public_key":
+                    if not inputs.public_key_path:
                         raise ValueError("Please select a valid public key for encryption.")
-                    result = inspect_public_key(self.public_key_path)
+                    result = inspect_public_key(inputs.public_key_path)
                     self.public_key_status.set_result(result)
                     if not result.valid:
                         raise ValueError(result.message)

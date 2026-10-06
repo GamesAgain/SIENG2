@@ -372,10 +372,13 @@ class LSBInputForm(QFrame):
 
     def load_draft(self, draft: LSBInputsDraft) -> None:
         """Restore manual or linked inputs into this independent editor."""
+        # 1. Reset the previous cover selection.
         self.cover_mode_toggle.set_mode("Manual")
         self.cover_source_stack.setCurrentWidget(self.cover_drop_zone)
         self.output_picker.set_selection(None)
         self.cover_drop_zone.clear_all()
+
+        # 2. Restore the message and both encryption modes, including inactive values.
         self.payload_text_area.setPlainText(draft.payload_text)
         self.encrypt_mode_toggle.set_mode(draft.encryption_mode)
         # set_mode changes selection without emitting mode_changed.
@@ -387,6 +390,8 @@ class LSBInputForm(QFrame):
         self.public_key_drop_zone.clear_all()
         if draft.public_key_path and Path(draft.public_key_path).is_file():
             self.public_key_source.select_path(draft.public_key_path)
+
+        # 3. Restore the cover last; manual files start their capacity worker here.
         if isinstance(draft.cover, str):
             self.cover_drop_zone.add_files([draft.cover])
         elif isinstance(draft.cover, StepOutput):
@@ -394,41 +399,47 @@ class LSBInputForm(QFrame):
             self.cover_source_stack.setCurrentWidget(self.output_picker)
             self.output_picker.set_selection(draft.cover)
             self.on_cover_output_selected(draft.cover)
+
+        # 4. Refresh the label using the restored state.
         self.update_capacity_label()
 
     def validate_draft(self) -> bool:
         """Validate saved configuration; execution checks capacity separately."""
-        error = None
-        if self.cover_mode_toggle.mode() == "linked":
-            if not self.is_config:
-                error = "Previous Output is only available in a pipeline."
-            elif not isinstance(self.cover_source, StepOutput):
-                error = "Please select a previous PNG output."
-            elif self.output_picker.selection() != self.cover_source:
-                error = "The selected output is unavailable. Select another PNG output."
-        elif not self.cover_file_path or not Path(self.cover_file_path).is_file():
-            error = "Please select an available cover image file."
-        if error is None and not self.payload_text_area.toPlainText().strip():
-            error = "Please enter a secret message or load a text file."
-        if error is None and self.encrypt_toggle_switch.isChecked():
-            mode = self.encrypt_mode_toggle.mode()
-            if mode == "password":
-                if not self.password_input.text():
-                    error = "Please enter a password for encryption."
-                elif not self.passwords_match():
-                    error = "Passwords do not match."
-            elif mode == "public_key":
-                if not self.public_key_path:
-                    error = "Please select a valid public key for encryption."
-                else:
-                    result = inspect_public_key(self.public_key_path)
+        inputs = self.get_inputs()
+        try:
+            # Cover: linked outputs are checked through the picker, not the filesystem.
+            if self.cover_mode_toggle.mode() == "linked":
+                if not self.is_config:
+                    raise ValueError("Previous Output is only available in a pipeline.")
+                if not isinstance(inputs.cover, StepOutput):
+                    raise ValueError("Please select a previous PNG output.")
+                if self.output_picker.selection() != inputs.cover:
+                    raise ValueError("The selected output is unavailable. Select another PNG output.")
+            elif not isinstance(inputs.cover, str) or not Path(inputs.cover).is_file():
+                raise ValueError("Please select an available cover image file.")
+
+            # Payload.
+            if not inputs.payload_text.strip():
+                raise ValueError("Please enter a secret message or load a text file.")
+
+            # Validate only the active encryption mode; keep the other mode's values.
+            if inputs.encryption_enabled:
+                if inputs.encryption_mode == "password":
+                    if not inputs.password:
+                        raise ValueError("Please enter a password for encryption.")
+                    if not self.passwords_match():
+                        raise ValueError("Passwords do not match.")
+                elif inputs.encryption_mode == "public_key":
+                    if not inputs.public_key_path:
+                        raise ValueError("Please select a valid public key for encryption.")
+                    result = inspect_public_key(inputs.public_key_path)
                     self.public_key_status.set_result(result)
                     if not result.valid:
-                        error = result.message
-            else:
-                error = "Please select an encryption mode."
-        if error:
-            QMessageBox.warning(self, "Invalid Step Inputs", error)
+                        raise ValueError(result.message)
+                else:
+                    raise ValueError("Please select an encryption mode.")
+        except (OSError, TypeError, ValueError) as error:
+            QMessageBox.warning(self, "Invalid Step Inputs", str(error))
             return False
         return True
 
@@ -500,6 +511,7 @@ class LSBInputForm(QFrame):
             worker.deleteLater()
 
     def on_cal_capacity_done(self, result, request: int):
+        # A newer cover selection may already have started another worker.
         if request != self.capacity_request:
             return
         self.isCalculating = False
@@ -509,7 +521,9 @@ class LSBInputForm(QFrame):
         else:
             self.capacity_bits = None
             self.update_capacity_label()
-            error = result.get("error", "Invalid capacity result") if isinstance(result, dict) else "Invalid capacity result"
+            error = "Invalid capacity result"
+            if isinstance(result, dict):
+                error = result.get("error", error)
             self.capacity_label.setToolTip(f"Could not calculate cover capacity: {error}")
             self.set_capacity_state("warning")
 
@@ -548,13 +562,34 @@ class LSBInputForm(QFrame):
             self.public_key_status.clear_result()
         self.update_capacity_label()
         
+    def calculate_capacity(self) -> tuple[int, int, str]:
+        """Calculate overhead and maximum bytes without changing the label."""
+        password = None
+        public_key_path = None
+        overhead_detail = "no encryption (header only)"
+
+        if self.encrypt_toggle_switch.isChecked():
+            mode = self.encrypt_mode_toggle.mode()
+            if mode == "password":
+                password = self.password_input.text()
+                overhead_detail = (
+                    f"password mode: salt {AES_SALT_LENGTH}B + "
+                    f"nonce {AES_NONCE_LENGTH}B + tag {AES_TAG_LENGTH}B"
+                )
+            elif mode == "public_key":
+                public_key_path = self.public_key_path
+                overhead_detail = (
+                    "public key mode: RSA-encrypted session key + "
+                    f"nonce {AES_NONCE_LENGTH}B + tag {AES_TAG_LENGTH}B"
+                )
+
+        overhead_bytes = estimate_overhead_bytes(password, public_key_path)
+        max_bytes = get_max_message_bytes(self.capacity_bits, password, public_key_path)
+        return overhead_bytes, max_bytes, overhead_detail
+
     def update_capacity_label(self):
-        """อัปเดต label + tooltip อธิบาย overhead ตามข้อความที่พิมพ์ (สีปกติไม่เปลี่ยน มีแค่
-        เตือนเหลือง/แดงตอนใกล้เต็ม/เต็ม capacity ดู set_capacity_state)
-        + โหมดเข้ารหัสที่เลือกอยู่ตอนนี้ โชว์แค่ Size เฉยๆ จนกว่าจะรู้ max capacity จริง
-        (ต้องมี cover image แล้ว และถ้าเป็น asymmetric ต้องมี public key ด้วย เพราะ overhead
-        ขึ้นกับขนาด RSA key ที่ใช้)"""
-        
+        """Show capacity status, usage colour and the explanatory tooltip."""
+        # Capacity is not available yet, or will only be known during pipeline execution.
         if self.isCalculating:
             self.capacity_label.setText("Calculating...")
             self.capacity_label.setToolTip("Calculating cover capacity...")
@@ -572,31 +607,23 @@ class LSBInputForm(QFrame):
             self.set_capacity_state("normal")
             return
 
-        mode = self.encrypt_mode_toggle.mode()
-        no_key_yet = self.encrypt_toggle_switch.isChecked() and mode == "public_key" and not self.public_key_path
+        no_key_yet = (
+            self.encrypt_toggle_switch.isChecked()
+            and self.encrypt_mode_toggle.mode() == "public_key"
+            and not self.public_key_path
+        )
         if self.capacity_bits is None or no_key_yet:
             self.capacity_label.setText(f"Size: {text_size}")
-            self.capacity_label.setToolTip(
-                "Select a public key to see max capacity" if no_key_yet else "Select a cover image to see max capacity"
-            )
+            if no_key_yet:
+                self.capacity_label.setToolTip("Select a public key to see max capacity")
+            else:
+                self.capacity_label.setToolTip("Select a cover image to see max capacity")
             self.set_capacity_state("normal")
             return
 
-        # โหมดไหนถูกเลือกอยู่ ใช้ตัดสิน overhead + ข้อความอธิบายใน tooltip
-        password = None
-        public_key_path = None
-        overhead_detail = "no encryption (header only)"
-        if self.encrypt_toggle_switch.isChecked():
-            if mode == "password":
-                password = self.password_input.text()
-                overhead_detail = f"password mode: salt {AES_SALT_LENGTH}B + nonce {AES_NONCE_LENGTH}B + tag {AES_TAG_LENGTH}B"
-            elif mode == "public_key":
-                public_key_path = self.public_key_path
-                overhead_detail = f"public key mode: RSA-encrypted session key + nonce {AES_NONCE_LENGTH}B + tag {AES_TAG_LENGTH}B"
-
+        # Calculate first, then update the displayed usage.
         try:
-            overhead_bytes = estimate_overhead_bytes(password, public_key_path)
-            max_bytes = get_max_message_bytes(self.capacity_bits, password, public_key_path)
+            overhead_bytes, max_bytes, overhead_detail = self.calculate_capacity()
         except Exception:
             # เช่น public key ไฟล์เสีย/อ่านไม่ได้ จะโชว์แค่ขนาดข้อความ ไม่ให้ label พังเงียบๆ
             self.capacity_label.setText(f"Size: {text_size} / Invalid Key")

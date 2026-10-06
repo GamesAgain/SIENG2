@@ -433,6 +433,10 @@ class EmbedConfigurablePage(QFrame):
         for change in changes:
             notice_details.append(f"{change.role}: {change.reason}")
         self.link_notice.setToolTip("\n".join(notice_details))
+        self.update_open_form_links(changes)
+
+    def update_open_form_links(self, changes):
+        """Clear lost references in the open editor while retaining its other edits."""
         panel = self.active_step_panel
         if panel is None:
             return
@@ -527,130 +531,148 @@ class EmbedConfigurablePage(QFrame):
         draft = step.technique_inputs
         if draft is None:
             return
+        # Keep each technique's summary and tooltip logic together.
         if isinstance(draft, MetadataInputsDraft):
-            if isinstance(draft.payload, PNGMetadataDraft):
-                count = len(draft.payload.entries)
-                card.set_summary(
-                    cover=self.describe_source(draft.cover),
-                    payload=f"Text fields ×{count}", output="PNG ×1" if draft.cover else "Pending", encryption="None",
-                )
-                card.summary_labels["payload"].setToolTip(
-                    "\n".join([f"PNG metadata fields ({count}):", *draft.payload.entries])
-                )
-            elif isinstance(draft.payload, MP3MetadataDraft):
-                frames = draft.payload.text_frames.frames
-                frame_count = 0
-                frame_lines = []
-                for number, frame in enumerate(frames, start=1):
-                    name = FRAME_INFO.get(frame.frame_id, ("Unknown frame", ""))[0]
-                    if isinstance(frame, MP3ComplexFrameDraft):
-                        instance_count = len(frame.instances)
-                        frame_count += instance_count
-                        frame_lines.append(f"{number}. {frame.frame_id} ×{instance_count} — {name}")
-                    else:
-                        frame_count += 1
-                        frame_lines.append(f"{number}. {frame.frame_id} — {name}")
-                pictures = draft.payload.attached_pictures
-                picture_count = len(pictures)
-                if frame_count and picture_count:
-                    summary = f"Text ×{frame_count} + APIC ×{picture_count}"
-                elif picture_count:
-                    summary = f"APIC images ×{picture_count}"
-                else:
-                    summary = f"Text frames ×{frame_count}"
-                card.set_summary(
-                    cover=self.describe_source(draft.cover),
-                    payload=summary, output="MP3 ×1" if draft.cover else "Pending", encryption="None",
-                )
-                lines = [f"Text frames ({frame_count}):"]
-                lines.extend(frame_lines)
-                lines.append(f"\nAPIC images ({picture_count}):")
-                for number, picture in enumerate(pictures, start=1):
-                    if picture.source is not None:
-                        source_name = self.describe_source(picture.source)
-                    elif picture.source_name:
-                        source_name = Path(picture.source_name).name
-                    else:
-                        source_name = "Existing image in target MP3"
-                    type_name = APIC_TYPES.get(picture.picture_type, "Unknown picture type")
-                    description = picture.description or "(empty)"
-                    lines.append(f"{number}. {source_name}")
-                    lines.append(f"   Type {picture.picture_type} — {type_name}")
-                    lines.append(f"   Description: {description}")
-                card.summary_labels["payload"].setToolTip("\n".join(lines))
+            self.update_metadata_card_summary(card, draft)
             return
-        encryption = "Off" if not draft.encryption_enabled else (
-            "Password" if draft.encryption_mode == "password" else "Public Key"
-        )
+
+        if not draft.encryption_enabled:
+            encryption = "Off"
+        elif draft.encryption_mode == "password":
+            encryption = "Password"
+        else:
+            encryption = "Public Key"
         if isinstance(draft, LSBInputsDraft):
+            self.update_lsb_card_summary(card, draft, encryption)
+        elif isinstance(draft, LocomotiveInputsDraft):
+            self.update_locomotive_card_summary(card, draft, encryption)
+
+    def update_lsb_card_summary(self, card: StepCard, draft: LSBInputsDraft, encryption: str):
+        """Show the message size and the cover's current source."""
+        card.set_summary(
+            cover=self.describe_source(draft.cover),
+            payload=f"Text ({format_file_size(len(draft.payload_text.encode('utf-8')))})",
+            output="PNG ×1" if draft.cover else "Pending", encryption=encryption,
+        )
+
+    def update_locomotive_card_summary(self, card: StepCard, draft: LocomotiveInputsDraft, encryption: str):
+        """Keep source grouping, selected output counts and file details intact."""
+        count = len(draft.covers)
+        manual_count = 0
+        producer_keys = set()
+        cover_lines = [f"Cover PNGs ({count}):"]
+        for number, item in enumerate(draft.covers, start=1):
+            if isinstance(item.source, StepOutput):
+                producer_keys.add(item.source.step_key)
+            else:
+                manual_count += 1
+            cover_lines.append(f"{number}. {self.describe_source(item.source)}")
+
+        if count == 0:
+            cover = "Not selected"
+        elif count == 1:
+            cover = self.describe_source(draft.covers[0].source)
+        elif manual_count == 0 and len(producer_keys) == 1:
+            # Brackets mean selected output count, not an output's index.
+            cover = f"PNGs ×{count}"
+            source_key = draft.covers[0].source.step_key
+            for number, producer in enumerate(self.pipeline_steps, start=1):
+                if producer.key == source_key:
+                    technique = TECHNIQUE_DISPLAY[producer.technique]["label"]
+                    cover = f"From STEP {number} {technique}, Output [{count}]"
+                    cover_lines.insert(1, cover)
+                    break
+        elif manual_count == 0:
+            cover = f"From {len(producer_keys)} STEPs, PNG [{count}]"
+        else:
+            cover = f"PNGs ×{count}"
+        payload_lines = []
+        if draft.payload_mode == "text":
+            payload = f"Text ({format_file_size(len(draft.payload_text.encode('utf-8')))})"
+        else:
+            size = 0
+            linked_count = 0
+            missing_file = False
+            payload_lines.append(f"Payload files ({len(draft.payload_files)}):")
+            for number, source in enumerate(draft.payload_files, start=1):
+                if isinstance(source, StepOutput):
+                    linked_count += 1
+                    payload_lines.append(f"{number}. {self.describe_source(source)}")
+                else:
+                    file_size = "Unavailable"
+                    try:
+                        source_size = Path(source).stat().st_size
+                        size += source_size
+                        file_size = format_file_size(source_size)
+                    except (OSError, TypeError):
+                        missing_file = True
+                    payload_lines.append(f"{number}. Manual: {self.describe_source(source)} — {file_size}")
+
+            if missing_file:
+                payload = f"Files ×{len(draft.payload_files)} (unavailable)"
+            elif linked_count:
+                payload = f"Files ×{len(draft.payload_files)} · Linked ×{linked_count}"
+            else:
+                payload = f"Files ×{len(draft.payload_files)} ({format_file_size(size)})"
+        card.set_summary(cover=cover, payload=payload, output=f"PNG ×{count}" if count else "Pending", encryption=encryption)
+        if count > 1:
+            card.summary_labels["cover"].setToolTip("\n".join(cover_lines))
+        if draft.payload_mode == "files":
+            card.summary_labels["payload"].setToolTip("\n".join(payload_lines))
+
+
+    def update_metadata_card_summary(self, card: StepCard, draft: MetadataInputsDraft):
+        """Show PNG keys or MP3 frame instances and APIC source/type/description."""
+        if isinstance(draft.payload, PNGMetadataDraft):
+            count = len(draft.payload.entries)
             card.set_summary(
                 cover=self.describe_source(draft.cover),
-                payload=f"Text ({format_file_size(len(draft.payload_text.encode('utf-8')))})",
-                output="PNG ×1" if draft.cover else "Pending", encryption=encryption,
+                payload=f"Text fields ×{count}", output="PNG ×1" if draft.cover else "Pending", encryption="None",
             )
-        elif isinstance(draft, LocomotiveInputsDraft):
-            count = len(draft.covers)
-            manual_count = 0
-            producer_keys = set()
-            cover_lines = [f"Cover PNGs ({count}):"]
-            for number, item in enumerate(draft.covers, start=1):
-                if isinstance(item.source, StepOutput):
-                    producer_keys.add(item.source.step_key)
+            card.summary_labels["payload"].setToolTip(
+                "\n".join([f"PNG metadata fields ({count}):", *draft.payload.entries])
+            )
+        elif isinstance(draft.payload, MP3MetadataDraft):
+            frames = draft.payload.text_frames.frames
+            frame_count = 0
+            frame_lines = []
+            for number, frame in enumerate(frames, start=1):
+                name = FRAME_INFO.get(frame.frame_id, ("Unknown frame", ""))[0]
+                if isinstance(frame, MP3ComplexFrameDraft):
+                    instance_count = len(frame.instances)
+                    frame_count += instance_count
+                    frame_lines.append(f"{number}. {frame.frame_id} ×{instance_count} — {name}")
                 else:
-                    manual_count += 1
-                cover_lines.append(f"{number}. {self.describe_source(item.source)}")
-
-            if count == 0:
-                cover = "Not selected"
-            elif count == 1:
-                cover = self.describe_source(draft.covers[0].source)
-            elif manual_count == 0 and len(producer_keys) == 1:
-                # Brackets mean selected output count, not an output's index.
-                cover = f"PNGs ×{count}"
-                source_key = draft.covers[0].source.step_key
-                for number, producer in enumerate(self.pipeline_steps, start=1):
-                    if producer.key == source_key:
-                        technique = TECHNIQUE_DISPLAY[producer.technique]["label"]
-                        cover = f"From STEP {number} {technique}, Output [{count}]"
-                        cover_lines.insert(1, cover)
-                        break
-            elif manual_count == 0:
-                cover = f"From {len(producer_keys)} STEPs, PNG [{count}]"
+                    frame_count += 1
+                    frame_lines.append(f"{number}. {frame.frame_id} — {name}")
+            pictures = draft.payload.attached_pictures
+            picture_count = len(pictures)
+            if frame_count and picture_count:
+                summary = f"Text ×{frame_count} + APIC ×{picture_count}"
+            elif picture_count:
+                summary = f"APIC images ×{picture_count}"
             else:
-                cover = f"PNGs ×{count}"
-            payload_lines = []
-            if draft.payload_mode == "text":
-                payload = f"Text ({format_file_size(len(draft.payload_text.encode('utf-8')))})"
-            else:
-                size = 0
-                linked_count = 0
-                missing_file = False
-                payload_lines.append(f"Payload files ({len(draft.payload_files)}):")
-                for number, source in enumerate(draft.payload_files, start=1):
-                    if isinstance(source, StepOutput):
-                        linked_count += 1
-                        payload_lines.append(f"{number}. {self.describe_source(source)}")
-                    else:
-                        file_size = "Unavailable"
-                        try:
-                            source_size = Path(source).stat().st_size
-                            size += source_size
-                            file_size = format_file_size(source_size)
-                        except (OSError, TypeError):
-                            missing_file = True
-                        payload_lines.append(f"{number}. Manual: {self.describe_source(source)} — {file_size}")
-
-                if missing_file:
-                    payload = f"Files ×{len(draft.payload_files)} (unavailable)"
-                elif linked_count:
-                    payload = f"Files ×{len(draft.payload_files)} · Linked ×{linked_count}"
+                summary = f"Text frames ×{frame_count}"
+            card.set_summary(
+                cover=self.describe_source(draft.cover),
+                payload=summary, output="MP3 ×1" if draft.cover else "Pending", encryption="None",
+            )
+            lines = [f"Text frames ({frame_count}):"]
+            lines.extend(frame_lines)
+            lines.append(f"\nAPIC images ({picture_count}):")
+            for number, picture in enumerate(pictures, start=1):
+                if picture.source is not None:
+                    source_name = self.describe_source(picture.source)
+                elif picture.source_name:
+                    source_name = Path(picture.source_name).name
                 else:
-                    payload = f"Files ×{len(draft.payload_files)} ({format_file_size(size)})"
-            card.set_summary(cover=cover, payload=payload, output=f"PNG ×{count}" if count else "Pending", encryption=encryption)
-            if count > 1:
-                card.summary_labels["cover"].setToolTip("\n".join(cover_lines))
-            if draft.payload_mode == "files":
-                card.summary_labels["payload"].setToolTip("\n".join(payload_lines))
+                    source_name = "Existing image in target MP3"
+                type_name = APIC_TYPES.get(picture.picture_type, "Unknown picture type")
+                description = picture.description or "(empty)"
+                lines.append(f"{number}. {source_name}")
+                lines.append(f"   Type {picture.picture_type} — {type_name}")
+                lines.append(f"   Description: {description}")
+            card.summary_labels["payload"].setToolTip("\n".join(lines))
 
     def open_step_configuration(self, card: StepCard):
         if self.run_worker is not None or self.save_worker is not None or card not in self.step_cards:
