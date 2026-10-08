@@ -44,6 +44,22 @@ DEFAULT_LSBPP_CONFIG = {
     }
 }
 
+ALLOWED_IMAGE_EXTENSIONS = [
+    # 1. กลุ่มที่คนใช้งานเยอะที่สุด (ภาพพื้นใส / ภาพถ่าย / ภาพบนเว็บ)
+    ".png", 
+    ".jpg", ".jpeg", ".webp",
+    
+    # 2. กลุ่มนามสกุลย่อยของ JPEG (เจอบ่อยเวลาเซฟรูปจากอินเทอร์เน็ต / Twitter / Facebook)
+    ".jpe", ".jfif", 
+    
+    # 3. กลุ่มภาพมาตรฐานระบบ Windows และงานสแกนเอกสาร/งานพิมพ์
+    ".bmp", 
+    ".tiff", ".tif", 
+    
+    # 4. กลุ่มไอคอนมาตรฐาน
+    ".ico"
+]
+
 # Encrypt Mode constants SIENG2 [SE = Steganography Encryption]
 MAGIC_SYM = b"SES" # Symmetric Header
 MAGIC_ASYM = b"SEA" # Asymmetric Header
@@ -61,7 +77,6 @@ ProgressCallback = Optional[Callable[[int, str], None]]
 def update_progress(callBack: ProgressCallback, percent: int, message: str):
     if callBack is not None:
         callBack(percent, message)
-
 
 def validate_encryption_mode(
     password: str = None,
@@ -769,12 +784,11 @@ class LSBPP:
         else:
             raise ValueError("Extraction failed: Invalid SIENG2 signature. Please verify your image and password.")
             
-    def get_total_capacity_bits(self, cover_image_path: str) -> tuple[int, str]:
+    def get_total_capacity_bits(self, cover_image_path: str) -> int:
         cover_image = self.prepare_image(cover_image_path)
         texture_surface = self.analyze_cover_image(cover_image)
         capacity_map = self.calculate_capacity(texture_surface)
-        total_capacity = int(np.sum(capacity_map)) * 3
-        return (total_capacity, cover_image_path) # return active file path for validate Task ID
+        return int(np.sum(capacity_map)) * 3
 
 # --- External function ---    
 def estimate_overhead_bytes(password: str = None, public_key_path: str = None) -> int:
