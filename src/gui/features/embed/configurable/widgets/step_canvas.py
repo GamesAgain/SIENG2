@@ -4,7 +4,6 @@ from PyQt6.QtWidgets import QWidget
 
 from src.gui.features.embed.configurable.widgets.step_card import STEP_CARD_MIME, StepCard
 
-
 class DropIndicator(QWidget):
     """Small overlay, so the insertion line stays visible above card edges."""
 
