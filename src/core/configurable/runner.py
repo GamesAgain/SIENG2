@@ -131,7 +131,7 @@ def run_pipeline(steps: list[StepDraft], workspace: Path, progress_callback=None
 
 # --- Save ---
 def save_outputs(outputs: list[StepOutputFile], destination: Path) -> Path:
-    """Copy the outputs to <destination>/SAVE_FOLDER_PREFIX_<time>/<file name> (names are already unique)."""
+    """Copy the outputs to <destination>/<SAVE_FOLDER_PREFIX>_<time>/<file name> (names are already unique)."""
     folder = destination / f"{SAVE_FOLDER_PREFIX}_{datetime.now():%Y%m%d_%H%M%S}"
     folder.mkdir(parents=True, exist_ok=True)
     for output in outputs:

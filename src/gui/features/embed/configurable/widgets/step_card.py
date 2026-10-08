@@ -229,7 +229,7 @@ class StepCard(QFrame):
         self.close_button.hide()
         super().leaveEvent(event)
 
-    # --- Click (TODO(reorder): add drag & drop back from step_card.bak) ---
+    # --- Click (TODO(reorder): add drag & drop back from ref) ---
     def mousePressEvent(self, event):
         # Accept the press, otherwise the release is not delivered to this card.
         if event.button() == Qt.MouseButton.LeftButton:
