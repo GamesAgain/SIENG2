@@ -103,5 +103,5 @@ class MetadataStandaloneTab(QFrame):
             self.show_save_error("Saving returned an invalid result.")
 
     def show_save_error(self, message: str) -> None:
-        self.execution_bar.status_label.setText(f"Status: {message}")
+        self.execution_bar.set_status(message)
         QMessageBox.warning(self, "Metadata", message)

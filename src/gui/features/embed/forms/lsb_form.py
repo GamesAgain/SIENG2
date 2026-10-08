@@ -1,65 +1,33 @@
-from dataclasses import dataclass, field
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, 
-    QLineEdit, QMessageBox, QPlainTextEdit, 
-    QScrollArea, QStackedWidget, QTabWidget, QVBoxLayout)
+    QLineEdit, QMessageBox, QPlainTextEdit, QScrollArea, 
+    QStackedWidget, QTabWidget, QVBoxLayout)
+from PyQt6.QtCore import pyqtSignal
 
-from src.core.configurable.step_output import FileSource, StepOutput, StepOutputInfo
+from src.core.configurable.drafts import LSBInputsDraft
 from src.core.crypto.sym_encrypt import AES_NONCE_LENGTH, AES_SALT_LENGTH, AES_TAG_LENGTH
-from src.core.stego.lsb_pp import HEADER_BYTES, LSBPP, estimate_overhead_bytes, get_max_message_bytes
-from src.gui.components.gui_utils import (
-    add_password_visibility_toggle, 
-    add_shadow_effect, 
-    create_icon_pixmap, 
-    format_file_size)
-
+from src.core.stego.lsb_pp import ALLOWED_IMAGE_EXTENSIONS, HEADER_BYTES, LSBPP, estimate_overhead_bytes, get_max_message_bytes
+from src.gui.components.gui_utils import add_password_visibility_toggle, add_shadow_effect, create_icon_pixmap, format_file_size
 from src.gui.components.widgets.files_drop import FileDropWidget
 from src.gui.components.widgets.key_source import KeySourceWidget
 from src.gui.components.widgets.key_validation import KeyValidationLabel, inspect_public_key
 from src.gui.components.widgets.selection_toggle import SelectionToggle
-from src.gui.components.widgets.step_output_picker import StepOutputPicker
 from src.gui.components.widgets.toggle_switch import ToggleSwitch
 from src.gui.components.widgets.visibility_stack import VisibilityStack
 from src.gui.services.key_registry import KeyRegistry
 from src.gui.services.worker import FunctionWorker
 from src.path import svg_path
 
-# Declare allowed image file format
-ALLOWED_EXTS = [
-    # 1. กลุ่มที่คนใช้งานเยอะที่สุด (ภาพพื้นใส / ภาพถ่าย / ภาพบนเว็บ)
-    ".png", 
-    ".jpg", ".jpeg", ".webp",
-    
-    # 2. กลุ่มนามสกุลย่อยของ JPEG (เจอบ่อยเวลาเซฟรูปจากอินเทอร์เน็ต / Twitter / Facebook)
-    ".jpe", ".jfif", 
-    
-    # 3. กลุ่มภาพมาตรฐานระบบ Windows และงานสแกนเอกสาร/งานพิมพ์
-    ".bmp", 
-    ".tiff", ".tif", 
-    
-    # 4. กลุ่มไอคอนมาตรฐาน
-    ".ico"
-]
-
 ICON_SIZE = 16
 COLOR_CHECKED_SYM = "#a78bfa"
 COLOR_CHECKED_ASYM = "#34D399"
 CAPACITY_WARNING_RATIO = 0.90
 
-@dataclass
-class LSBInputsDraft:
-    "LSB++ inputs draft for saving/loading state of the form."
-    cover: FileSource | None = None
-    payload_text: str = ""
-    encryption_enabled: bool = True
-    encryption_mode: str = "password"
-    password: str = field(default="", repr=False)
-    public_key_path: str | None = None
-    
-
 class LSBInputForm(QFrame):
+    
+    draft_status = pyqtSignal(bool)
     
     def __init__(self, key_registry: KeyRegistry = None, is_config: bool = False, parent = None):
         super().__init__(parent)
@@ -67,49 +35,49 @@ class LSBInputForm(QFrame):
         self.key_registry = key_registry
         self.is_config = is_config
         
-        # Cover & Payload
-        self.cover_source: FileSource = None
-        self.payload_file_path: str = None
+        # setup inputs
+        self.cover_file_path = None
+        self.public_key_path = None
+        
+        # setup cal capacity 
         self.capacity_bits: int = None  # ผล analyze ภาพ (Sobel+entropy) แคชไว้เพราะหนัก ไม่คำนวณซ้ำทุกครั้งที่พิมพ์/สลับโหมด
-        self.isCalculating = False
-        self.capacity_request = 0
+        self.is_calculating = False
+        self.capacity_request = 0 # กันไม่ให้ผลลัพธ์ capacity แสดงผลผิดภาพ
         self.capacity_workers = {}
-        
-        # Encryption
-        self.public_key_path: str | None = None
-        
+    
         self.setup_ui()
         
+    # --- UI construction ---
     def setup_ui(self):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 11, 0, 0)
 
         sub_layout = QHBoxLayout()
 
-        # --- Left side - Cover file ---
+        # --- Left side - Cover file Card ---
         left_layout = QVBoxLayout()
         left_layout.addWidget(self.build_cover_file_card())
 
-        # --- Right side - Payload and Encryption ---
+        # --- Right side - Payload and Encryption Cards ---
         right_widget = QFrame()
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.addWidget(self.build_payload_card(), 1)
-        right_layout.addWidget(self.build_encryption_card(), 0)
-
+        right_layout.addWidget(self.build_encryption_card())
+        
+        # Make right side scrollable
         right_scroll = QScrollArea()
         right_scroll.setObjectName("transparentScroll")
         right_scroll.setWidgetResizable(True)
         right_scroll.setWidget(right_widget)
         right_scroll.setFrameShape(QFrame.Shape.NoFrame)
-
+        
+        # Left:Right is 1:1 ratio
         sub_layout.addLayout(left_layout, 1)
         sub_layout.addWidget(right_scroll, 1)
 
         main_layout.addLayout(sub_layout)
-
-        self.update_capacity_label()  # เซ็ตข้อความเริ่มต้นให้ตรง state จริง (ยังไม่มี cover)
-        
+    
     def build_cover_file_card(self):
         cover_file_card = QFrame()
         cover_file_card.setObjectName("card")
@@ -137,15 +105,13 @@ class LSBInputForm(QFrame):
             [
                 { 
                     "text": "Manual File",
-                    "value": "Manual",
+                    "value": "manual",
                     "variant": "source",
-                    "color_checked": "#38BDF8",
                 },
                 {
                     "text": "Previous Output",
-                    "value": "linked",
+                    "value": "previous",
                     "variant": "source",
-                    "color_checked": "#38BDF8",
                 },
             ])
         
@@ -155,7 +121,7 @@ class LSBInputForm(QFrame):
             text="Drop cover image here or click to browse",
             sub_text="Supports PNG, JPEG, WebP and other image formats",
             icon_path=str(svg_path("photo.svg")),
-            allowed_extensions=ALLOWED_EXTS,
+            allowed_extensions=ALLOWED_IMAGE_EXTENSIONS,
         )
         
         self.cover_drop_zone = drop_zone
@@ -163,17 +129,17 @@ class LSBInputForm(QFrame):
 
         self.cover_source_stack = QStackedWidget()
         self.cover_source_stack.addWidget(drop_zone)
-        self.output_picker = StepOutputPicker()
+        self.output_picker = QLabel("Previous Output List") #TODO
         self.cover_source_stack.addWidget(self.output_picker)
-        self.output_picker.selection_changed.connect(self.on_cover_output_selected)
+        # self.output_picker.selection_changed.connect(self.on_cover_output_selected) #TODO
 
-        cover_file_layout.addWidget(title_container, 0)  # top
-        cover_file_layout.addWidget(self.cover_mode_toggle, 0)
-        self.cover_mode_toggle.setVisible(self.is_config)
+        cover_file_layout.addWidget(title_container)
+        cover_file_layout.addWidget(self.cover_mode_toggle)
+        self.cover_mode_toggle.setVisible(self.is_config) # Standalone: hidden, Configurable: shown
         cover_file_layout.addWidget(self.cover_source_stack, 1)
 
         return cover_file_card
-    
+        
     def build_payload_card(self):
         payload_card = QFrame()
         payload_card.setObjectName("card")
@@ -186,8 +152,8 @@ class LSBInputForm(QFrame):
 
         # Icon
         title_icon = QLabel()
-        photo_icon = create_icon_pixmap(svg_path("message.svg"), size=ICON_SIZE)
-        title_icon.setPixmap(photo_icon)
+        message_icon = create_icon_pixmap(svg_path("message.svg"), size=ICON_SIZE)
+        title_icon.setPixmap(message_icon)
 
         # Text: Payload (Secret Message)
         title_label = QLabel("Payload (Secret Message)")
@@ -219,9 +185,11 @@ class LSBInputForm(QFrame):
         text_file_tab = QFrame()
         text_file_layout = QVBoxLayout(text_file_tab)
         text_file_layout.setContentsMargins(0, 12, 0, 0)
-
+        
+        # File drop zone
         drop_zone = FileDropWidget(
-            "Drop text file here or click to browse", "Supported: .txt", 
+            text="Drop text file here or click to browse", 
+            sub_text="Supported: .txt", 
             icon_path=str(svg_path("file-text.svg")), 
             allowed_extensions=["txt"])
         
@@ -258,8 +226,8 @@ class LSBInputForm(QFrame):
 
         # Icon
         title_icon = QLabel()
-        photo_icon = create_icon_pixmap(svg_path("shield-lock.svg"), "#a78bfa", ICON_SIZE)
-        title_icon.setPixmap(photo_icon)
+        shield_icon = create_icon_pixmap(svg_path("shield-lock.svg"), "#a78bfa", ICON_SIZE)
+        title_icon.setPixmap(shield_icon)
 
         # Text: Encryption Options
         title_label = QLabel("Encryption Options")
@@ -279,23 +247,24 @@ class LSBInputForm(QFrame):
         # Connect toggle switch to stack
         self.encrypt_mode_toggle.mode_changed.connect(self.on_encrypt_mode_changed)
         self.encrypt_toggle_switch.toggled.connect(self.encrypt_stack.setVisible)
-
+        
+        # update draft status and capacity label
+        self.encrypt_toggle_switch.toggled.connect(self.update_draft_status)
         self.encrypt_toggle_switch.toggled.connect(self.update_capacity_label)
-        self.password_input.textChanged.connect(self.update_capacity_label)
 
         title_layout.addWidget(encrypt_selection)
         encryption_layout.addWidget(title_container)
         encryption_layout.addWidget(self.encrypt_stack)
 
         return encryption_card
-
+    
     def build_encrypt_selection(self):
         self.encrypt_mode_toggle = SelectionToggle([
             {
                 "text": "Password",
                 "value": "password",
                 "variant": "password",
-                "color_checked": "#a78bfa",
+                "color_checked": COLOR_CHECKED_SYM,
                 "icon_path": svg_path("key.svg"),
                 "icon_size": 14,
             },
@@ -303,7 +272,7 @@ class LSBInputForm(QFrame):
                 "text": "Public Key",
                 "value": "public_key",
                 "variant": "public_key",
-                "color_checked": "#34D399",
+                "color_checked": COLOR_CHECKED_ASYM,
                 "icon_path": svg_path("lock.svg"),
                 "icon_size": 14,
             },
@@ -341,9 +310,13 @@ class LSBInputForm(QFrame):
 
         symmetric_layout.addWidget(confirm_label)
         symmetric_layout.addWidget(self.confirm_input)
+        
+        self.password_input.textChanged.connect(self.update_draft_status)
+        self.password_input.textChanged.connect(self.update_capacity_label)
+
+        self.confirm_input.textChanged.connect(self.update_draft_status)
 
         return symmetric_mode
-    
     
     def build_asymmetric_mode(self):
         asymmetric_mode = QFrame()
@@ -351,7 +324,6 @@ class LSBInputForm(QFrame):
         asymmetric_layout.setContentsMargins(0, 0, 0, 8)
 
         self.public_key_source = KeySourceWidget("public", self.key_registry)
-        self.public_key_drop_zone = self.public_key_source.drop_zone
         asymmetric_layout.addWidget(self.public_key_source)
 
         self.public_key_status = KeyValidationLabel()
@@ -359,208 +331,100 @@ class LSBInputForm(QFrame):
         self.public_key_source.key_selected.connect(self.on_public_key_selected)
         return asymmetric_mode
     
+    # --- Input validation and draft status ---
+    def validate_inputs(self, draft: LSBInputsDraft):
+        if not draft.cover:
+            raise ValueError("Please select a cover image.")
+
+        if not draft.payload_text.strip():
+            raise ValueError("Please enter a payload message or upload a text file.")
+
+        if draft.encryption_enabled:
+            if draft.encryption_mode == "password":
+                if not draft.password:
+                    raise ValueError("Please enter a password.")
+
+                if not self.confirm_input.text():
+                    raise ValueError("Please confirm your password.")
+
+                if draft.password != self.confirm_input.text():
+                    raise ValueError("Password and confirmation do not match.")
+
+            elif draft.encryption_mode == "public_key":
+                if not draft.public_key_path:
+                    raise ValueError("Please select a valid public key.")
+            else:
+                raise ValueError("Unsupported encryption mode.")
+
+        # Capacity
+        if self.is_calculating:
+            raise ValueError("Please wait for cover capacity calculation.")
+
+        if self.capacity_bits is None:
+            raise ValueError("Could not calculate cover capacity.")
+        
     def get_inputs(self) -> LSBInputsDraft:
-        """Return a fresh draft, including values in inactive encryption modes."""
-        return LSBInputsDraft(
-            cover=self.cover_source,
+        """Read the form state and raise ValueError if it cannot be embedded."""
+        draft = LSBInputsDraft(
+            cover=self.cover_file_path,
             payload_text=self.payload_text_area.toPlainText(),
             encryption_enabled=self.encrypt_toggle_switch.isChecked(),
             encryption_mode=self.encrypt_mode_toggle.mode(),
             password=self.password_input.text(),
             public_key_path=self.public_key_path,
         )
+        self.validate_inputs(draft)
+        return draft
 
     def load_draft(self, draft: LSBInputsDraft) -> None:
-        """Restore manual or linked inputs into this independent editor."""
-        # 1. Reset the previous cover selection.
-        self.cover_mode_toggle.set_mode("Manual")
-        self.cover_source_stack.setCurrentWidget(self.cover_drop_zone)
-        self.output_picker.set_selection(None)
+        """Fill the form from a saved draft (the reverse of get_inputs)."""
+        # 1. Clear the previous cover (emits file_selected("") -> capacity is reset)
+        self.cover_mode_toggle.set_mode("manual")
+        self.cover_source_stack.setCurrentIndex(0)
         self.cover_drop_zone.clear_all()
 
-        # 2. Restore the message and both encryption modes, including inactive values.
+        # 2. Message
         self.payload_text_area.setPlainText(draft.payload_text)
+        self.payload_tabs.setCurrentIndex(0)
+
+        # 3. Encryption: values of the inactive mode are restored too
         self.encrypt_mode_toggle.set_mode(draft.encryption_mode)
-        # set_mode changes selection without emitting mode_changed.
-        self.on_encrypt_mode_changed(draft.encryption_mode)
+        self.on_encrypt_mode_changed(draft.encryption_mode)  # set_mode does not emit mode_changed
         self.encrypt_toggle_switch.setChecked(draft.encryption_enabled)
-        self.encrypt_stack.setVisible(draft.encryption_enabled)
+        self.encrypt_stack.setVisible(draft.encryption_enabled)  # setChecked emits nothing when the value is unchanged
         self.password_input.setText(draft.password)
-        self.confirm_input.setText(draft.password)
-        self.public_key_drop_zone.clear_all()
+        self.confirm_input.setText(draft.password)  # the draft keeps one password (it matched when it was saved)
+
+        # public key: select_path -> key_selected -> on_public_key_selected validates it and sets public_key_path
+        self.public_key_source.drop_zone.clear_all()
         if draft.public_key_path and Path(draft.public_key_path).is_file():
             self.public_key_source.select_path(draft.public_key_path)
 
-        # 3. Restore the cover last; manual files start their capacity worker here.
-        if isinstance(draft.cover, str):
+        # 4. Cover last: add_files -> file_selected -> capacity worker (needs the encryption values above)
+        # TODO(configurable): draft.cover may be a previous step's output instead of a file path
+        if draft.cover and Path(draft.cover).is_file():
             self.cover_drop_zone.add_files([draft.cover])
-        elif isinstance(draft.cover, StepOutput):
-            self.cover_mode_toggle.set_mode("linked")
-            self.cover_source_stack.setCurrentWidget(self.output_picker)
-            self.output_picker.set_selection(draft.cover)
-            self.on_cover_output_selected(draft.cover)
 
-        # 4. Refresh the label using the restored state.
+        # 5. A missing cover/key stays empty (the draft is not changed); refresh the status once
         self.update_capacity_label()
+        self.update_draft_status()
 
-    def validate_draft(self) -> bool:
-        """Validate saved configuration; execution checks capacity separately."""
-        inputs = self.get_inputs()
+    def is_draft_ready(self) -> bool:
         try:
-            # Cover: linked outputs are checked through the picker, not the filesystem.
-            if self.cover_mode_toggle.mode() == "linked":
-                if not self.is_config:
-                    raise ValueError("Previous Output is only available in a pipeline.")
-                if not isinstance(inputs.cover, StepOutput):
-                    raise ValueError("Please select a previous PNG output.")
-                if self.output_picker.selection() != inputs.cover:
-                    raise ValueError("The selected output is unavailable. Select another PNG output.")
-            elif not isinstance(inputs.cover, str) or not Path(inputs.cover).is_file():
-                raise ValueError("Please select an available cover image file.")
-
-            # Payload.
-            if not inputs.payload_text.strip():
-                raise ValueError("Please enter a secret message or load a text file.")
-
-            # Validate only the active encryption mode; keep the other mode's values.
-            if inputs.encryption_enabled:
-                if inputs.encryption_mode == "password":
-                    if not inputs.password:
-                        raise ValueError("Please enter a password for encryption.")
-                    if not self.passwords_match():
-                        raise ValueError("Passwords do not match.")
-                elif inputs.encryption_mode == "public_key":
-                    if not inputs.public_key_path:
-                        raise ValueError("Please select a valid public key for encryption.")
-                    result = inspect_public_key(inputs.public_key_path)
-                    self.public_key_status.set_result(result)
-                    if not result.valid:
-                        raise ValueError(result.message)
-                else:
-                    raise ValueError("Please select an encryption mode.")
-        except (OSError, TypeError, ValueError) as error:
-            QMessageBox.warning(self, "Invalid Step Inputs", str(error))
+            self.get_inputs()
+        except ValueError:
             return False
         return True
-
-    def passwords_match(self) -> bool:
-        return self.password_input.text() == self.confirm_input.text()
-
-    # --- Event handler ---
-    def set_available_outputs(self, outputs: list[StepOutputInfo]):
-        png_outputs = []
-        for output in outputs:
-            if output.media_type == "png":
-                png_outputs.append(output)
-        self.output_picker.set_outputs(png_outputs)
-        if isinstance(self.cover_source, StepOutput):
-            self.output_picker.set_selection(self.cover_source)
-
-    def on_cover_mode_changed(self, mode: str):
-        if mode == "linked":
-            self.cover_source_stack.setCurrentWidget(self.output_picker)
-            self.on_cover_output_selected(self.output_picker.selection())
-        else:
-            self.cover_source_stack.setCurrentWidget(self.cover_drop_zone)
-            self.on_cover_file_selected(self.cover_drop_zone.file_path)
-
-    def on_cover_output_selected(self, reference: StepOutput | None):
-        if self.cover_mode_toggle.mode() != "linked":
-            return
-        # Ignore capacity results still arriving for the previous manual cover.
-        self.capacity_request += 1
-        self.cover_source = reference
-        self.capacity_bits = None
-        self.isCalculating = False
-        self.update_capacity_label()
-
-    def on_encrypt_mode_changed(self, mode: str):
-        self.encrypt_stack.setCurrentIndex(0 if mode == "password" else 1)
-        self.update_capacity_label()
-
-    @property
-    def cover_file_path(self) -> str | None:
-        return self.cover_source if isinstance(self.cover_source, str) else None
-
-    @cover_file_path.setter
-    def cover_file_path(self, file_path: str | None):
-        self.cover_source = file_path
     
-    def on_cover_file_selected(self, file_path: str):
-        if self.cover_mode_toggle.mode() == "linked":
-            return
-        
-        self.capacity_request += 1
-        request = self.capacity_request
-        self.cover_file_path = file_path or None
-        self.capacity_bits = None
-        self.isCalculating = bool(file_path)
-        self.update_capacity_label()
-        if not file_path:
-            return
-
-        worker = FunctionWorker(LSBPP().get_total_capacity_bits, file_path)
-        self.capacity_workers[request] = worker
-        worker.done.connect(lambda result: self.on_cal_capacity_done(result, request))
-        worker.finished.connect(lambda: self.release_capacity_worker(request))
-        worker.start()
-
-    def release_capacity_worker(self, request: int):
-        worker = self.capacity_workers.pop(request, None)
-        if worker is not None:
-            worker.deleteLater()
-
-    def on_cal_capacity_done(self, result, request: int):
-        # A newer cover selection may already have started another worker.
-        if request != self.capacity_request:
-            return
-        self.isCalculating = False
-        if isinstance(result, tuple) and len(result) == 2 and result[1] == self.cover_file_path:
-            self.capacity_bits = result[0]
-            self.update_capacity_label()
-        else:
-            self.capacity_bits = None
-            self.update_capacity_label()
-            error = "Invalid capacity result"
-            if isinstance(result, dict):
-                error = result.get("error", error)
-            self.capacity_label.setToolTip(f"Could not calculate cover capacity: {error}")
-            self.set_capacity_state("warning")
-
-    def on_payload_text_changed(self):
-        self.update_capacity_label()
-
-    def on_payload_file_selected(self, file_path: str):
-        self.payload_file_path = file_path or None
-        if not file_path:
-            return  # Clearing the selected file preserves the editable text.
-        error = None
-        for encoding in ("utf-8-sig", "utf-8", "utf-16", "cp874"):
-            try:
-                text = Path(file_path).read_text(encoding=encoding)
-            except UnicodeError as exc:
-                error = exc
-                continue
-            except OSError as exc:
-                error = exc
-                break
-            self.payload_text_area.setPlainText(text)
-            self.payload_tabs.setCurrentIndex(0)
-            return
-        self.payload_text_area.clear()
-        self.payload_tabs.setCurrentIndex(1)
-        QMessageBox.warning(self, "Cannot read text file", str(error))
-
-    def on_public_key_selected(self, file_path: str):
-        self.public_key_path = None
-        if file_path:
-            result = inspect_public_key(file_path)
-            self.public_key_status.set_result(result)
-            if result.valid:
-                self.public_key_path = file_path
-        else:
-            self.public_key_status.clear_result()
-        self.update_capacity_label()
+    def update_draft_status(self):
+        self.draft_status.emit(self.is_draft_ready())
+    
+    # --- Capacity estimation and display ---
+    def set_capacity_state(self, state: str):
+        """state: 'normal' | 'warning' | 'danger' ผูกกับ QSS ผ่าน property"""
+        self.capacity_label.setProperty("capacityState", state)
+        self.capacity_label.style().unpolish(self.capacity_label)
+        self.capacity_label.style().polish(self.capacity_label)
         
     def calculate_capacity(self) -> tuple[int, int, str]:
         """Calculate overhead and maximum bytes without changing the label."""
@@ -586,46 +450,40 @@ class LSBInputForm(QFrame):
         overhead_bytes = estimate_overhead_bytes(password, public_key_path)
         max_bytes = get_max_message_bytes(self.capacity_bits, password, public_key_path)
         return overhead_bytes, max_bytes, overhead_detail
-
+    
     def update_capacity_label(self):
         """Show capacity status, usage colour and the explanatory tooltip."""
-        # Capacity is not available yet, or will only be known during pipeline execution.
-        if self.isCalculating:
+
+        text_size_bytes = len(self.payload_text_area.toPlainText().encode("utf-8"))
+        text_size = format_file_size(text_size_bytes)
+
+        if self.is_calculating:
             self.capacity_label.setText("Calculating...")
             self.capacity_label.setToolTip("Calculating cover capacity...")
             self.set_capacity_state("normal")
             return
-        
-        text_size_bytes = len(self.payload_text_area.toPlainText().encode('utf-8'))
-        text_size = format_file_size(text_size_bytes)
 
-        if isinstance(self.cover_source, StepOutput):
-            self.capacity_label.setText(f"Size: {text_size} / Capacity unknown")
-            self.capacity_label.setToolTip(
-                "Linked cover capacity will be checked when the pipeline runs."
-            )
+        if self.capacity_bits is None:
+            self.capacity_label.setText(f"Size: {text_size}")
+            self.capacity_label.setToolTip("Select a cover image to calculate capacity.")
             self.set_capacity_state("normal")
             return
 
+        # Public Key mode without a valid key: overhead is unknown, so max is not shown.
         no_key_yet = (
             self.encrypt_toggle_switch.isChecked()
             and self.encrypt_mode_toggle.mode() == "public_key"
             and not self.public_key_path
         )
-        if self.capacity_bits is None or no_key_yet:
+        if no_key_yet:
             self.capacity_label.setText(f"Size: {text_size}")
-            if no_key_yet:
-                self.capacity_label.setToolTip("Select a public key to see max capacity")
-            else:
-                self.capacity_label.setToolTip("Select a cover image to see max capacity")
+            self.capacity_label.setToolTip("Select a public key to see max capacity.")
             self.set_capacity_state("normal")
             return
 
-        # Calculate first, then update the displayed usage.
         try:
             overhead_bytes, max_bytes, overhead_detail = self.calculate_capacity()
         except Exception:
-            # เช่น public key ไฟล์เสีย/อ่านไม่ได้ จะโชว์แค่ขนาดข้อความ ไม่ให้ label พังเงียบๆ
             self.capacity_label.setText(f"Size: {text_size} / Invalid Key")
             self.capacity_label.setToolTip("Could not read the public key to estimate capacity.")
             self.set_capacity_state("warning")
@@ -633,8 +491,8 @@ class LSBInputForm(QFrame):
 
         self.capacity_label.setText(f"Size: {text_size} / {format_file_size(max_bytes)}")
 
-        # เกิน max = แดง, ใช้ไปแล้ว > 90% = เหลือง, นอกนั้นปกติ
-        usage_ratio = (text_size_bytes / max_bytes) if max_bytes > 0 else 1.0
+        usage_ratio = (text_size_bytes / max_bytes if max_bytes > 0 else 1.0)
+
         if text_size_bytes > max_bytes:
             self.set_capacity_state("danger")
         elif usage_ratio > CAPACITY_WARNING_RATIO:
@@ -649,8 +507,100 @@ class LSBInputForm(QFrame):
             f"Current usage: {text_size} ({usage_ratio:.0%})"
         )
         
-    def set_capacity_state(self, state: str):
-        """state: 'normal' | 'warning' | 'danger' ผูกกับ QSS ผ่าน property"""
-        self.capacity_label.setProperty("capacityState", state)
-        self.capacity_label.style().unpolish(self.capacity_label)
-        self.capacity_label.style().polish(self.capacity_label)
+    # --- Event handlers ---
+    def on_cover_file_selected(self, file_path: str):
+        # เปลี่ยนหรือล้างไฟล์ทุกครั้ง ต้องทำให้ผลของ worker เก่าเป็นโมฆะก่อน
+        self.capacity_request += 1
+        request = self.capacity_request
+
+        self.cover_file_path = file_path or None
+        self.capacity_bits = None
+        self.is_calculating = bool(file_path)
+
+        self.update_capacity_label()
+        self.update_draft_status()
+
+        if not file_path:
+            return
+
+        worker = FunctionWorker(LSBPP().get_total_capacity_bits, file_path)
+        self.capacity_workers[request] = worker
+        worker.done.connect(lambda result: self.on_cal_capacity_done(result, request))
+        worker.finished.connect(lambda: self.release_capacity_worker(request))
+        worker.start()
+        
+    def on_cover_mode_changed(self, mode: str):
+        index = 0 if mode == "manual" else 1
+        self.cover_source_stack.setCurrentIndex(index)
+    
+    def on_cal_capacity_done(self, result, request: int):
+        if request != self.capacity_request:
+            return
+
+        self.is_calculating = False
+
+        if isinstance(result, int):
+            self.capacity_bits = result
+            self.update_capacity_label()
+        else:
+            self.capacity_bits = None
+            self.update_capacity_label()
+
+            error = "Invalid capacity result"
+            if isinstance(result, dict):
+                error = result.get("error", error)
+
+            self.capacity_label.setToolTip(
+                f"Could not calculate cover capacity: {error}"
+            )
+            self.set_capacity_state("warning")
+
+        self.update_draft_status()
+                    
+    def release_capacity_worker(self, request: int):
+        worker = self.capacity_workers.pop(request, None)
+        if worker is not None:
+            worker.deleteLater()
+        
+        
+    def on_payload_file_selected(self, file_path: str):
+        if not file_path:
+            return  # Clearing the selected file preserves the editable text.
+        error = None
+        for encoding in ("utf-8-sig", "utf-8", "utf-16", "cp874"):
+            try:
+                text = Path(file_path).read_text(encoding=encoding)
+            except UnicodeError as exc:
+                error = exc
+                continue
+            except OSError as exc:
+                error = exc
+                break
+            self.payload_text_area.setPlainText(text)
+            self.payload_tabs.setCurrentIndex(0)
+            return
+        self.payload_text_area.clear()
+        self.payload_tabs.setCurrentIndex(1)
+        QMessageBox.warning(self, "Cannot read text file", str(error))
+        
+    def on_payload_text_changed(self):
+        self.update_capacity_label()
+        self.update_draft_status()
+    
+    def on_encrypt_mode_changed(self, mode: str):
+        self.encrypt_stack.setCurrentIndex(0 if mode == "password" else 1)
+        self.update_capacity_label()
+        self.update_draft_status()
+        
+    def on_public_key_selected(self, file_path: str):
+        self.public_key_path = None
+        if file_path:
+            result = inspect_public_key(file_path)
+            self.public_key_status.set_result(result)
+            if result.valid:
+                self.public_key_path = file_path
+        else:
+            self.public_key_status.clear_result()
+        
+        self.update_capacity_label()    
+        self.update_draft_status()

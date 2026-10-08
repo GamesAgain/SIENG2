@@ -90,6 +90,6 @@ class LSBStandaloneTab(QFrame):
     def eventFilter(self, watched, event):
         if event.type() == QEvent.Type.Close and self.extract_worker is not None:
             event.ignore()
-            self.execution_bar.status_label.setText("Status: Wait for extraction to finish before closing.")
+            self.execution_bar.set_status("Wait for extraction to finish before closing.")
             return True
         return super().eventFilter(watched, event)

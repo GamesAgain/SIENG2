@@ -1,8 +1,6 @@
 from PyQt6.QtWidgets import QFrame, QLabel, QStackedWidget, QVBoxLayout
 
 from src.gui.components.widgets.selection_toggle import SelectionToggle
-from src.gui.features.embed.configurable.configurable_page import EmbedConfigurablePage
-from src.gui.features.embed.standalone.standalone_page import EmbedStandalonePage
 from src.gui.features.extract.standalone.standalone_page import ExtractStandalonePage
 from src.gui.services.key_registry import KeyRegistry
 from src.path import svg_path

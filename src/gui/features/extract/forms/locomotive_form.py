@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QScrollArea, QTabWidget, QVBoxLayout, QWidget,
 )
 
+from src.core.stego.locomotive import TEXT_PAYLOAD_NAME, ZIP_PAYLOAD_NAME
 from src.gui.components.gui_utils import (
     add_password_visibility_toggle, add_shadow_effect, create_icon_pixmap,
     format_file_size, truncate_text_middle,
@@ -404,7 +405,7 @@ class LocomotiveExtractForm(QFrame):
     def show_result(self, filename: str, data: bytes):
         self.clear_result()
         # Core uses this reserved name for raw text; ordinary .txt files stay files.
-        if filename == "secret_message.txt":
+        if filename == TEXT_PAYLOAD_NAME:
             try:
                 text = data.decode("utf-8")
             except UnicodeDecodeError:
@@ -418,7 +419,7 @@ class LocomotiveExtractForm(QFrame):
 
         files = [(filename, data)]
         # Only the system-generated ZIP name is expanded for the list preview.
-        if filename == "secret_files.zip" and zipfile.is_zipfile(io.BytesIO(data)):
+        if filename == ZIP_PAYLOAD_NAME and zipfile.is_zipfile(io.BytesIO(data)):
             with zipfile.ZipFile(io.BytesIO(data)) as archive:
                 files = [(item.filename, archive.read(item))
                          for item in archive.infolist() if not item.is_dir()]

@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QFrame, QStackedWidget, QVBoxLayout
+from PyQt6.QtWidgets import QFrame, QLabel, QStackedWidget, QVBoxLayout
 
 from src.gui.components.widgets.selection_toggle import SelectionToggle
 from src.gui.features.embed.configurable.configurable_page import EmbedConfigurablePage
