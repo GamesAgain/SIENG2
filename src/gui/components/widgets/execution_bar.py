@@ -68,9 +68,16 @@ class ExecutionBar(QFrame):
 
         return loading_status_bar
     
+    def set_status(self, message: str):
+        """Show 'Status: <message>' (the prefix is added here, so callers pass only the message)."""
+        self.status_label.setText(f"Status: {message}")
+
+    def set_error(self, message: str = "Error"):
+        self.set_status(message)
+
     def update_progress(self, percent, message):
         self.loading_bar.setValue(percent)
-        self.status_label.setText(f"Status: {message}")
+        self.set_status(message)
 
     def set_busy(self, busy):
         self.is_busy = busy
@@ -83,4 +90,4 @@ class ExecutionBar(QFrame):
 
     def reset(self):
         self.loading_bar.setValue(0)
-        self.status_label.setText("Status: Ready")
+        self.set_status("Ready")

@@ -58,7 +58,7 @@ class SelectionToggle(QFrame):
         text: str,
         value: str,
         variant: str,
-        color_checked: str,
+        color_checked: str = "#38BDF8",
         icon_path: Path | None = None,
         icon_size: int = 16,
     ) -> QPushButton:

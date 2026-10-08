@@ -147,9 +147,7 @@ def add_password_visibility_toggle(line_edit: QLineEdit, *linked_line_edits: QLi
     actions = []
 
     def set_visibility(visible: bool) -> None:
-        echo_mode = (
-            QLineEdit.EchoMode.Normal if visible else QLineEdit.EchoMode.Password
-        )
+        echo_mode = (QLineEdit.EchoMode.Normal if visible else QLineEdit.EchoMode.Password)
         for field, action in zip(fields, actions):
             field.setEchoMode(echo_mode)
             action.setIcon(visible_icon if visible else hidden_icon)
