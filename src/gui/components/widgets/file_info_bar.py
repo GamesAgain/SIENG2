@@ -66,6 +66,7 @@ class FileInfoBar(QFrame):
         detail: str,
         badges: list[tuple[str, str]],
         icon_path: str | None = None,
+        icon_name: str | None = None,  # no real file: take the system icon of this file name (e.g. 'a.png')
     ) -> None:
         """Update file details and replace its format/status badges."""
         self.file_name.setText(display_name)
@@ -85,10 +86,10 @@ class FileInfoBar(QFrame):
             badge.setProperty("badgeColor", color)
             self.badge_layout.addWidget(badge, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        pixmap = QPixmap() if icon_path else QPixmap(file_path)
+        pixmap = QPixmap() if (icon_path or icon_name) else QPixmap(file_path)
         if pixmap.isNull() and not icon_path:
             provider = QFileIconProvider()
-            system_pixmap = provider.icon(QFileInfo(file_path)).pixmap(32, 32)
+            system_pixmap = provider.icon(QFileInfo(icon_name or file_path)).pixmap(32, 32)
             if not system_pixmap.isNull():
                 self.file_icon.setPixmap(system_pixmap)
                 return

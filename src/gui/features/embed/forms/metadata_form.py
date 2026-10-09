@@ -161,7 +161,7 @@ class MetadataInputForm(QFrame):
             display_name=f"From Step {info.step_number} {technique}, {info.display_name}",
             detail=f"Made when the pipeline runs · {origin}",
             badges=[("PNG", "blue"), ("Previous Output", "neutral")],
-            icon_path=str(svg_path("photo-video.svg")),
+            icon_name=info.display_name,  # the output has no file yet: the system icon of its file type (a.png)
         )
         self.open_editor(self.png_form, source, reference, [])
 

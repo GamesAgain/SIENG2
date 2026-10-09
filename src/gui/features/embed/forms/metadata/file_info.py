@@ -7,7 +7,6 @@ from PIL import Image, UnidentifiedImageError
 from src.core.stego.metadata_handlers.mp3_handler import MetadataMP3Handler
 from src.core.stego.metadata_handlers.png_handler import TEXT_CHUNKS, MetadataPNGHandler
 from src.gui.components.gui_utils import format_file_size, truncate_text_middle
-from src.path import svg_path
 
 
 def get_png_file_info(file_path: str) -> dict:
@@ -48,5 +47,5 @@ def get_mp3_file_info(file_path: str) -> dict:
         "display_name": truncate_text_middle(path.name, 110),
         "detail": f"{format_file_size(path.stat().st_size)} · {seconds // 60}:{seconds % 60:02d} · {audio.bitrate // 1000} kbps",
         "badges": [(version, "blue"), (f"{frame_count} frames", "neutral")],
-        "icon_path": str(svg_path("photo-video.svg")),
+        # ไม่ส่ง icon_path: FileInfoBar ใช้ไอคอนของระบบ (QFileIconProvider) แบบเดียวกับไฟล์ทั่วไป
     }
