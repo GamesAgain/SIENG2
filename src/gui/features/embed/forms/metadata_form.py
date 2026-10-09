@@ -40,6 +40,7 @@ class MetadataInputForm(QFrame):
         self.target_link: StepOutput | None = None  # Previous Output ที่เลือก (pipeline เท่านั้น)
         self.output_infos: dict[StepOutput, StepOutputInfo] = {}
         self.removed_frames: list[str] = []         # MP3 frame ที่ v2.3 เก็บไม่ได้ (pipeline ลบตอน Run)
+        self.open_form: PNGMetadataForm | MP3MetadataForm | None = None  # editor ที่เปิดอยู่
         self.setup_ui()
 
     # --- UI construction ---
@@ -140,23 +141,32 @@ class MetadataInputForm(QFrame):
         try:
             if not source or not Path(source).is_file():
                 raise ValueError("The file this output starts from is unavailable. Select its source file again in that step.")
-            self.png_form.load_file(source)  # Previous Output ของ Metadata เป็น PNG เสมอ
+            # Previous Output ของ Metadata เป็น PNG เสมอ (LSB++ ทำ PNG จากภาพทุกชนิด) แต่ไฟล์ต้นสายอาจเป็น JPG/WebP ...
+            # ต้นสายเป็น PNG -> ข้อความเดิมของมันอยู่ใน output ด้วย · ต้นสายเป็นภาพอื่น -> output ไม่มีข้อความเดิม
+            is_png = Path(source).suffix.lower() == ".png"
+            if is_png:
+                self.png_form.load_file(source)
+            else:
+                self.png_form.load_empty()
         except (OSError, ValueError) as error:
             self.reset_target()
             QMessageBox.warning(self, "Cannot read file", str(error))
             return
 
         technique = TECHNIQUE_LABELS.get(info.technique, info.technique)
+        origin = (f"values read from {Path(source).name}" if is_png
+                  else f"made from {Path(source).name}, so it starts with no text metadata")
         self.png_form.file_info_bar.update_info(
             file_path="",
             display_name=f"From Step {info.step_number} {technique}, {info.display_name}",
-            detail=f"Made when the pipeline runs · values read from {Path(source).name}",
+            detail=f"Made when the pipeline runs · {origin}",
             badges=[("PNG", "blue"), ("Previous Output", "neutral")],
             icon_path=str(svg_path("photo-video.svg")),
         )
         self.open_editor(self.png_form, source, reference, [])
 
     def open_editor(self, form, file_path: str, link: StepOutput | None, removed: list[str]):
+        self.open_form = form
         self.target_file_path = file_path
         self.target_link = link
         self.removed_frames = removed
@@ -174,6 +184,7 @@ class MetadataInputForm(QFrame):
 
     def reset_target(self):
         """Back to the target card; the edits of the previous file are discarded."""
+        self.open_form = None
         self.target_file_path = None
         self.target_link = None
         self.removed_frames = []
@@ -182,15 +193,17 @@ class MetadataInputForm(QFrame):
         self.output_picker.set_selection(None)
         for form in self.forms.values():
             form.clear_all()
+        # Change File: the focused button is hidden by the page switch and Qt moves focus to the picker list,
+        # which then picks its first row by itself and reopens the editor -> keep focus on the form instead
+        self.setFocus()
         self.target_stack.setCurrentWidget(self.target_card)
         self.target_file_changed.emit("")
 
     # --- Input API ---
 
     def current_form(self) -> PNGMetadataForm | MP3MetadataForm | None:
-        if not self.target_file_path:
-            return None
-        return self.forms[Path(self.target_file_path).suffix.lower()]
+        """The editor that is open (not found by the file name: a Previous Output reads from its source, which can be a JPG)."""
+        return self.open_form
 
     def get_entries(self) -> dict:
         """Checked values of the open file ({keyword: text} for PNG, {key: MP3Field} for MP3). Raises ValueError."""

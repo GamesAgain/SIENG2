@@ -278,6 +278,12 @@ class PNGMetadataForm(QFrame):
         self.file_info_bar.update_info(**info)
         self.secret_preview.show_previous_secret(hidden_before)
 
+    def load_empty(self) -> None:
+        """No file to read: start with no text (an output made from a JPG / WebP ... is a PNG without text chunks)."""
+        self.set_original({})
+        self.set_entries({})
+        self.secret_preview.show_previous_secret([])
+
     def set_original(self, original: dict[str, str]) -> None:
         """The values to compare against (what the file has before this edit)."""
         self.original = dict(original)
