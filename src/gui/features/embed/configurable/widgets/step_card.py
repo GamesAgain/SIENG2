@@ -1,11 +1,13 @@
 from html import escape
 from pathlib import Path
 
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
-from PyQt6.QtCore import pyqtSignal, Qt
-from PyQt6.QtGui import QIcon
+from PyQt6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtCore import QMimeData, pyqtSignal, Qt
+from PyQt6.QtGui import QDrag, QIcon
 
 from src.core.configurable.drafts import LSBInputsDraft, LocomotiveInputsDraft
+from src.core.configurable.link import is_linked
+from src.core.configurable.step_output import FileSource, StepOutput
 from src.gui.components.gui_utils import create_icon_pixmap, format_file_size, truncate_text_middle
 from src.gui.features.embed.configurable.constants import TECHNIQUE_DISPLAY
 from src.path import svg_path
@@ -37,6 +39,15 @@ def file_size_text(path: str) -> str:
     except OSError:
         return "Unavailable"
 
+def cover_name(cover: FileSource, labels: dict[StepOutput, str]) -> str:
+    """File name of a manual cover, or 'Step N output' for a Previous Output."""
+    return labels.get(cover, "Unavailable output") if is_linked(cover) else Path(cover).name
+
+def cover_line(cover: FileSource, labels: dict[StepOutput, str]) -> str:
+    """For lists and tooltips: a Previous Output also shows its file name (outputs of one step share a label)."""
+    name = cover_name(cover, labels)
+    return f"{name} ({cover.output_key}.png)" if is_linked(cover) else name
+
 def text_tooltip(text: str) -> str:
     """Show the message as plain text: long text is cut, and '<b>' etc. stays visible instead of becoming HTML."""
     preview = text if len(text) <= TOOLTIP_TEXT_LIMIT else text[:TOOLTIP_TEXT_LIMIT] + "…"
@@ -55,6 +66,7 @@ class StepCard(QFrame):
         # Step card detail
         self.step_key = step_key
         self.step_number = step_number
+        self.drag_start_position = None  # where the left button went down (a click or the start of a drag)
         self.technique = technique
         self.meta = TECHNIQUE_DISPLAY[technique]
 
@@ -172,35 +184,44 @@ class StepCard(QFrame):
         self.set_encryption(encryption)
 
     # --- Summary from a saved step ---
-    def set_inputs(self, draft: LSBInputsDraft | LocomotiveInputsDraft | None):
-        """Show a step's saved inputs on the rows; None = nothing saved yet -> placeholders."""
+    def set_inputs(self, draft: LSBInputsDraft | LocomotiveInputsDraft | None, labels: dict[StepOutput, str] | None = None):
+        """Show a step's saved inputs on the rows; None = nothing saved yet -> placeholders.
+        labels: the text of each Previous Output cover, e.g. 'Step 1 output' (the page knows the step numbers)."""
+        labels = labels or {}
         if draft is None:
             self.set_summary(**SUMMARY_PLACEHOLDERS)
         elif isinstance(draft, LSBInputsDraft):
-            self.show_lsb(draft)
+            self.show_lsb(draft, labels)
         elif isinstance(draft, LocomotiveInputsDraft):
-            self.show_locomotive(draft)
+            self.show_locomotive(draft, labels)
 
-    def show_lsb(self, draft: LSBInputsDraft):
-        self.set_cover(Path(draft.cover).name, tooltip=draft.cover)  # tooltip = full path: which folder it came from
+    def show_lsb(self, draft: LSBInputsDraft, labels: dict[StepOutput, str]):
+        # tooltip of a file = its full path (which folder it came from); of a Previous Output = label + file name
+        tooltip = cover_line(draft.cover, labels) if is_linked(draft.cover) else draft.cover
+        self.set_cover(cover_name(draft.cover, labels), tooltip=tooltip)
         self.set_payload(f"Text ({text_size(draft.payload_text)})", text_tooltip(draft.payload_text))
         self.set_output("PNG ×1")
         self.set_encryption(encryption_text(draft))
 
-    def show_locomotive(self, draft: LocomotiveInputsDraft):
+    def show_locomotive(self, draft: LocomotiveInputsDraft, labels: dict[StepOutput, str]):
         # 1. Covers: one -> its name, several -> "PNGs ×N"; the tooltip lists them all
         count = len(draft.covers)
         cover_lines = [f"Cover PNGs ({count}):"]
-        cover_lines += [f"{number}. {Path(path).name}" for number, path in enumerate(draft.covers, start=1)]
-        self.set_cover(Path(draft.covers[0]).name if count == 1 else f"PNGs ×{count}", "\n".join(cover_lines))
+        cover_lines += [f"{number}. {cover_line(cover, labels)}" for number, cover in enumerate(draft.covers, start=1)]
+        self.set_cover(cover_name(draft.covers[0], labels) if count == 1 else f"PNGs ×{count}", "\n".join(cover_lines))
 
         # 2. Payload: files -> "Files ×N (total size)", text -> "Text (size)" like LSB++
         if draft.payload_mode == "files":
-            total = sum(Path(path).stat().st_size for path in draft.payload_files if Path(path).is_file())
-            payload_lines = [f"Payload files ({len(draft.payload_files)}):"]
-            payload_lines += [f"{number}. {Path(path).name} — {file_size_text(path)}"
-                              for number, path in enumerate(draft.payload_files, start=1)]
-            self.set_payload(f"Files ×{len(draft.payload_files)} ({format_file_size(total)})", "\n".join(payload_lines))
+            files = draft.payload_files
+            payload_lines = [f"Payload files ({len(files)}):"]
+            for number, path in enumerate(files, start=1):
+                size = "" if is_linked(path) else f" — {file_size_text(path)}"  # a Previous Output has no file yet
+                payload_lines.append(f"{number}. {cover_line(path, labels)}{size}")
+            if any(is_linked(path) for path in files):
+                self.set_payload(f"Files ×{len(files)} (Previous Output)", "\n".join(payload_lines))
+            else:
+                total = sum(Path(path).stat().st_size for path in files if Path(path).is_file())
+                self.set_payload(f"Files ×{len(files)} ({format_file_size(total)})", "\n".join(payload_lines))
         else:
             self.set_payload(f"Text ({text_size(draft.payload_text)})", text_tooltip(draft.payload_text))
 
@@ -229,21 +250,47 @@ class StepCard(QFrame):
         self.close_button.hide()
         super().leaveEvent(event)
 
-    # --- Click (TODO(reorder): add drag & drop back from ref) ---
+    # --- Click or drag (a drag moves the card: StepCanvas receives it) ---
     def mousePressEvent(self, event):
         # Accept the press, otherwise the release is not delivered to this card.
         if event.button() == Qt.MouseButton.LeftButton:
+            self.drag_start_position = event.position().toPoint()
             event.accept()
             return
         super().mousePressEvent(event)
 
+    def mouseMoveEvent(self, event):
+        # Moving far enough while the button is held = a drag
+        if self.drag_start_position is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            distance = (event.position().toPoint() - self.drag_start_position).manhattanLength()
+            if distance >= QApplication.startDragDistance():
+                self.start_drag()
+                event.accept()
+                return
+        super().mouseMoveEvent(event)
+
     def mouseReleaseEvent(self, event):
-        # A click = the left button released while the pointer is still on the card.
-        if event.button() == Qt.MouseButton.LeftButton and self.rect().contains(event.position().toPoint()):
-            event.accept()
-            self.clicked.emit()
-            return
+        start, self.drag_start_position = self.drag_start_position, None  # a drag already cleared it, so it cannot click
+        # A click = the left button released on the card without moving far
+        if event.button() == Qt.MouseButton.LeftButton and start is not None:
+            position = event.position().toPoint()
+            if self.rect().contains(position) and (position - start).manhattanLength() < QApplication.startDragDistance():
+                event.accept()
+                self.clicked.emit()
+                return
         super().mouseReleaseEvent(event)
+
+    def start_drag(self):
+        hotspot = self.drag_start_position
+        self.drag_start_position = None
+        self.close_button.hide()  # not in the picture that follows the pointer
+        drag = QDrag(self)  # drag.source() is this exact card, even when two cards have the same technique
+        mime = QMimeData()
+        mime.setData(STEP_CARD_MIME, b"internal")
+        drag.setMimeData(mime)
+        drag.setPixmap(self.grab())
+        drag.setHotSpot(hotspot)
+        drag.exec(Qt.DropAction.MoveAction)  # Esc or a drop outside the canvas changes nothing: only StepCanvas reorders
     
 def make_arrow() -> QWidget:
     """Keep the arrow vertically centered within a full-height flow item."""

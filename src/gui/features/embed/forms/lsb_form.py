@@ -7,6 +7,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal
 
 from src.core.configurable.drafts import LSBInputsDraft
+from src.core.configurable.link import is_linked
+from src.core.configurable.step_output import StepOutputInfo
 from src.core.crypto.sym_encrypt import AES_NONCE_LENGTH, AES_SALT_LENGTH, AES_TAG_LENGTH
 from src.core.stego.lsb_pp import ALLOWED_IMAGE_EXTENSIONS, HEADER_BYTES, LSBPP, estimate_overhead_bytes, get_max_message_bytes
 from src.gui.components.gui_utils import add_password_visibility_toggle, add_shadow_effect, create_icon_pixmap, format_file_size
@@ -16,6 +18,7 @@ from src.gui.components.widgets.key_validation import KeyValidationLabel, inspec
 from src.gui.components.widgets.selection_toggle import SelectionToggle
 from src.gui.components.widgets.toggle_switch import ToggleSwitch
 from src.gui.components.widgets.visibility_stack import VisibilityStack
+from src.gui.features.embed.configurable.widgets.step_output_picker import StepOutputPicker
 from src.gui.services.key_registry import KeyRegistry
 from src.gui.services.worker import FunctionWorker
 from src.path import svg_path
@@ -37,7 +40,9 @@ class LSBInputForm(QFrame):
         
         # setup inputs
         self.cover_file_path = None
+        self.cover_link = None  # the picked Previous Output (StepOutput); only used while that mode is open
         self.public_key_path = None
+        self.output_infos: dict = {}  # StepOutput -> StepOutputInfo (to find the source file of a picked output)
         
         # setup cal capacity 
         self.capacity_bits: int = None  # ผล analyze ภาพ (Sobel+entropy) แคชไว้เพราะหนัก ไม่คำนวณซ้ำทุกครั้งที่พิมพ์/สลับโหมด
@@ -129,9 +134,9 @@ class LSBInputForm(QFrame):
 
         self.cover_source_stack = QStackedWidget()
         self.cover_source_stack.addWidget(drop_zone)
-        self.output_picker = QLabel("Previous Output List") #TODO
+        self.output_picker = StepOutputPicker()
         self.cover_source_stack.addWidget(self.output_picker)
-        # self.output_picker.selection_changed.connect(self.on_cover_output_selected) #TODO
+        self.output_picker.selection_changed.connect(self.on_cover_output_selected)
 
         cover_file_layout.addWidget(title_container)
         cover_file_layout.addWidget(self.cover_mode_toggle)
@@ -356,7 +361,12 @@ class LSBInputForm(QFrame):
             else:
                 raise ValueError("Unsupported encryption mode.")
 
-        # Capacity
+        # Capacity (a Previous Output has no file yet: it is read from its source file)
+        if is_linked(draft.cover):
+            info = self.output_infos.get(draft.cover)
+            if info is None or not info.preview_path:
+                raise ValueError("The selected output has no source file to read its capacity from.")
+
         if self.is_calculating:
             raise ValueError("Please wait for cover capacity calculation.")
 
@@ -365,8 +375,10 @@ class LSBInputForm(QFrame):
         
     def get_inputs(self) -> LSBInputsDraft:
         """Read the form state and raise ValueError if it cannot be embedded."""
+        # Only the source that is open counts: the other one is ignored (not saved)
+        cover = self.cover_link if self.cover_mode_toggle.mode() == "previous" else self.cover_file_path
         draft = LSBInputsDraft(
-            cover=self.cover_file_path,
+            cover=cover,
             payload_text=self.payload_text_area.toPlainText(),
             encryption_enabled=self.encrypt_toggle_switch.isChecked(),
             encryption_mode=self.encrypt_mode_toggle.mode(),
@@ -382,6 +394,8 @@ class LSBInputForm(QFrame):
         self.cover_mode_toggle.set_mode("manual")
         self.cover_source_stack.setCurrentIndex(0)
         self.cover_drop_zone.clear_all()
+        self.cover_link = None
+        self.output_picker.set_selection(None)
 
         # 2. Message
         self.payload_text_area.setPlainText(draft.payload_text)
@@ -401,8 +415,14 @@ class LSBInputForm(QFrame):
             self.public_key_source.select_path(draft.public_key_path)
 
         # 4. Cover last: add_files -> file_selected -> capacity worker (needs the encryption values above)
-        # TODO(configurable): draft.cover may be a previous step's output instead of a file path
-        if draft.cover and Path(draft.cover).is_file():
+        if is_linked(draft.cover):
+            # The page gives the list (set_output_choices) before this; an output that is no longer in it stays unpicked
+            self.cover_mode_toggle.set_mode("previous")  # set_mode does not emit mode_changed
+            self.cover_source_stack.setCurrentIndex(1)
+            if draft.cover in self.output_infos:
+                self.output_picker.set_selection(draft.cover)
+                self.on_cover_output_selected(draft.cover)  # capacity from its source file
+        elif draft.cover and Path(draft.cover).is_file():
             self.cover_drop_zone.add_files([draft.cover])
 
         # 5. A missing cover/key stays empty (the draft is not changed); refresh the status once
@@ -509,11 +529,21 @@ class LSBInputForm(QFrame):
         
     # --- Event handlers ---
     def on_cover_file_selected(self, file_path: str):
+        self.cover_file_path = file_path or None
+        self.start_capacity(file_path)
+
+    def on_cover_output_selected(self, reference):
+        """A previous output was picked: it has no file before the run, so read the capacity from its source file."""
+        self.cover_link = reference
+        info = self.output_infos.get(reference)
+        self.start_capacity(info.preview_path if info else None)
+
+    def start_capacity(self, file_path: str | None):
+        """Calculate the capacity of file_path in a worker (None clears it); shared by Manual and Previous Output."""
         # เปลี่ยนหรือล้างไฟล์ทุกครั้ง ต้องทำให้ผลของ worker เก่าเป็นโมฆะก่อน
         self.capacity_request += 1
         request = self.capacity_request
 
-        self.cover_file_path = file_path or None
         self.capacity_bits = None
         self.is_calculating = bool(file_path)
 
@@ -532,7 +562,19 @@ class LSBInputForm(QFrame):
     def on_cover_mode_changed(self, mode: str):
         index = 0 if mode == "manual" else 1
         self.cover_source_stack.setCurrentIndex(index)
-    
+
+        # The capacity follows the active source (otherwise the other source's capacity stays on screen)
+        if mode == "manual":
+            self.start_capacity(self.cover_file_path)
+        else:
+            self.on_cover_output_selected(self.output_picker.selection())
+
+    def set_output_choices(self, choices: list[StepOutputInfo]):
+        """The page gives the outputs this step may pick; the form only passes them on."""
+        self.output_infos = {info.reference: info for info in choices}
+        self.output_picker.set_outputs(choices)
+        self.cover_link = None  # the list was rebuilt: nothing is picked in it
+
     def on_cal_capacity_done(self, result, request: int):
         if request != self.capacity_request:
             return

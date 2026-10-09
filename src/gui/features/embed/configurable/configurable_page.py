@@ -1,3 +1,5 @@
+
+
 from copy import deepcopy
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -14,9 +16,11 @@ from PyQt6.QtGui import QIcon
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap
 from src.gui.components.widgets.execution_bar import ExecutionBar
 from src.core.configurable.drafts import StepDraft
-from src.core.configurable.runner import StepOutputFile, check_steps, run_pipeline, save_outputs, step_status
+from src.core.configurable.link import dependents, link_labels, output_choices
+from src.core.configurable.runner import StepOutputFile, check_steps, final_outputs, run_pipeline, save_outputs, step_status
 from src.gui.features.embed.configurable.constants import TECHNIQUE_DISPLAY
 from src.gui.features.embed.configurable.widgets.flow_layout import FlowLayout
+from src.gui.features.embed.configurable.widgets.step_canvas import StepCanvas
 from src.gui.features.embed.configurable.widgets.step_card import CARD_HEIGHT, StepCard, make_arrow
 from src.gui.features.embed.forms.locomotive_form import LocomotiveInputForm
 from src.gui.features.embed.forms.lsb_form import LSBInputForm
@@ -196,9 +200,9 @@ class EmbedConfigurablePage(QFrame):
         self.canvas_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.canvas_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         
-        self.flow_container = QWidget()
+        self.flow_container = StepCanvas(self.step_cards)  # receives the dragged cards (same list as the page: do not replace it)
         self.flow_container.setObjectName("pipelineCanvasContent")
-        # TODO(reorder): use StepCanvas(self.step_cards) here and connect reorder_requested -> move_pipeline_step
+        self.flow_container.reorder_requested.connect(self.move_pipeline_step)
         self.flow_layout = FlowLayout(self.flow_container, margin=0, spacing=FLOW_SPACING)
         self.canvas_scroll.setWidget(self.flow_container)
         self.canvas_layout.addWidget(self.canvas_scroll)
@@ -293,8 +297,8 @@ class EmbedConfigurablePage(QFrame):
         draft = step.technique_inputs
 
         card.set_description(step.description)
-        card.set_inputs(draft)  # the card knows how to show each technique's inputs
-        card.set_status(*step_status(step))  # same rules as Run Pipeline (core)
+        card.set_inputs(draft, link_labels(self.pipeline_steps(), draft))  # the card knows how to show each technique's inputs
+        card.set_status(*step_status(step, self.pipeline_steps()))  # same rules as Run Pipeline (core)
 
     # --- Pipeline Step Controller ---
     def add_pipeline_step(self, technique: str):
@@ -311,7 +315,22 @@ class EmbedConfigurablePage(QFrame):
         self.step_cards.append(card)
         self.render_step_cards()
         
+    def confirm_remove_step(self, users: list[int]) -> bool:
+        """Ask before removing a step whose outputs other steps use (they become BLOCKED)."""
+        if len(users) == 1:
+            text = f"Step {users[0]} uses this step's output; it will become BLOCKED."
+        else:
+            text = f"Steps {', '.join(str(number) for number in users)} use this step's output; they will become BLOCKED."
+        answer = QMessageBox.question(
+            self, "Remove Step", f"{text}\nRemove anyway?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
     def remove_pipeline_step(self, card: StepCard):
+        users = dependents(self.pipeline_steps(), card.step_key)
+        if users and not self.confirm_remove_step(users):
+            return
         if card is self.active_step_card:
             self.close_step_config_inline()  # do not leave an editor open for a removed step
         self.step_cards.remove(card)
@@ -319,6 +338,21 @@ class EmbedConfigurablePage(QFrame):
         self.render_step_cards()
         card.deleteLater()
     
+    def move_pipeline_step(self, card: StepCard, insertion_index: int):
+        """A card was dropped before position insertion_index of the cards as they were before the move."""
+        if self.run_worker is not None or card not in self.step_cards or not 0 <= insertion_index <= len(self.step_cards):
+            return
+        source = self.step_cards.index(card)
+        if source < insertion_index:
+            insertion_index -= 1  # the card leaves its place first, so the later positions move up
+        if source == insertion_index:
+            return  # dropped where it was
+
+        # An open inline editor shows the old order (its Previous Output list depends on it): close it like a click on another card
+        self.close_step_config_inline()
+        self.step_cards.insert(insertion_index, self.step_cards.pop(source))  # the same list object (StepCanvas holds it)
+        self.render_step_cards()  # numbers, arrows, badges (BLOCKED / READY follow the new order) and the run results
+
     def confirm_clear_pipeline(self):
         if not self.step_cards:
             return
@@ -341,7 +375,8 @@ class EmbedConfigurablePage(QFrame):
     def clear_pipeline(self):
         self.close_step_config_inline()
         removed_cards = list(self.step_cards)
-        # Keep the same list object (StepCanvas will reference it again when reorder is added).
+        # Keep the same list object (StepCanvas holds it).
+        self.flow_container.drop_indicator.hide()
         self.step_cards.clear()
         self.step_drafts.clear()
         self.link_notice.clear()
@@ -362,6 +397,10 @@ class EmbedConfigurablePage(QFrame):
                 }[card.technique]
             
             inputs_form = form_class(key_registry=self.key_registry, is_config=True)
+        # Previous Output list first (Metadata/Locomotive forms have no list yet): load_draft looks the saved output up in it
+        if hasattr(inputs_form, "set_output_choices"):
+            inputs_form.set_output_choices(output_choices(self.pipeline_steps(), card.step_key))
+
         draft = self.step_drafts[card.step_key].technique_inputs
         if draft is not None:
             inputs_form.load_draft(draft)
@@ -529,7 +568,7 @@ class EmbedConfigurablePage(QFrame):
         if isinstance(result, list):
             self.run_outputs = result
             self.execution_bar.set_save_available(True)
-            self.execution_bar.update_progress(100, f"Pipeline complete: {len(result)} output(s), not saved yet.")
+            self.execution_bar.update_progress(100, f"Pipeline complete: {len(final_outputs(result))} output(s), not saved yet.")
             return
 
         # failure: nothing half-done is kept
@@ -550,7 +589,7 @@ class EmbedConfigurablePage(QFrame):
         except OSError as error:
             self.show_run_error(f"Could not save outputs: {error}")
             return
-        self.execution_bar.update_progress(100, f"Saved {len(self.run_outputs)} file(s) to {folder}")
+        self.execution_bar.update_progress(100, f"Saved {len(final_outputs(self.run_outputs))} file(s) to {folder}")
 
     def discard_run(self):
         """Drop the last run's outputs and its temp folder."""
