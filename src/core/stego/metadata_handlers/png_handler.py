@@ -1,37 +1,37 @@
-from pathlib import Path
+"""
+Metadata-PNG: อ่าน/แก้ text chunk ของ PNG แบบ Metadata editor
+
+ขั้นตอนการใช้งาน
+1. read_text(path)                 -> text ทั้งหมดในไฟล์ (tEXt / zTXt / iTXt) เอาไปแสดงใน editor
+2. ผู้ใช้ เพิ่ม / แก้ / ลบ field
+3. write_text(source, dest, edited) -> บันทึก text ทั้งหมดเป็น iTXt
+   field ที่ผู้ใช้ "เพิ่ม" หรือ "แก้" = secret -> จดชื่อ key ไว้ใน TOC chunk 'stWo'
+   (field ที่ลบ หรือค่าเท่าเดิม ไม่นับ)
+4. ฝั่งถอด read_secret(path)        -> คืนเฉพาะ field ที่อยู่ใน TOC (สิ่งที่ผู้ส่งเพิ่ม/แก้)
+
+ไม่แตะพิกเซล (IDAT) และเก็บไบต์ที่อยู่หลัง IEND ไว้ (Locomotive ต่อข้อมูลไว้ตรงนั้น)
+จึงใช้ซ้อนกับ LSB++ / Locomotive ได้ทุกลำดับ
+"""
 import os
-import shutil
 import struct
+import tempfile
 import zlib
-from datetime import datetime
+from pathlib import Path
 
-from PIL import Image
-from PIL.PngImagePlugin import PngInfo
-
-# =====================================================================
-# Custom Chunk Type: 'stWo' (SIENG Two Workspace Object)
-# ออกแบบตามกฎตัวอักษรพิมพ์เล็ก-ใหญ่ (Bit 5) ของมาตรฐาน PNG
-# =====================================================================
-# 's' (เล็ก)  : Ancillary    -> เป็นส่วนเสริม โปรแกรมที่ไม่รู้จักสามารถข้ามได้ (ภาพไม่พัง)
-# 't' (เล็ก)  : Private      -> ระบุว่าสร้างขึ้นเอง (ไม่ชนกับมาตรฐาน)
-# 'W' (ใหญ่) : Reserved     -> กฎบังคับ PNG: ตัวอักษรที่ 3 "ต้อง" เป็นพิมพ์ใหญ่เสมอ
-# 'o' (เล็ก)  : Safe-to-copy -> ข้อมูลไม่สูญหาย แม้ภาพจะถูกนำไปปรับแต่งหรือแก้ไข
-# =====================================================================
-MAKER_TYPE = "stWo" # มาจาก SIENG 2 [TWO]
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+TEXT_CHUNKS = {b"tEXt", b"zTXt", b"iTXt"}
 
-# IEND chunk เต็ม 12 bytes = จุดจบไฟล์ PNG จริง ใช้แยก bytes ที่ต่อท้ายหลัง IEND
-# (เช่น payload EOF ของ Locomotive) ออกมาเก็บไว้ กันโดน re-encode ลบทิ้ง
-PNG_IEND = b"\x00\x00\x00\x00IEND\xaeB\x60\x82"
+# TOC chunk 'stWo' (SIENG Two) ตัวพิมพ์เล็ก-ใหญ่มีความหมายตามสเปก PNG:
+#   s เล็ก = ancillary (โปรแกรมที่ไม่รู้จักข้ามได้ ภาพไม่พัง)
+#   t เล็ก = private (ไม่ชนกับ chunk มาตรฐาน)
+#   W ใหญ่ = reserved bit (สเปกบังคับให้ตัวที่ 3 เป็นตัวใหญ่)
+#   o เล็ก = safe-to-copy (โปรแกรมแก้ภาพคัดลอกต่อได้)
+TOC_CHUNK = b"stWo"
+TOC_DELIMITER = "\n"  # keyword ของ PNG มี newline ไม่ได้ จึงใช้คั่นได้ปลอดภัย
 
-# ตัวคั่นรายชื่อ key ใน TOC (stWo)
-TOC_DELIMITER = "\n"
+MAX_KEYWORD_LENGTH = 79  # bytes ตามสเปก PNG
 
-# =====================================================================
-# PNG Textual Keyword Registry
-# =====================================================================
-# keyword มาตรฐานตามสเปก PNG (ISO/IEC 15948 §11.3.4.2) + ชื่อ/คำอธิบาย
-# ตัวที่ File Explorer / Windows Properties มักดึงไปแสดง = STANDARD_KEYWORDS
+# keyword มาตรฐานตามสเปก PNG -> (ชื่อ, คำอธิบาย) ให้ editor ใช้แสดง
 PNG_TEXT_KEYWORDS = {
     "Title":         ("Title", "Short title or caption for the image"),
     "Author":        ("Author", "Name of the image's creator"),
@@ -44,264 +44,177 @@ PNG_TEXT_KEYWORDS = {
     "Source":        ("Source", "Device used to create the image"),
     "Comment":       ("Comment", "Miscellaneous comment"),
 }
-
-# keyword ที่ "แสดงเสมอ" ในหน้า editor (แม้ไฟล์จะไม่มีค่านี้) - ตัวที่ File Explorer โชว์บ่อยสุด
+# keyword ที่ editor แสดงเสมอ (แม้ไฟล์ไม่มีค่า) - ตัวที่ File Explorer แสดงบ่อย
 STANDARD_KEYWORDS = ["Title", "Author", "Description", "Copyright", "Creation Time", "Software"]
 
-# ความยาว keyword สูงสุดตามสเปก PNG (bytes)
-MAX_KEYWORD_LENGTH = 79
-
-# ==========================================
-# Main Class
-# ==========================================
 
 class MetadataPNGHandler:
-    """
-    Metadata 2 ชั้นในไฟล์ PNG:
-      - iTXt (มาตรฐาน, ผ่าน PIL) : เก็บค่าจริง {key: value}
-      - stWo (custom chunk)      : เก็บ "สารบัญ" รายชื่อ key (comma-separated)
-    """
+    """Read and edit the text metadata of a PNG; the added/modified fields are the secret."""
 
-    # ================= PUBLIC API: embed / extract =================
+    # ================= Public API =================
 
-    def embed_metadata(self, file_path: str, data: dict, save_path: str = None, create_backup: bool = True, merge_existing: bool = True) -> str:
+    def read_text(self, path: str) -> dict[str, str]:
+        """All text chunks of the PNG as {keyword: value}, in file order."""
+        chunks, _ = self.read_chunks(path)
+        return self.text_of(chunks)
+
+    @staticmethod
+    def changed_keys(original: dict[str, str], edited: dict[str, str]) -> list[str]:
+        """Keys the user added or modified. A deleted key, or a value that is still the same, does not count."""
+        return [key for key, value in edited.items() if original.get(key) != value]
+
+    def write_text(self, source: str, destination: str, edited: dict[str, str]) -> list[str]:
         """
-        ฝัง metadata ลงไฟล์ PNG (iTXt สำหรับค่าจริง + stWo สำหรับสารบัญ key)
-
-        Args:
-            file_path: ไฟล์ต้นฉบับ (จะไม่ถูกแก้ไขถ้า save_path ต่างจากนี้)
-            data: dict {keyword: value} ที่จะฝัง
-            save_path: ปลายทาง (ค่าเริ่มต้น = file_path คือเขียนทับที่เดิม)
-            create_backup: สำรองไฟล์ก่อนแก้ไข (มีผลเฉพาะตอนเขียนทับที่เดิมเท่านั้น)
-            merge_existing: True = รวม text chunk เดิมในไฟล์เข้ากับ data (คง cover metadata ไว้)
-                            False = เขียนเฉพาะ data ที่ส่งมา (ใช้ตอน editor ที่จัดการ state ครบแล้ว
-                                    เพื่อให้ "ลบ key" ทำงานได้จริง)
+        Save `edited` as the only text of the PNG (all iTXt) + the TOC of the changed keys.
+        Returns the changed (secret) keys. The source file is never modified.
         """
-        if save_path is None:
-            save_path = file_path
+        # 1. ตรวจข้อมูลก่อน จะได้ไม่เขียนไฟล์เสียครึ่งทาง
+        for key, value in edited.items():
+            self.check_keyword(key)
+            if not isinstance(value, str):
+                raise ValueError(f"The value of '{key}' must be text.")
 
-        # เก็บ bytes ท้ายไฟล์ (payload EOF เช่นของ Locomotive) จากต้นฉบับก่อน
-        # เพราะ write_itxt/inject_custom_chunk จะ re-encode PNG แล้วตัด trailing ทิ้ง
-        trailing = self.read_trailing(file_path)
+        # 2. อ่านไฟล์ต้นฉบับ แล้วหาว่าผู้ใช้เพิ่ม/แก้ field ไหน
+        chunks, trailing = self.read_chunks(source)
+        secret_keys = self.changed_keys(self.text_of(chunks), edited)
 
-        # สำรองไฟล์เฉพาะตอนเขียนทับที่เดิม (Save As ไปไฟล์ใหม่ ต้นฉบับไม่ถูกแตะ จึงไม่ต้อง backup)
-        if create_backup and Path(save_path).resolve() == Path(file_path).resolve():
-            backup_path = self.safe_copy(file_path)
-            print(f"[Info] สร้างไฟล์สำรอง: {backup_path}")
+        # 3. ทิ้ง text และ TOC เดิมทั้งหมด แล้วสร้างใหม่จาก edited (field ที่ผู้ใช้ลบจึงหายไปจริง)
+        kept = [(kind, data) for kind, data in chunks if kind not in TEXT_CHUNKS and kind != TOC_CHUNK]
+        new_chunks = [self.make_itxt(key, value) for key, value in edited.items()]
+        if secret_keys:
+            new_chunks.append((TOC_CHUNK, TOC_DELIMITER.join(secret_keys).encode("utf-8")))
 
-        # TOC เก็บเฉพาะรายชื่อ key ที่ฝัง คั่นด้วย newline (กัน key ที่มี comma ทำ TOC พัง)
-        key_string = TOC_DELIMITER.join(data.keys())
+        # 4. วางต่อจาก IHDR (chunk แรกเสมอ) ก่อน IDAT - โปรแกรมทั่วไปอ่าน text ส่วนหัวได้ทันที
+        chunks = kept[:1] + new_chunks + kept[1:]
+        data = self.build_png(chunks) + trailing  # ไบต์หลัง IEND (ของ Locomotive) ต่อกลับเหมือนเดิม
 
-        # 1. เขียนค่าจริงลง iTXt ก่อน (file_path -> save_path)
-        self.write_itxt_chunk(file_path, data, save_path, merge_existing=merge_existing)
+        # 5. เขียนไฟล์ชั่วคราว -> ตรวจ -> ค่อยแทนที่ปลายทาง (ล้มกลางทางไฟล์ปลายทางไม่เสีย)
+        self.save_checked(data, destination, edited, secret_keys, trailing)
+        return secret_keys
 
-        # 2. แทรกสารบัญ key ลงใน stWo (ถ้ามี key จะฝังจริงๆ)
-        if data:
-            self.inject_custom_chunk(save_path, save_path, MAKER_TYPE, key_string)
+    def read_secret(self, path: str) -> dict[str, str]:
+        """Extract: the fields listed in the TOC (what the sender added or modified). {} = no TOC."""
+        chunks, _ = self.read_chunks(path)
+        text = self.text_of(chunks)
+        return {key: text[key] for key in self.toc_of(chunks) if key in text}
 
-        # 3. ต่อ bytes ท้ายไฟล์กลับ (payload EOF ของ Locomotive) หลัง re-encode เสร็จ
-        if trailing:
-            with open(save_path, "ab") as f:
-                f.write(trailing)
+    def check_keyword(self, key: str) -> None:
+        """PNG keyword rules: 1-79 bytes of printable Latin-1, no leading/trailing/double spaces."""
+        if not isinstance(key, str) or not key:
+            raise ValueError("A keyword cannot be empty.")
+        try:
+            raw = key.encode("latin-1")
+        except UnicodeEncodeError:
+            raise ValueError(f"Keyword '{key}' must use Latin-1 characters only (A-Z, 0-9, ...).") from None
+        if len(raw) > MAX_KEYWORD_LENGTH:
+            raise ValueError(f"Keyword '{key}' is longer than {MAX_KEYWORD_LENGTH} characters.")
+        if any(not (32 <= byte <= 126 or 161 <= byte <= 255) for byte in raw):
+            raise ValueError(f"Keyword '{key}' contains a character that is not allowed.")
+        if key != key.strip() or "  " in key:
+            raise ValueError(f"Keyword '{key}' cannot start/end with a space or contain double spaces.")
 
-        return save_path
+    # ================= Read: chunks -> text =================
 
-    def read_trailing(self, file_path: str) -> bytes:
-        """คืน bytes ที่อยู่ 'หลัง IEND' ของไฟล์ PNG (เช่น payload EOF ของ Locomotive)
-        คืน b'' ถ้าเป็น PNG ปกติที่ไม่มีอะไรต่อท้าย"""
-        raw = Path(file_path).read_bytes()
-        idx = raw.find(PNG_IEND)
-        return raw[idx + len(PNG_IEND):] if idx != -1 else b""
-
-    def extract_metadata(self, file_path: str) -> dict:
+    def read_chunks(self, path: str) -> tuple[list[tuple[bytes, bytes]], bytes]:
         """
-        Reverse ของ embed_metadata:
-          1. อ่าน stWo -> รายชื่อ key ที่ embed ไว้ล่าสุด (สารบัญ)
-          2. อ่าน iTXt -> ค่าจริงของ key เหล่านั้น
-        คืน {key: value} เฉพาะ key ที่อยู่ใน stWo (= ผลลัพธ์ของ embed_metadata ครั้งล่าสุด)
+        Split a PNG into [(chunk_type, chunk_data), ...] up to IEND, and the bytes after IEND.
+        แต่ละ chunk = length(4) + type(4) + data + crc(4)
         """
-        keys = self.read_custom_chunk(file_path, MAKER_TYPE)
-
-        if keys is None:
-            print(f"[-] ไม่พบ chunk '{MAKER_TYPE}' -> ไฟล์นี้ไม่ได้ผ่าน embed_metadata")
-            return {}
-
-        all_text = self.read_itxt_chunk(file_path)
-
-        result = {}
-        for key in keys:
-            if key in all_text:
-                result[key] = all_text[key]
-            else:
-                print(f"[!] Warning: key '{key}' อยู่ใน stWo แต่ไม่พบใน iTXt")
-
-        return result
-
-    # ================= iTXt: metadata มาตรฐาน (ผ่าน PIL) =================
-
-    def write_itxt_chunk(self, file_path: str, data: dict, save_file_path: str = None, is_compress: bool = True, merge_existing: bool = True):
-        if save_file_path is None:
-            save_file_path = file_path
-
-        with Image.open(file_path) as img:
-            if merge_existing:
-                # รวมค่าเดิม (ถ้ามี) กับค่าใหม่ - key ซ้ำให้ค่าใหม่ทับค่าเดิม
-                # (PngInfo() ใหม่เริ่มจากศูนย์เสมอ ถ้าไม่ทำแบบนี้ iTXt/tEXt เดิมจะหายไป)
-                merged = dict(img.text)
-                merged.update(data)
-            else:
-                # เขียนเฉพาะ data ที่ส่งมา - key เดิมที่ไม่ได้อยู่ใน data จะถูก "ลบ" ออกจริง
-                # (editor ที่โหลด metadata ทั้งหมดมาแล้วต้องใช้โหมดนี้ เพื่อให้การลบ field ทำงานได้)
-                merged = dict(data)
-
-            metadata = PngInfo()
-            for key, value in merged.items():
-                metadata.add_itxt(key, value, zip=is_compress)
-
-        # Replace text only. Re-encoding via Image.save drops unrelated chunks.
-        chunks = self._parse_chunks(Path(file_path).read_bytes())
-        if not chunks or chunks[-1][0] != b"IEND":
-            raise ValueError("PNG is missing its IEND chunk.")
-        kept = [(kind, content) for kind, content in chunks
-                if kind not in {b"tEXt", b"zTXt", b"iTXt", b"stWo", b"IEND"}]
-        for chunk in metadata.chunks:
-            kept.append((chunk[0], chunk[1]))
-        kept.append(chunks[-1])
-        tmp_path = f"{save_file_path}.tmp"
-        Path(tmp_path).write_bytes(self._build_png(kept))
-        os.replace(tmp_path, save_file_path)
-        print(f"[+] Successfully wrote metadata to: {save_file_path}")
-
-    def read_itxt_chunk(self, file_path: str) -> dict:
-        with Image.open(file_path) as img:
-            if img.text:
-                for key, value in img.text.items():
-                    print(f"[+] Found Metadata - Key: '{key}' -> Value: '{value}'")
-                return dict(img.text)
-
-            print("[-] No Text Metadata (iTXt/tEXt/zTXt) found in this file.")
-            return {}
-
-    # ================= PNG chunk parsing (ใช้ร่วม inject + read custom) =================
-
-    def _parse_chunks(self, raw: bytes) -> list:
-        """แตกไฟล์ PNG เป็น list ของ (chunk_type, chunk_data) โดยไล่อ่านทีละ chunk
-        ตามสเปกจริง (length 4B + type 4B + data + crc 4B) แทนการเดาตำแหน่งด้วย find()
-        """
+        raw = Path(path).read_bytes()
         if raw[:8] != PNG_SIGNATURE:
-            raise ValueError("ไม่ใช่ไฟล์ PNG ที่ถูกต้อง (signature ผิด)")
+            raise ValueError("The file is not a PNG image.")
 
         chunks = []
-        pos = 8  # ข้าม PNG signature 8 ไบต์
-
+        pos = 8  # ข้าม signature
         while pos + 8 <= len(raw):
             length = struct.unpack(">I", raw[pos:pos + 4])[0]
-            chunk_type = raw[pos + 4:pos + 8]
+            kind = raw[pos + 4:pos + 8]
+            end = pos + 12 + length
+            if end > len(raw):
+                raise ValueError("The PNG file is truncated or damaged.")
+            chunks.append((kind, raw[pos + 8:pos + 8 + length]))
+            pos = end
+            if kind == b"IEND":
+                return chunks, raw[pos:]  # ที่เหลือหลัง IEND = trailing (เช่น ข้อมูลของ Locomotive)
 
-            if pos + 12 + length > len(raw):
-                raise ValueError(f"PNG chunk '{chunk_type}' at offset {pos} declares length {length} bytes, "
-                                 f"exceeding remaining file size -- file may be truncated or corrupted")
+        raise ValueError("The PNG file has no IEND chunk.")
 
-            chunk_data = raw[pos + 8:pos + 8 + length]
-            chunks.append((chunk_type, chunk_data))
+    def text_of(self, chunks: list[tuple[bytes, bytes]]) -> dict[str, str]:
+        """{keyword: value} of the text chunks. A keyword that appears twice keeps the last value."""
+        text = {}
+        for kind, data in chunks:
+            if kind in TEXT_CHUNKS:
+                key, value = self.decode_text_chunk(kind, data)
+                text.pop(key, None)  # ซ้ำ -> ใช้ตัวล่าสุด
+                text[key] = value
+        return text
 
-            pos += 12 + length  # length(4) + type(4) + data + crc(4)
-            if chunk_type == b"IEND":
-                break
+    def toc_of(self, chunks: list[tuple[bytes, bytes]]) -> list[str]:
+        """The keys listed in the TOC chunk ([] when there is none)."""
+        for kind, data in chunks:
+            if kind == TOC_CHUNK:
+                return [key for key in data.decode("utf-8").split(TOC_DELIMITER) if key]
+        return []
 
-        return chunks
+    def decode_text_chunk(self, kind: bytes, data: bytes) -> tuple[str, str]:
+        """
+        tEXt: keyword \\0 text                                  (Latin-1)
+        zTXt: keyword \\0 method(1) compressed-text             (Latin-1)
+        iTXt: keyword \\0 flag(1) method(1) lang \\0 translated \\0 text   (UTF-8, flag 1 = compressed)
+        """
+        try:
+            keyword, rest = data.split(b"\0", 1)
+            key = keyword.decode("latin-1")
+            if kind == b"tEXt":
+                return key, rest.decode("latin-1")
+            if kind == b"zTXt":
+                return key, zlib.decompress(rest[1:]).decode("latin-1")
 
-    def _build_png(self, chunks: list) -> bytes:
-        """ประกอบ (chunk_type, chunk_data) list กลับเป็นไฟล์ PNG (CRC คำนวณใหม่ทุก chunk)"""
+            # iTXt
+            compressed = rest[0] == 1
+            _language, _translated, text = rest[2:].split(b"\0", 2)
+            if compressed:
+                text = zlib.decompress(text)
+            return key, text.decode("utf-8")
+        except (ValueError, IndexError, zlib.error, UnicodeDecodeError):
+            raise ValueError(f"Cannot read a {kind.decode()} chunk of this PNG (it is damaged).") from None
+
+    # ================= Write: text -> chunks -> file =================
+
+    def make_itxt(self, key: str, value: str) -> tuple[bytes, bytes]:
+        """One iTXt chunk. Not compressed, unless compressing makes it smaller (long text)."""
+        raw = value.encode("utf-8")
+        compressed = zlib.compress(raw)
+        if len(compressed) < len(raw):
+            flag, text = 1, compressed
+        else:
+            flag, text = 0, raw
+        # keyword \0 flag method(0 = zlib) lang(ว่าง) \0 translated keyword(ว่าง) \0 text
+        data = key.encode("latin-1") + b"\0" + bytes([flag, 0]) + b"\0" + b"\0" + text
+        return b"iTXt", data
+
+    def build_png(self, chunks: list[tuple[bytes, bytes]]) -> bytes:
+        """Signature + every chunk with its length and a fresh CRC."""
         parts = [PNG_SIGNATURE]
-        for chunk_type, chunk_data in chunks:
-            parts.append(self.create_custom_chunk(chunk_type, chunk_data))
+        for kind, data in chunks:
+            crc = zlib.crc32(kind + data) & 0xFFFFFFFF
+            parts.append(struct.pack(">I", len(data)) + kind + data + struct.pack(">I", crc))
         return b"".join(parts)
 
-    def create_custom_chunk(self, chunk_type: bytes, chunk_data: bytes) -> bytes:
-        """สร้าง chunk เดียวตาม ISO/IEC 15948: length + type + data + crc
-        (generic ใช้ได้กับ chunk ทุกประเภท ไม่ใช่แค่ custom chunk)
-        """
-        length_bytes = struct.pack(">I", len(chunk_data))
-        crc_bytes = struct.pack(">I", zlib.crc32(chunk_type + chunk_data))
-        return length_bytes + chunk_type + chunk_data + crc_bytes
+    def save_checked(self, data: bytes, destination: str, edited: dict, secret_keys: list[str], trailing: bytes) -> None:
+        """Write to a temporary file next to the destination, check it, then replace the destination."""
+        target = Path(destination)
+        handle, temp_path = tempfile.mkstemp(prefix=".sieng-png-", suffix=".png", dir=target.parent)
+        try:
+            with os.fdopen(handle, "wb") as file:
+                file.write(data)
 
-    # ================= stWo: custom chunk (low-level) =================
+            # อ่านกลับมาตรวจว่าได้ตามที่ตั้งใจจริง
+            chunks, saved_trailing = self.read_chunks(temp_path)
+            if self.text_of(chunks) != edited or self.toc_of(chunks) != secret_keys or saved_trailing != trailing:
+                raise ValueError("The saved PNG metadata does not match; the file was not replaced.")
 
-    def inject_custom_chunk(self, file_path: str, save_path: str, chunk_type_str: str, payload_str: str):
-        """แทรก custom chunk เข้าไปในไฟล์ PNG
-        - วางไว้ถัดจาก IHDR (chunk แรกเสมอตามสเปก)
-        - ถ้ามี chunk ประเภทเดียวกันอยู่แล้ว ลบของเก่าออกก่อน (ไม่ให้ซ้ำซ้อน)
-        """
-        if len(chunk_type_str) != 4:
-            raise ValueError("chunk_type ต้องเป็นตัวอักษร 4 ตัวเท่านั้น (ตามสเปก PNG)")
-
-        chunk_type = chunk_type_str.encode("ascii")
-        chunk_data = payload_str.encode("utf-8")
-
-        with open(file_path, "rb") as f:
-            raw = f.read()
-
-        chunks = self._parse_chunks(raw)
-
-        # ลบ chunk ประเภทเดียวกันที่มีอยู่เดิม (ถ้ามี)
-        chunks = [(t, d) for t, d in chunks if t != chunk_type]
-
-        # IHDR เป็น chunk แรก (index 0) เสมอ -> แทรก chunk ใหม่เป็น index 1
-        chunks.insert(1, (chunk_type, chunk_data))
-
-        with open(save_path, "wb") as f:
-            f.write(self._build_png(chunks))
-
-        print(f"[+] Inject Chunk '{chunk_type_str}' Success !")
-
-    def read_custom_chunk(self, file_path: str, chunk_type_str: str):
-        """อ่าน custom chunk แล้วแปลง payload (comma-separated) เป็น list ของ key
-        คืน None ถ้าไม่พบ chunk ประเภทนี้ในไฟล์
-        """
-        if len(chunk_type_str) != 4:
-            raise ValueError("chunk_type ต้องเป็นตัวอักษร 4 ตัวเท่านั้น (ตามสเปก PNG)")
-
-        target_type = chunk_type_str.encode("ascii")
-
-        with open(file_path, "rb") as f:
-            raw = f.read()
-
-        for chunk_type, chunk_data in self._parse_chunks(raw):
-            if chunk_type == target_type:
-                try:
-                    payload = chunk_data.decode("utf-8")
-                except UnicodeDecodeError:
-                    return None
-                return [k for k in payload.split(TOC_DELIMITER) if k]
-
-        return None
-    
-    # ================= Utility: สำรองไฟล์ก่อนแก้ไข =================
-
-    def safe_copy(self, file_path: str, suffix: str = "_backup") -> str:
-        """
-        สร้างไฟล์สำรอง (สำเนาของไฟล์ก่อนแก้ไข) ไว้เผื่อกู้คืน
-        เหมือนกับ MetadataMP3Handler.safe_copy()
-
-        Args:
-            file_path: path ของไฟล์ที่จะ copy
-            suffix: suffix ที่จะเพิ่มในชื่อไฟล์สำรอง (ค่าเริ่มต้น "_backup")
-
-        Returns:
-            str: path ของไฟล์สำรอง
-        """
-        src_path = Path(file_path)
-
-        if not src_path.exists():
-            raise FileNotFoundError(f"File not found: {src_path}")
-
-        dst_path = src_path.with_stem(f"{src_path.stem}{suffix}")
-
-        # ถ้ามีชื่อซ้ำให้เพิ่ม timestamp กำกับ
-        if dst_path.exists():
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            dst_path = src_path.with_stem(f"{src_path.stem}{suffix}_{ts}")
-
-        shutil.copy2(src_path, dst_path)
-        return str(dst_path)
+            os.replace(temp_path, target)
+        except BaseException:
+            Path(temp_path).unlink(missing_ok=True)
+            raise
