@@ -1606,3 +1606,20 @@ QLabel#metadataNotice {
     color: #F59E0F;
     font-size: 8.25pt;
 }
+
+/* field ที่ผู้รับจะเห็น (payload) ใน Metadata editor: ขอบสีม่วง + ป้าย PAYLOAD */
+QLineEdit#formInput[payload="true"],
+QPlainTextEdit#payloadTextArea[payload="true"],
+QFrame#apicCard[payload="true"] {
+    border: 1px solid #A78BFA;
+}
+QLabel#payloadBadge {
+    color: #A78BFA;
+    background-color: rgba(167, 139, 250, 0.12);
+    border: 1px solid rgba(167, 139, 250, 0.5);
+    border-radius: 5px;
+    padding: 2px 6px;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    font-weight: 700;
+}

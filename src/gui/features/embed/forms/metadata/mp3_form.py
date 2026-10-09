@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import QFrame, QScrollArea, QTabWidget, QVBoxLayout
 from src.core.stego.metadata_handlers.mp3_handler import MetadataMP3Handler, MP3Field, key_label
 from src.gui.components.gui_utils import create_icon_state
 from src.gui.components.widgets.file_info_bar import FileInfoBar
-from src.gui.features.embed.forms.metadata.common import SecretPreview
+from src.gui.features.embed.forms.metadata.common import PAYLOAD_REQUIRED, SecretPreview
 from src.gui.features.embed.forms.metadata.file_info import get_mp3_file_info
 from src.gui.features.embed.forms.metadata.mp3_pictures import MP3PicturesForm
 from src.gui.features.embed.forms.metadata.mp3_text_frames import MP3TextFramesForm
@@ -104,6 +104,8 @@ class MP3MetadataForm(QFrame):
                 raise ValueError(f"{key_label(field.key)} is used more than once. Change its description or language.")
             self.handler.check_field(field.key, field)
             entries[field.key] = field
+        if not self.handler.changed_keys(self.original, entries):
+            raise ValueError(PAYLOAD_REQUIRED)
         return entries
 
     def clear_all(self) -> None:
@@ -115,7 +117,10 @@ class MP3MetadataForm(QFrame):
     # --- Messages ---
 
     def update_preview(self) -> None:
+        """Receiver preview + PAYLOAD marks on the frames / pictures that were added or modified."""
         changed = self.handler.changed_keys(self.original, self.current_entries())
+        self.text_form.mark_payload(set(changed))
+        self.pictures_form.mark_payload(set(changed))
         self.secret_preview.show_changes(self.key_labels(changed))
 
     def key_labels(self, keys: list[str]) -> list[str]:

@@ -18,7 +18,8 @@ from src.core.stego.metadata_handlers.png_handler import (
 from src.gui.components.gui_utils import add_shadow_effect
 from src.gui.components.widgets.file_info_bar import FileInfoBar
 from src.gui.features.embed.forms.metadata.common import (
-    SecretPreview, make_badge, make_card_header, make_remove_button, make_value_input,
+    PAYLOAD_REQUIRED, SecretPreview, make_badge, make_card_header, make_payload_badge,
+    make_remove_button, make_value_input, set_payload_mark,
 )
 from src.gui.features.embed.forms.metadata.file_info import get_png_file_info
 
@@ -44,6 +45,8 @@ class PNGStandardField(QFrame):
         label.setToolTip(description)
         header.addWidget(label)
         header.addWidget(make_badge(keyword))
+        self.payload_badge = make_payload_badge()
+        header.addWidget(self.payload_badge)
         header.addStretch()
         layout.addLayout(header)
 
@@ -55,6 +58,10 @@ class PNGStandardField(QFrame):
 
     def set_value(self, value: str) -> None:
         self.value_input.setText(value)
+
+    def set_payload(self, on: bool) -> None:
+        set_payload_mark(self.value_input, on)
+        self.payload_badge.setVisible(on)
 
 
 class PNGCustomRow(QFrame):
@@ -74,7 +81,9 @@ class PNGCustomRow(QFrame):
         label.setObjectName("fileItemName")
         self.delete_button = make_remove_button("Remove metadata")
         self.delete_button.clicked.connect(lambda: self.removed.emit(self))
+        self.payload_badge = make_payload_badge()
         header.addWidget(label)
+        header.addWidget(self.payload_badge)
         header.addStretch()
         header.addWidget(self.delete_button)
         layout.addLayout(header)
@@ -99,6 +108,10 @@ class PNGCustomRow(QFrame):
 
     def is_blank(self) -> bool:
         return not self.get_keyword() and not self.get_value()
+
+    def set_payload(self, on: bool) -> None:
+        set_payload_mark(self.value_input, on)
+        self.payload_badge.setVisible(on)
 
 
 class PNGMetadataForm(QFrame):
@@ -316,8 +329,10 @@ class PNGMetadataForm(QFrame):
                 row.value_input.setFocus()
                 raise ValueError(f"Enter a value for '{keyword}'.")
             seen.add(keyword)
-        # ไม่มี field เลยก็ได้: Save แล้วไฟล์จะไม่มี text metadata
-        return self.current_entries()
+        entries = self.current_entries()
+        if not self.handler.changed_keys(self.original, entries):
+            raise ValueError(PAYLOAD_REQUIRED)
+        return entries
 
     def clear_all(self) -> None:
         self.set_entries({})
@@ -327,7 +342,13 @@ class PNGMetadataForm(QFrame):
         self.add_keyword_combo.clearEditText()
 
     def update_preview(self) -> None:
-        self.secret_preview.show_changes(self.handler.changed_keys(self.original, self.current_entries()))
+        """Receiver preview + PAYLOAD marks on the fields that were added or modified."""
+        changed = self.handler.changed_keys(self.original, self.current_entries())
+        for keyword, field in self.standard_fields.items():
+            field.set_payload(keyword in changed)
+        for row in self.custom_rows:
+            row.set_payload(row.get_keyword() in changed)
+        self.secret_preview.show_changes(changed)
 
     def key_labels(self, keys: list[str]) -> list[str]:
         """PNG keywords are already readable (same API as the MP3 form)."""

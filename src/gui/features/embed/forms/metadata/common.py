@@ -9,6 +9,27 @@ from src.path import svg_path
 # QLineEdit ตัดข้อความเกิน 32767 ตัวอักษรทิ้งเงียบ ๆ -> ข้อความลับยาว ๆ จะหาย จึงขยายไว้
 MAX_VALUE_LENGTH = 10_000_000
 
+# ไม่มี field ที่เพิ่ม/แก้ = ไม่มีอะไรให้ผู้รับอ่าน -> ไม่ให้ Save
+PAYLOAD_REQUIRED = "Add or modify at least one field. The fields you add or modify are what the receiver will see."
+
+
+def make_payload_badge() -> QLabel:
+    """Small 'PAYLOAD' tag next to a field the receiver will see (hidden until set_payload_mark)."""
+    badge = QLabel("PAYLOAD")
+    badge.setObjectName("payloadBadge")
+    badge.setToolTip("The receiver will see this field")
+    badge.hide()
+    return badge
+
+
+def set_payload_mark(widget: QWidget, on: bool) -> None:
+    """Purple border via the QSS property [payload="true"]; repolish so the style changes right away."""
+    if bool(widget.property("payload")) == on:
+        return
+    widget.setProperty("payload", on)
+    widget.style().unpolish(widget)
+    widget.style().polish(widget)
+
 
 def make_value_input(placeholder: str = "", text: str = "") -> QLineEdit:
     value_input = QLineEdit(text)
@@ -82,7 +103,7 @@ class SecretPreview(QWidget):
         if names:
             self.preview_label.setText("Receiver will see: " + ", ".join(names))
         else:
-            self.preview_label.setText("No added or modified fields yet. The receiver will see nothing.")
+            self.preview_label.setText("No added or modified fields yet. Add or modify at least one field for the receiver.")
 
     def show_previous_secret(self, names: list[str]) -> None:
         if not names:

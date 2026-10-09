@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
 from src.core.stego.metadata_handlers.mp3_handler import FRAME_INFO, STANDARD_FRAMES, MetadataMP3Handler, MP3Field
 from src.gui.components.gui_utils import add_shadow_effect
 from src.gui.features.embed.forms.metadata.common import (
-    make_badge, make_card_header, make_remove_button, make_value_input,
+    make_badge, make_card_header, make_payload_badge, make_remove_button, make_value_input, set_payload_mark,
 )
 
 # ช่องกรอกของ frame ที่มีได้หลายตัว (1 แถว = 1 MP3Field)
@@ -117,6 +117,11 @@ class FrameRow(QFrame):
         name = "desc" if "desc" in self.inputs else "text"
         self.inputs[name].setFocus()
 
+    def set_payload(self, on: bool) -> None:
+        for name, widget in self.inputs.items():
+            if name != "lang":  # combo ภาษาไม่ต้องมีขอบม่วง
+                set_payload_mark(widget, on)
+
 
 class FrameField(QFrame):
     """One frame ID: a text box (simple frame) or a list of rows (repeatable frame)."""
@@ -140,6 +145,8 @@ class FrameField(QFrame):
         label.setToolTip(description)
         header.addWidget(label)
         header.addWidget(make_badge(frame_id))
+        self.payload_badge = make_payload_badge()
+        header.addWidget(self.payload_badge)
         header.addStretch()
         if row_inputs(frame_id):
             hint = QLabel("Can have multiple")
@@ -217,6 +224,19 @@ class FrameField(QFrame):
             self.rows[0].focus()
         else:
             self.value_input.setFocus()
+
+    def mark_payload(self, changed: set[str]) -> None:
+        """Purple border on the rows/box the receiver will see; PAYLOAD tag if any of them is."""
+        if self.has_rows():
+            marked = False
+            for row in self.rows:
+                on = not row.is_blank() and row.to_field().key in changed
+                row.set_payload(on)
+                marked = marked or on
+        else:
+            marked = self.frame_id in changed and bool(self.value_input.text())
+            set_payload_mark(self.value_input, marked)
+        self.payload_badge.setVisible(marked)
 
 
 class MP3TextFramesForm(QFrame):
@@ -369,3 +389,7 @@ class MP3TextFramesForm(QFrame):
         for field in [*self.standard_fields.values(), *self.other_fields.values()]:
             fields.extend(field.get_fields())
         return fields
+
+    def mark_payload(self, changed: set[str]) -> None:
+        for field in [*self.standard_fields.values(), *self.other_fields.values()]:
+            field.mark_payload(changed)

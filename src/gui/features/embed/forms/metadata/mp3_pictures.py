@@ -21,7 +21,9 @@ from src.core.stego.metadata_handlers.mp3_handler import (
 )
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, format_file_size
 from src.gui.components.widgets.files_drop import FileDropWidget
-from src.gui.features.embed.forms.metadata.common import make_badge, make_remove_button, make_value_input
+from src.gui.features.embed.forms.metadata.common import (
+    make_badge, make_payload_badge, make_remove_button, make_value_input, set_payload_mark,
+)
 from src.path import svg_path
 
 TINTS = ["blue", "purple", "green", "orange"]
@@ -68,9 +70,11 @@ class PictureCard(QFrame):
         badge = QLabel(f"Type {type_text(picture.picture_type)}")
         badge.setObjectName("fileInfoBadge")
         badge.setProperty("badgeColor", "blue")
+        self.payload_badge = make_payload_badge()
         type_row = QHBoxLayout()
         type_row.addWidget(badge)
         type_row.addStretch()
+        type_row.addWidget(self.payload_badge)
         preview_layout.addLayout(type_row)
 
         image = QLabel()
@@ -108,6 +112,10 @@ class PictureCard(QFrame):
         buttons.addWidget(remove_button)
         body_layout.addLayout(buttons)
         layout.addWidget(body)
+
+    def set_payload(self, on: bool) -> None:
+        set_payload_mark(self, on)
+        self.payload_badge.setVisible(on)
 
 
 class MP3PicturesForm(QFrame):
@@ -324,6 +332,10 @@ class MP3PicturesForm(QFrame):
         self.pictures = list(pictures)
         self.reset_editor()
         self.refresh_cards()
+
+    def mark_payload(self, changed: set[str]) -> None:
+        for card, picture in zip(self.cards, self.pictures):
+            card.set_payload(picture.key in changed)
 
     def current_pictures(self) -> list[MP3Field]:
         """The confirmed pictures (used for the live preview)."""
