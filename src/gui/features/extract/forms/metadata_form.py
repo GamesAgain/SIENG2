@@ -31,14 +31,10 @@ ICON_SIZE = 16
 TINTS = ["blue", "purple", "green", "orange"]
 
 
-def picture_summary(picture: MP3Field) -> str:
-    return f"Type {picture.picture_type} {APIC_TYPES.get(picture.picture_type, 'Unknown')} · {picture.mime} · {format_file_size(len(picture.data))}"
-
-
 class FieldRow(QFrame):
     """Read-only field: name + key badge (+ PAYLOAD in View All) + value + Copy."""
 
-    def __init__(self, name: str, key: str, value: str, payload: bool = False, copyable: bool = True, parent=None):
+    def __init__(self, name: str, key: str, value: str, payload: bool = False, parent=None):
         super().__init__(parent)
         self.value = value
         layout = QVBoxLayout(self)
@@ -59,7 +55,6 @@ class FieldRow(QFrame):
         copy_button.setObjectName("SecondaryBtn")
         copy_button.setCursor(Qt.CursorShape.PointingHandCursor)
         copy_button.clicked.connect(lambda: QApplication.clipboard().setText(self.value))
-        copy_button.setVisible(copyable)  # แถวสรุปรูปภาพไม่มีอะไรให้คัดลอก
         header.addWidget(copy_button)
         layout.addLayout(header)
 
@@ -79,10 +74,11 @@ class FieldRow(QFrame):
 class PictureResultCard(QFrame):
     """A hidden picture (APIC): preview, type, description, size and Save Image (the exact bytes, never re-encoded)."""
 
-    def __init__(self, picture: MP3Field, number: int, parent=None):
+    def __init__(self, picture: MP3Field, number: int, payload: bool = False, parent=None):
         super().__init__(parent)
         self.picture = picture
         self.setObjectName("apicCard")
+        set_payload_mark(self, payload)  # View All: ภาพที่ผู้ส่งซ่อน = ขอบม่วง
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -96,9 +92,12 @@ class PictureResultCard(QFrame):
         badge = QLabel(f"Type {picture.picture_type} — {APIC_TYPES.get(picture.picture_type, 'Unknown')}")
         badge.setObjectName("fileInfoBadge")
         badge.setProperty("badgeColor", "blue")
+        payload_badge = make_payload_badge()
+        payload_badge.setVisible(payload)
         type_row = QHBoxLayout()
         type_row.addWidget(badge)
         type_row.addStretch()
+        type_row.addWidget(payload_badge)
         preview_layout.addLayout(type_row)
         image = QLabel()
         image.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -193,15 +192,32 @@ class ViewAllDialog(QDialog):
     def add_mp3_rows(self, file_path: str):
         handler = MetadataMP3Handler()
         hidden = handler.read_secret(file_path)
+        pictures = []
         for key, field in handler.read_frames(file_path).items():
-            is_picture = field.frame_id == "APIC"
-            value = picture_summary(field) if is_picture else field.text
-            self.rows_layout.addWidget(FieldRow(key_label(key), field.frame_id, value, payload=key in hidden, copyable=not is_picture))
+            if field.frame_id == "APIC":
+                pictures.append((field, key in hidden))
+                continue
+            self.rows_layout.addWidget(FieldRow(key_label(key), field.frame_id, field.text, payload=key in hidden))
         # frame ที่ editor ไม่ได้แก้ (PRIV, POPM ...) แสดงไว้ดูเฉย ๆ
         for key, value in handler.read_other_frames(file_path).items():
             frame_id = key.split(":")[0].split(" ")[0]
             name = FRAME_INFO.get(frame_id, (frame_id, ""))[0]
             self.rows_layout.addWidget(FieldRow(name, key, value))
+
+        # ภาพทั้งหมดเป็นการ์ดแบบเดียวกับ Hidden Pictures (ดูภาพได้ + Save Image)
+        if pictures:
+            title = QLabel(f"Attached Pictures ({len(pictures)})")
+            title.setObjectName("cardTitle")
+            self.rows_layout.addWidget(title)
+            grid_holder = QWidget()
+            grid = QGridLayout(grid_holder)
+            grid.setContentsMargins(0, 0, 0, 0)
+            grid.setSpacing(12)
+            grid.setColumnStretch(0, 1)
+            grid.setColumnStretch(1, 1)
+            for index, (picture, payload) in enumerate(pictures):
+                grid.addWidget(PictureResultCard(picture, index + 1, payload=payload), index // 2, index % 2)
+            self.rows_layout.addWidget(grid_holder)
 
 
 class MetadataExtractForm(QFrame):
