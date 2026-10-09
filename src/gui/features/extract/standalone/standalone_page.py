@@ -1,10 +1,11 @@
-from PyQt6.QtWidgets import QFrame, QLabel, QTabWidget, QVBoxLayout
+from PyQt6.QtWidgets import QFrame, QTabWidget, QVBoxLayout
 from PyQt6.QtCore import QSize
 from PyQt6.QtGui import QIcon
 
 from src.gui.components.gui_utils import create_icon_pixmap
 from src.gui.features.extract.standalone.lsb_tab import LSBStandaloneTab
 from src.gui.features.extract.standalone.locomotive_tab import LocomotiveStandaloneTab
+from src.gui.features.extract.standalone.metadata_tab import MetadataStandaloneTab
 from src.gui.services.key_registry import KeyRegistry
 from src.path import svg_path
 
@@ -22,7 +23,7 @@ class ExtractStandalonePage(QFrame):
 
         self.tab_lsb = LSBStandaloneTab(self.key_registry)
         self.tab_locomotive = LocomotiveStandaloneTab(self.key_registry)
-        self.tab_metadata = QLabel("Metadata") #TODO
+        self.tab_metadata = MetadataStandaloneTab()
 
         tech_tabs = QTabWidget()
         tech_tabs.setObjectName("siengTabs")

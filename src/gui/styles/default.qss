@@ -1623,3 +1623,8 @@ QLabel#payloadBadge {
     font-size: 10px;
     font-weight: 700;
 }
+
+/* Extract Metadata: View All dialog */
+QDialog#metadataViewAllDialog {
+    background-color: #252525;
+}
