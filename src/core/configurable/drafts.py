@@ -1,13 +1,15 @@
 """Plain data of the technique inputs and of a pipeline step (no GUI code, so core and GUI can both use it)."""
 from dataclasses import dataclass, field
 
+from src.core.configurable.step_output import FileSource
+
 # Display names of the techniques (the GUI reuses them for its cards)
 TECHNIQUE_LABELS = {"lsbpp": "LSB++", "locomotive": "Locomotive", "metadata": "Metadata"}
 
 @dataclass
 class LSBInputsDraft:
     "LSB++ inputs draft for saving/loading state of the form."
-    cover: str | None = None
+    cover: FileSource | None = None  # a file path (Manual) or an earlier step's output (Previous Output)
     payload_text: str = ""
     encryption_enabled: bool = True
     encryption_mode: str = "password"
@@ -27,9 +29,9 @@ class LSBInputsDraft:
 @dataclass
 class LocomotiveInputsDraft:
     "Locomotive inputs draft; payload_mode selects which payload field is used."
-    covers: list[str] = field(default_factory=list)
+    covers: list[FileSource] = field(default_factory=list)  # all paths (Manual) or all step outputs (Previous Output)
     payload_mode: str = "files"  # "files" | "text"
-    payload_files: list[str] = field(default_factory=list)
+    payload_files: list[FileSource] = field(default_factory=list)  # all paths (Manual) or all step outputs (Previous Output)
     payload_text: str = ""
     encryption_enabled: bool = True
     encryption_mode: str = "password"
