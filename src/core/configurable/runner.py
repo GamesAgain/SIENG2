@@ -187,14 +187,20 @@ def final_outputs(outputs: list[StepOutputFile]) -> list[StepOutputFile]:
     """The outputs that are saved: the end of each chain (the earlier layers are inside those files)."""
     return [output for output in outputs if output.final]
 
+def final_files(outputs: list[StepOutputFile]) -> list[tuple[str, Path]]:
+    """(name it is saved as, file in the workspace) of every final output: what Save Outputs gives and the page lists."""
+    used_names = set()
+    # The key keeps the name of the first file along the chain (a -> a -> a); _2, _3 only when two chains share it
+    return [
+        (unique_name(output.reference.output_key + output.path.suffix, used_names), output.path)
+        for output in final_outputs(outputs)
+    ]
+
 # --- Save ---
 def save_outputs(outputs: list[StepOutputFile], destination: Path) -> Path:
     """Copy the final outputs to <destination>/<SAVE_FOLDER_PREFIX>_<time>/<name>.png|.mp3, named after the file the chain started from."""
     folder = destination / f"{SAVE_FOLDER_PREFIX}_{datetime.now():%Y%m%d_%H%M%S}"
     folder.mkdir(parents=True, exist_ok=True)
-    used_names = set()
-    for output in final_outputs(outputs):
-        # The key keeps the name of the first file along the chain (a -> a -> a); _2, _3 only when two chains share it
-        name = unique_name(output.reference.output_key + output.path.suffix, used_names)
-        shutil.copyfile(output.path, folder / name)
+    for name, path in final_files(outputs):
+        shutil.copyfile(path, folder / name)
     return folder

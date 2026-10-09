@@ -17,9 +17,12 @@ from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap
 from src.gui.components.widgets.execution_bar import ExecutionBar
 from src.core.configurable.drafts import StepDraft
 from src.core.configurable.link import dependents, link_labels, output_choices
-from src.core.configurable.runner import StepOutputFile, check_steps, final_outputs, run_pipeline, save_outputs, step_status
+from src.core.configurable.runner import (
+    StepOutputFile, check_steps, final_files, final_outputs, run_pipeline, save_outputs, step_status,
+)
 from src.gui.features.embed.configurable.constants import TECHNIQUE_DISPLAY
 from src.gui.features.embed.configurable.widgets.flow_layout import FlowLayout
+from src.gui.features.embed.configurable.widgets.output_files_card import OutputFilesCard
 from src.gui.features.embed.configurable.widgets.step_canvas import StepCanvas
 from src.gui.features.embed.configurable.widgets.step_card import CARD_HEIGHT, StepCard, make_arrow
 from src.gui.features.embed.forms.locomotive_form import LocomotiveInputForm
@@ -90,6 +93,11 @@ class EmbedConfigurablePage(QFrame):
         # Inline forms belong below the builder, inside the same page scroll.
         self.inline_slot = QVBoxLayout()
         content_layout.addLayout(self.inline_slot)
+
+        # --- Output Files Card: the files Save Outputs will save (hidden until a run finishes) ---
+        self.output_files_card = OutputFilesCard()
+        self.output_files_card.clear_requested.connect(self.on_clear_outputs)
+        content_layout.addWidget(self.output_files_card)
         content_layout.addStretch()
         self.page_scroll.setWidget(content)
         page_layout.addWidget(self.page_scroll, 1)
@@ -565,6 +573,8 @@ class EmbedConfigurablePage(QFrame):
             self.run_outputs = result
             self.execution_bar.set_save_available(True)
             self.execution_bar.update_progress(100, f"Pipeline complete: {len(final_outputs(result))} output(s), not saved yet.")
+            self.output_files_card.show_files(final_files(result))
+            QTimer.singleShot(0, lambda: self.page_scroll.ensureWidgetVisible(self.output_files_card))  # after the layout is updated
             return
 
         # failure: nothing half-done is kept
@@ -587,10 +597,16 @@ class EmbedConfigurablePage(QFrame):
             return
         self.execution_bar.update_progress(100, f"Saved {len(final_outputs(self.run_outputs))} file(s) to {folder}")
 
+    def on_clear_outputs(self):
+        """Clear on the Output Files card: the results are dropped, so Save Outputs has nothing to save."""
+        self.discard_run()
+        self.execution_bar.reset()
+
     def discard_run(self):
         """Drop the last run's outputs and its temp folder."""
         if self.run_worker is not None:
             self.run_worker.wait()  # never delete files under a running worker (e.g. on exit)
+        self.output_files_card.clear()  # its thumbnails are read from the temp folder
         if self.run_workspace is not None:
             self.run_workspace.cleanup()
             self.run_workspace = None
