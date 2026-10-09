@@ -93,6 +93,12 @@ class SecretPreview(QWidget):
         self.notice_label.hide()
         layout.addWidget(self.notice_label)
 
+        self.removed_label = QLabel()  # pipeline: MP3 frames ID3v2.3 cannot keep (removed when it runs)
+        self.removed_label.setObjectName("metadataNotice")
+        self.removed_label.setWordWrap(True)
+        self.removed_label.hide()
+        layout.addWidget(self.removed_label)
+
         self.preview_label = QLabel()
         self.preview_label.setObjectName("metadataPreview")
         self.preview_label.setWordWrap(True)
@@ -104,6 +110,12 @@ class SecretPreview(QWidget):
             self.preview_label.setText("Receiver will see: " + ", ".join(names))
         else:
             self.preview_label.setText("No added or modified fields yet. Add or modify at least one field for the receiver.")
+
+    def show_removed_frames(self, names: list[str]) -> None:
+        self.removed_label.setText(
+            f"These frames cannot be saved as ID3v2.3 and will be removed when the pipeline runs: {', '.join(names)}."
+        )
+        self.removed_label.setVisible(bool(names))
 
     def show_previous_secret(self, names: list[str]) -> None:
         if not names:

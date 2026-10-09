@@ -112,6 +112,7 @@ class MP3MetadataForm(QFrame):
         self.set_entries({})
         self.set_original({})
         self.secret_preview.show_previous_secret([])
+        self.secret_preview.show_removed_frames([])
         self.tabs.setCurrentIndex(0)
 
     # --- Messages ---

@@ -5,9 +5,10 @@ from PyQt6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QPushButt
 from PyQt6.QtCore import QMimeData, pyqtSignal, Qt
 from PyQt6.QtGui import QDrag, QIcon
 
-from src.core.configurable.drafts import LSBInputsDraft, LocomotiveInputsDraft
+from src.core.configurable.drafts import LSBInputsDraft, LocomotiveInputsDraft, MetadataInputsDraft
 from src.core.configurable.link import is_linked
 from src.core.configurable.step_output import FileSource, StepOutput
+from src.core.stego.metadata_handlers.mp3_handler import APIC_TYPES, key_label
 from src.gui.components.gui_utils import create_icon_pixmap, format_file_size, truncate_text_middle
 from src.gui.features.embed.configurable.constants import TECHNIQUE_DISPLAY
 from src.path import svg_path
@@ -20,6 +21,7 @@ CLOSE_BUTTON_MARGIN = 6
 STEP_CARD_MIME = "application/sieng2-step-card"
 COVER_FILENAME_MAX_LENGTH = 36
 TOOLTIP_TEXT_LIMIT = 300  # chars of the secret message shown in the payload tooltip
+FIELD_VALUE_LIMIT = 40    # chars of each Metadata value shown in the payload tooltip
 SUMMARY_PLACEHOLDERS = {  # row texts of a step that has no saved inputs yet
     "cover": "Not selected", "payload": "Not configured", "output": "Pending", "encryption": "Not configured",
 }
@@ -46,7 +48,16 @@ def cover_name(cover: FileSource, labels: dict[StepOutput, str]) -> str:
 def cover_line(cover: FileSource, labels: dict[StepOutput, str]) -> str:
     """For lists and tooltips: a Previous Output also shows its file name (outputs of one step share a label)."""
     name = cover_name(cover, labels)
-    return f"{name} ({cover.output_key}.png)" if is_linked(cover) else name
+    return f"{name} ({cover.output_key})" if is_linked(cover) else name  # .png / .mp3 is known after the run
+
+def short_value(text: str) -> str:
+    """One line, cut to FIELD_VALUE_LIMIT chars (for the Metadata tooltip)."""
+    line = " ".join(text.split())
+    return line if len(line) <= FIELD_VALUE_LIMIT else line[:FIELD_VALUE_LIMIT] + "…"
+
+def lines_tooltip(lines: list[str]) -> str:
+    """Plain-text lines as a tooltip ('<b>' in a value stays visible instead of becoming HTML)."""
+    return "<qt>" + "<br>".join(escape(line) for line in lines) + "</qt>"
 
 def text_tooltip(text: str) -> str:
     """Show the message as plain text: long text is cut, and '<b>' etc. stays visible instead of becoming HTML."""
@@ -194,6 +205,8 @@ class StepCard(QFrame):
             self.show_lsb(draft, labels)
         elif isinstance(draft, LocomotiveInputsDraft):
             self.show_locomotive(draft, labels)
+        elif isinstance(draft, MetadataInputsDraft):
+            self.show_metadata(draft, labels)
 
     def show_lsb(self, draft: LSBInputsDraft, labels: dict[StepOutput, str]):
         # tooltip of a file = its full path (which folder it came from); of a Previous Output = label + file name
@@ -228,6 +241,41 @@ class StepCard(QFrame):
         # 3. Output / encryption
         self.set_output(f"PNG ×{count}")
         self.set_encryption(encryption_text(draft))
+
+    def show_metadata(self, draft: MetadataInputsDraft, labels: dict[StepOutput, str]):
+        # 1. Target (shown on the Cover row like the other techniques)
+        target = draft.target
+        self.set_cover(cover_name(target, labels), cover_line(target, labels) if is_linked(target) else target)
+
+        # 2. Payload = only the fields the receiver will see (all fields: View all on the extract side)
+        keys = [key for key in draft.payload_keys if key in draft.entries]
+        is_mp3 = not is_linked(target) and Path(target).suffix.lower() == ".mp3"
+        lines = [f"Receiver will see ({len(keys)}):"]
+        if is_mp3:
+            pictures = [key for key in keys if draft.entries[key].frame_id == "APIC"]
+            parts = []
+            if len(keys) > len(pictures):
+                parts.append(f"Frames ×{len(keys) - len(pictures)}")
+            if pictures:
+                parts.append(f"Pictures ×{len(pictures)}")
+            summary = " · ".join(parts)
+            for key in keys:
+                field = draft.entries[key]
+                if field.frame_id == "APIC":
+                    kind = APIC_TYPES.get(field.picture_type, "Unknown")
+                    lines.append(f"• {field.desc} · Type {field.picture_type} {kind} · {field.mime} {format_file_size(len(field.data))}")
+                else:
+                    lines.append(f"• {key_label(key)}: {short_value(field.text)}")
+        else:
+            summary = f"Text chunks ×{len(keys)}"
+            lines += [f"• {key}: {short_value(draft.entries[key])}" for key in keys]
+        if draft.removed_frames:
+            lines.append("Removed when the pipeline runs: " + ", ".join(draft.removed_frames))
+        self.set_payload(summary, lines_tooltip(lines))
+
+        # 3. Output / encryption (metadata is plain text)
+        self.set_output("MP3 ×1" if is_mp3 else "PNG ×1")
+        self.set_encryption("None (plain text)")
 
     def set_description(self, description: str):
         self.description_label.setText(description)

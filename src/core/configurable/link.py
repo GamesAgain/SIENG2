@@ -1,29 +1,48 @@
 from pathlib import Path
 
-from src.core.configurable.drafts import LocomotiveInputsDraft, LSBInputsDraft, StepDraft
+from src.core.configurable.drafts import LocomotiveInputsDraft, LSBInputsDraft, MetadataInputsDraft, StepDraft
 from src.core.configurable.step_output import FileSource, StepOutput, StepOutputInfo
+
+Draft = LSBInputsDraft | LocomotiveInputsDraft | MetadataInputsDraft
+
+# technique ที่ซ้อนตัวเองไม่ได้: LSB++ เขียนทับพิกเซลชั้นเดิม / Metadata เขียนทับรายการ field ลับของชั้นเดิม
+NO_STACKING = {
+    "lsbpp": "Source already has an LSB++ layer; LSB++ cannot be stacked on it.",
+    "metadata": "Source already has a Metadata layer; Metadata cannot be stacked on it.",
+}
 
 def output_name(cover: FileSource) -> str:
     """Name of the output made from this cover: a file keeps its stem (a.png -> a), a link keeps its name."""
     return cover.output_key if isinstance(cover, StepOutput) else Path(cover).stem
 
-def has_lsb_layer(steps: list[StepDraft], reference: StepOutput) -> bool:
-    """Does the file behind this output already hold an LSB++ layer? (follows the Previous Output links back)"""
+def output_media(step: StepDraft) -> str:
+    """'png' or 'mp3': what the step's outputs are. Only a Metadata step on an MP3 file makes an MP3."""
+    draft = step.technique_inputs
+    if isinstance(draft, MetadataInputsDraft) and isinstance(draft.target, str):
+        if Path(draft.target).suffix.lower() == ".mp3":
+            return "mp3"
+    return "png"
+
+def has_layer(steps: list[StepDraft], reference: StepOutput, technique: str) -> bool:
+    """Does the file behind this output already hold a layer of this technique? (follows the Previous Output links back)"""
     by_key = {step.key: step for step in steps}
     for _ in range(len(steps)):  # one hop per step at most, so a broken chain can never loop forever
         step = by_key.get(reference.step_key)
         if step is None or step.technique_inputs is None:
             return False
-        if step.technique == "lsbpp":
+        if step.technique == technique:
             return True
-        # Locomotive: output i is made from cover i, so only that cover's own chain matters
+        # output i is made from cover i, so only that cover's own chain matters
         cover = next((c for c in covers_of(step.technique_inputs) if output_name(c) == reference.output_key), None)
         if cover is None or not is_linked(cover):
             return False
         reference = cover
     return False
 
-def links_of(draft: LSBInputsDraft | LocomotiveInputsDraft) -> list[StepOutput]:
+def has_lsb_layer(steps: list[StepDraft], reference: StepOutput) -> bool:
+    return has_layer(steps, reference, "lsbpp")
+
+def links_of(draft: Draft) -> list[StepOutput]:
     """The Previous Outputs a saved step uses: its covers, and its payload files when the payload is files."""
     sources = covers_of(draft)
     if isinstance(draft, LocomotiveInputsDraft) and draft.payload_mode == "files":
@@ -53,6 +72,7 @@ def link_problem(steps: list[StepDraft], step: StepDraft) -> str | None:
     by_key = {other.key: other for other in steps}
     users = used_outputs(steps)
     links = links_of(step.technique_inputs)
+    cover_links = [cover for cover in covers_of(step.technique_inputs) if is_linked(cover)]
 
     for link in links:
         source = by_key.get(link.step_key)
@@ -63,8 +83,10 @@ def link_problem(steps: list[StepDraft], step: StepDraft) -> str | None:
             return f"Source: Step {source_number} comes after this step."
         if link not in step_outputs(source):
             return f"Source: Step {source_number} output no longer exists."
-        if step.technique == "lsbpp" and has_lsb_layer(steps, link):
-            return "Source already has an LSB++ layer; LSB++ cannot be stacked on it."
+        if step.technique in NO_STACKING and has_layer(steps, link, step.technique):
+            return NO_STACKING[step.technique]
+        if link in cover_links and output_media(source) != "png":
+            return f"Source: Step {source_number} output is an MP3; a cover must be a PNG."
         if links.count(link) > 1:
             return f"Source: Step {source_number} output is used more than once in this step."
         if users[link] != step.key:
@@ -96,27 +118,28 @@ def root_cover(steps: list[StepDraft], reference: StepOutput) -> str | None:
     return None
 
 def output_choices(steps: list[StepDraft], step_key: str) -> list[StepOutputInfo]:
-    """Outputs of the saved steps that come before this step (not the ones another step already uses)."""
-    # LSB++ writes into the pixels, so it would destroy an LSB++ layer that is already in the file
+    """
+    Outputs of the saved steps that come before this step (not the ones another step already uses).
+    LSB++ and Metadata only see PNG outputs without a layer of their own technique;
+    Locomotive sees every free output (its cover picker keeps the PNGs, its payload picker takes MP3 too).
+    """
     consumer = next((step for step in steps if step.key == step_key), None)
-    skip_lsb = consumer is not None and consumer.technique == "lsbpp"
+    technique = consumer.technique if consumer is not None else None
     used = used_outputs(steps)
     choices = []
     for number, step in enumerate(steps, start=1):
         if step.key == step_key:
             break  # stop at this step: only earlier steps can be picked
-        draft = step.technique_inputs
-        if isinstance(draft, LSBInputsDraft) and draft.cover:  # saved LSB++ step: 1 output
-            covers = [draft.cover]
-        elif isinstance(draft, LocomotiveInputsDraft):         # saved Locomotive step: 1 output per cover
-            covers = draft.covers
-        else:
-            continue  # not saved yet, or Metadata
+        if step.technique_inputs is None:
+            continue  # not saved yet
+        media = output_media(step)
+        if technique in NO_STACKING and media != "png":
+            continue
 
-        for cover in covers:
+        for cover in covers_of(step.technique_inputs):
             filename = output_name(cover)
             reference = StepOutput(step.key, filename)      # (step, name) = which output
-            if skip_lsb and has_lsb_layer(steps, reference):
+            if technique in NO_STACKING and has_layer(steps, reference, technique):
                 continue
             if used.get(reference, step_key) != step_key:
                 continue  # another step uses it (this step's own pick stays in the list)
@@ -124,11 +147,11 @@ def output_choices(steps: list[StepDraft], step_key: str) -> list[StepOutputInfo
                 reference=reference,
                 step_number=number,
                 technique=step.technique,
-                media_type="png",
-                # The output file does not exist before the run; its source file (a manual cover) does,
-                # and Locomotive does not touch pixels, so the form can read the capacity from it.
+                media_type=media,
+                # The output file does not exist before the run; its source file (a manual cover) does.
+                # LSB++ capacity and the Metadata editor read from it (Locomotive / Metadata do not touch pixels).
                 preview_path=root_cover(steps, reference),
-                display_name=filename + ".png",             # the file name it will be saved as
+                display_name=f"{filename}.{media}",          # the file name it will be saved as
             ))
     return choices
 
@@ -136,13 +159,15 @@ def is_linked(cover: FileSource) -> bool:
     """A cover that is an earlier step's output (it has no file before the run)."""
     return isinstance(cover, StepOutput)
 
-def covers_of(draft: LSBInputsDraft | LocomotiveInputsDraft) -> list[FileSource]:
-    """The covers of a saved LSB++/Locomotive step as a list (LSB++ has one)."""
+def covers_of(draft: Draft) -> list[FileSource]:
+    """The covers of a saved step as a list (LSB++ has one; a Metadata target counts as its cover)."""
     if isinstance(draft, LSBInputsDraft):
         return [draft.cover] if draft.cover else []
+    if isinstance(draft, MetadataInputsDraft):
+        return [draft.target] if draft.target else []
     return list(draft.covers)
 
-def link_labels(steps: list[StepDraft], draft: LSBInputsDraft | LocomotiveInputsDraft | None) -> dict[StepOutput, str]:
+def link_labels(steps: list[StepDraft], draft: Draft | None) -> dict[StepOutput, str]:
     """Card text of the linked covers of this draft, e.g. 'Step 1 output' (the number follows the card order)."""
     if draft is None:
         return {}

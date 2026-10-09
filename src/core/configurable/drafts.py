@@ -49,10 +49,21 @@ class LocomotiveInputsDraft:
         raise ValueError("Unsupported encryption mode.")
 
 @dataclass
+class MetadataInputsDraft:
+    """
+    Metadata inputs. Saving the step only keeps these values; the file is written when the pipeline runs
+    (the hidden-field list is worked out then, against the real target file).
+    """
+    target: FileSource | None = None  # PNG/MP3 path (Manual) or a PNG output of an earlier step (Previous Output)
+    entries: dict = field(default_factory=dict)  # every value the file should have: PNG {keyword: text}, MP3 {key: MP3Field}
+    payload_keys: list[str] = field(default_factory=list)  # keys added/modified when the step was saved (card display only)
+    removed_frames: list[str] = field(default_factory=list)  # MP3 frames ID3v2.3 cannot keep: removed when the pipeline runs
+
+@dataclass
 class StepDraft:
     "Saved configuration of one pipeline step (shared by the page and the runner)."
     key: str
     technique: str
     description: str
     guidenote: str = ""
-    technique_inputs: LSBInputsDraft | LocomotiveInputsDraft | None = None
+    technique_inputs: LSBInputsDraft | LocomotiveInputsDraft | MetadataInputsDraft | None = None

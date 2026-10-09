@@ -24,6 +24,7 @@ from src.gui.features.embed.configurable.widgets.step_canvas import StepCanvas
 from src.gui.features.embed.configurable.widgets.step_card import CARD_HEIGHT, StepCard, make_arrow
 from src.gui.features.embed.forms.locomotive_form import LocomotiveInputForm
 from src.gui.features.embed.forms.lsb_form import LSBInputForm
+from src.gui.features.embed.forms.metadata_form import MetadataInputForm
 from src.gui.features.embed.configurable.widgets.step_config_shell import StepConfigShellDialog, StepConfigShellPanel
 from src.gui.services.key_registry import KeyRegistry
 from src.gui.services.worker import FunctionWorker
@@ -386,20 +387,18 @@ class EmbedConfigurablePage(QFrame):
             card.deleteLater()
             
     # --- Open Step Card Configuration ---
-    def create_step_technique_form(self, card: StepCard) -> LSBInputForm | LocomotiveInputForm :
+    def create_step_technique_form(self, card: StepCard) -> LSBInputForm | LocomotiveInputForm | MetadataInputForm:
         if card.technique == "metadata":
-            # inputs = MetadataInputForm(is_config=True) TODO
-            inputs_form = QLabel("Metadata")
+            inputs_form = MetadataInputForm(is_config=True)  # Metadata ไม่มีการเข้ารหัส จึงไม่ใช้ key_registry
         else:
             form_class = {
-                "lsbpp": LSBInputForm, 
+                "lsbpp": LSBInputForm,
                 "locomotive": LocomotiveInputForm
                 }[card.technique]
-            
+
             inputs_form = form_class(key_registry=self.key_registry, is_config=True)
-        # Previous Output list first (Metadata/Locomotive forms have no list yet): load_draft looks the saved output up in it
-        if hasattr(inputs_form, "set_output_choices"):
-            inputs_form.set_output_choices(output_choices(self.pipeline_steps(), card.step_key))
+        # Previous Output list first: load_draft looks the saved output up in it
+        inputs_form.set_output_choices(output_choices(self.pipeline_steps(), card.step_key))
 
         draft = self.step_drafts[card.step_key].technique_inputs
         if draft is not None:
@@ -450,7 +449,7 @@ class EmbedConfigurablePage(QFrame):
         panel.show()
         QTimer.singleShot(0, self.reveal_inline_panel)
 
-    def save_step_draft(self, key: str, description: str, guidenote: str, inputs: LSBInputForm | LocomotiveInputForm) -> bool:
+    def save_step_draft(self, key: str, description: str, guidenote: str, inputs: LSBInputForm | LocomotiveInputForm | MetadataInputForm) -> bool:
         # 1. The step was removed while its editor was still open
         step = self.step_drafts.get(key)
         if step is None:
@@ -462,9 +461,6 @@ class EmbedConfigurablePage(QFrame):
             return False
 
         # 3. Read the form (the form validates itself and raises ValueError when the inputs cannot be used)
-        if not hasattr(inputs, "get_inputs"):
-            QMessageBox.warning(inputs, "Not Available", "This technique cannot be configured yet.")  # TODO: Metadata form
-            return False
         try:
             draft = inputs.get_inputs()
         except ValueError as error:
@@ -485,7 +481,7 @@ class EmbedConfigurablePage(QFrame):
             # Bring the form itself into view, even if its header was visible.
             self.page_scroll.verticalScrollBar().setValue(self.active_step_panel.y())
     
-    def release_step_config_shell(self, host: QWidget, inputs: LSBInputForm | LocomotiveInputForm):
+    def release_step_config_shell(self, host: QWidget, inputs: LSBInputForm | LocomotiveInputForm | MetadataInputForm):
         # Closing discards inputs, but capacity workers must finish before deletion.
         released = False
 

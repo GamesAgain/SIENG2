@@ -357,6 +357,11 @@ class LocomotiveInputForm(QFrame):
         return asymmetric_mode
 
     # --- Input validation and draft status ---
+    def link_file_name(self, link) -> str:
+        """File name of a Previous Output (a.png, or song.mp3 from a Metadata MP3 step)."""
+        info = self.output_infos.get(link)
+        return info.display_name if info and info.display_name else f"{link.output_key}.png"
+
     @staticmethod
     def check_unique_names(paths: list[str], label: str):
         """Raise ValueError if two files share a name (case-insensitive, like Windows)."""
@@ -399,7 +404,7 @@ class LocomotiveInputForm(QFrame):
                     raise ValueError(f"Payload file is unavailable: {Path(payload).name}")
 
             # Several files are zipped by name, so duplicates would overwrite each other (a Previous Output is named by its key).
-            self.check_unique_names([f"{payload.output_key}.png" if is_linked(payload) else payload for payload in draft.payload_files], "Payload")
+            self.check_unique_names([self.link_file_name(payload) if is_linked(payload) else payload for payload in draft.payload_files], "Payload")
 
             # One output can be used once: it cannot be a cover and a payload file of the same step
             if {file for file in draft.payload_files if is_linked(file)} & {cover for cover in draft.covers if is_linked(cover)}:
@@ -568,8 +573,8 @@ class LocomotiveInputForm(QFrame):
     def set_output_choices(self, choices: list[StepOutputInfo]):
         """The page gives the outputs this step may pick; the form only passes them on."""
         self.output_infos = {info.reference: info for info in choices}
-        self.output_picker.set_outputs(choices)
-        self.payload_output_picker.set_outputs(choices)
+        self.output_picker.set_outputs([info for info in choices if info.media_type == "png"])  # cover = PNG only
+        self.payload_output_picker.set_outputs(choices)  # payload: any file (MP3 from a Metadata step too)
         self.cover_links = []  # the lists were rebuilt: nothing is picked in them
         self.payload_links = []
 
