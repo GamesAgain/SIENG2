@@ -7,7 +7,6 @@ The form only holds values; it never writes the file.
 Standalone saves with MetadataPNGHandler.write_text(); a pipeline draft can keep get_entries() as-is.
 """
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QScrollArea, QVBoxLayout, QWidget,
@@ -16,20 +15,15 @@ from PyQt6.QtWidgets import (
 from src.core.stego.metadata_handlers.png_handler import (
     MAX_KEYWORD_LENGTH, PNG_TEXT_KEYWORDS, STANDARD_KEYWORDS, MetadataPNGHandler,
 )
-from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap
+from src.gui.components.gui_utils import add_shadow_effect
 from src.gui.components.widgets.file_info_bar import FileInfoBar
+from src.gui.features.embed.forms.metadata.common import (
+    SecretPreview, make_badge, make_card_header, make_remove_button, make_value_input,
+)
 from src.gui.features.embed.forms.metadata.file_info import get_png_file_info
-from src.path import svg_path
 
 # keyword มาตรฐานที่ไม่ได้แสดงใน Standard card -> ให้เลือกจาก combo ตอน Add
 SUGGESTED_KEYWORDS = [key for key in PNG_TEXT_KEYWORDS if key not in STANDARD_KEYWORDS]
-
-
-def make_badge(text: str) -> QLabel:
-    badge = QLabel(text)
-    badge.setObjectName("fileInfoBadge")
-    badge.setProperty("badgeColor", "neutral")
-    return badge
 
 
 class PNGStandardField(QFrame):
@@ -53,8 +47,7 @@ class PNGStandardField(QFrame):
         header.addStretch()
         layout.addLayout(header)
 
-        self.value_input = QLineEdit()
-        self.value_input.setObjectName("formInput")
+        self.value_input = make_value_input()
         layout.addWidget(self.value_input)
 
     def get_value(self) -> str:
@@ -79,12 +72,7 @@ class PNGCustomRow(QFrame):
         header = QHBoxLayout()
         label = QLabel("Custom Keyword")
         label.setObjectName("fileItemName")
-        self.delete_button = QPushButton()
-        self.delete_button.setObjectName("btnRemoveFile")
-        self.delete_button.setFixedSize(26, 26)
-        self.delete_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.delete_button.setToolTip("Remove metadata")
-        self.delete_button.setIcon(QIcon(create_icon_pixmap(svg_path("x.svg"), size=12, color_hex="#F43F5E")))
+        self.delete_button = make_remove_button("Remove metadata")
         self.delete_button.clicked.connect(lambda: self.removed.emit(self))
         header.addWidget(label)
         header.addStretch()
@@ -98,9 +86,7 @@ class PNGCustomRow(QFrame):
         self.keyword_input.setPlaceholderText("keyword")
         self.keyword_input.setMaxLength(MAX_KEYWORD_LENGTH)
         self.keyword_input.setFixedWidth(220)
-        self.value_input = QLineEdit(value)
-        self.value_input.setObjectName("formInput")
-        self.value_input.setPlaceholderText("value")
+        self.value_input = make_value_input("value", value)
         inputs.addWidget(self.keyword_input)
         inputs.addWidget(self.value_input, 1)
         layout.addLayout(inputs)
@@ -140,18 +126,9 @@ class PNGMetadataForm(QFrame):
         self.file_info_bar.change_file_requested.connect(self.change_file_requested.emit)
         layout.addWidget(self.file_info_bar)
 
-        # ไฟล์ที่เคยฝัง Metadata มาแล้ว: บอกว่า Save รอบนี้จะแทนรายการเดิม
-        self.notice_label = QLabel()
-        self.notice_label.setObjectName("metadataNotice")
-        self.notice_label.setWordWrap(True)
-        self.notice_label.hide()
-        layout.addWidget(self.notice_label)
-
         # field ที่ผู้ใช้เพิ่ม/แก้ = สิ่งที่ฝั่งถอดจะเห็น (คำนวณสดทุกครั้งที่พิมพ์)
-        self.preview_label = QLabel()
-        self.preview_label.setObjectName("metadataPreview")
-        self.preview_label.setWordWrap(True)
-        layout.addWidget(self.preview_label)
+        self.secret_preview = SecretPreview()
+        layout.addWidget(self.secret_preview)
 
         content = QWidget()
         content.setObjectName("fileListContainer")
@@ -170,29 +147,12 @@ class PNGMetadataForm(QFrame):
         self.scroll_area.setWidget(content)
         layout.addWidget(self.scroll_area, 1)
 
-    def build_card_header(self, title: str, icon: str, hint: str, badge: QLabel | None = None) -> QFrame:
-        header = QFrame()
-        layout = QHBoxLayout(header)
-        icon_label = QLabel()
-        icon_label.setPixmap(create_icon_pixmap(svg_path(icon), size=16))
-        title_label = QLabel(title)
-        title_label.setObjectName("cardTitle")
-        hint_label = QLabel(hint)
-        hint_label.setObjectName("hintLabel")
-        layout.addWidget(icon_label)
-        layout.addWidget(title_label)
-        if badge is not None:
-            layout.addWidget(badge)
-        layout.addStretch()
-        layout.addWidget(hint_label)
-        return header
-
     def build_standard_card(self) -> QFrame:
         card = QFrame()
         card.setObjectName("card")
         add_shadow_effect(card)
         layout = QVBoxLayout(card)
-        layout.addWidget(self.build_card_header("Standard Metadata", "tags.svg", "Always shown"))
+        layout.addWidget(make_card_header("Standard Metadata", "tags.svg", "Always shown"))
 
         grid = QGridLayout()
         grid.setHorizontalSpacing(20)
@@ -214,7 +174,7 @@ class PNGMetadataForm(QFrame):
         add_shadow_effect(card)
         layout = QVBoxLayout(card)
         self.custom_count_badge = make_badge("0")
-        layout.addWidget(self.build_card_header(
+        layout.addWidget(make_card_header(
             "Custom Metadata", "file-dots.svg", "Other keywords in this file or added by you", self.custom_count_badge,
         ))
         self.custom_rows_layout = QVBoxLayout()
@@ -303,7 +263,7 @@ class PNGMetadataForm(QFrame):
         self.set_original(text)
         self.set_entries(text)
         self.file_info_bar.update_info(**info)
-        self.show_previous_secret(hidden_before)
+        self.secret_preview.show_previous_secret(hidden_before)
 
     def set_original(self, original: dict[str, str]) -> None:
         """The values to compare against (what the file has before this edit)."""
@@ -362,25 +322,13 @@ class PNGMetadataForm(QFrame):
     def clear_all(self) -> None:
         self.set_entries({})
         self.set_original({})
-        self.show_previous_secret([])
+        self.secret_preview.show_previous_secret([])
         self.add_keyword_combo.setCurrentIndex(-1)
         self.add_keyword_combo.clearEditText()
 
-    # --- Messages ---
-
     def update_preview(self) -> None:
-        changed = self.handler.changed_keys(self.original, self.current_entries())
-        if changed:
-            self.preview_label.setText("Receiver will see: " + ", ".join(changed))
-        else:
-            self.preview_label.setText("No added or modified fields yet. The receiver will see nothing.")
+        self.secret_preview.show_changes(self.handler.changed_keys(self.original, self.current_entries()))
 
-    def show_previous_secret(self, keys: list[str]) -> None:
-        if not keys:
-            self.notice_label.hide()
-            return
-        self.notice_label.setText(
-            f"This file already lists hidden fields ({', '.join(keys)}). "
-            "Saving replaces that list with the fields you add or modify now."
-        )
-        self.notice_label.show()
+    def key_labels(self, keys: list[str]) -> list[str]:
+        """PNG keywords are already readable (same API as the MP3 form)."""
+        return list(keys)

@@ -1,15 +1,19 @@
 from pathlib import Path
 
+from mutagen import MutagenError
 from PyQt6.QtWidgets import QFileDialog, QFrame, QMessageBox, QVBoxLayout
 
+from src.core.stego.metadata_handlers.mp3_handler import MetadataMP3Handler
 from src.core.stego.metadata_handlers.png_handler import MetadataPNGHandler
 from src.gui.components.widgets.execution_bar import ExecutionBar
 from src.gui.features.embed.forms.metadata_form import MetadataInputForm
 from src.gui.services.worker import FunctionWorker
 
+FILE_FILTERS = {".png": "PNG image (*.png)", ".mp3": "MP3 audio (*.mp3)"}
+
 
 class MetadataStandaloneTab(QFrame):
-    """Edit the text metadata of a PNG and save it as a new file (the original is never changed)."""
+    """Edit the metadata of a PNG / MP3 and save it as a new file (the original is never changed)."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -43,24 +47,38 @@ class MetadataStandaloneTab(QFrame):
     def show_save_success(self, path: Path, secret_keys: list[str]):
         """Tell the user which fields the receiver will see (the added/modified ones)."""
         if secret_keys:
-            fields = "\n".join(f"• {key}" for key in secret_keys)
+            fields = "\n".join(f"• {name}" for name in self.inputs_form.key_labels(secret_keys))
             message = f"Saved to:\n{path}\n\nThe receiver will see these fields:\n{fields}"
         else:
             message = (f"Saved to:\n{path}\n\n"
                        "No fields were added or modified, so the receiver will see nothing.")
         QMessageBox.information(self, "Metadata saved", message)
 
+    def confirm_drop_unsupported(self, frames: list[str]) -> bool:
+        """MP3 frames ID3v2.3 cannot keep are not in the editor, so ask before removing them."""
+        names = "\n".join(f"• {name}" for name in frames)
+        answer = QMessageBox.question(
+            self, "Remove unsupported frames?",
+            f"This MP3 has frames that cannot be saved as ID3v2.3:\n{names}\n\n"
+            "They are not shown in the editor. Remove them and save?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
     def ask_save_path(self, source: Path) -> Path | None:
-        """Save As dialog with '<name>_metadata.png'. None = the user cancelled."""
-        default_path = source.with_name(f"{source.stem}_metadata.png")
-        output_path, _ = QFileDialog.getSaveFileName(self, "Save PNG with metadata", str(default_path), "PNG image (*.png)")
+        """Save As dialog with '<name>_metadata.<ext>'. None = the user cancelled."""
+        suffix = source.suffix.lower()
+        default_path = source.with_name(f"{source.stem}_metadata{suffix}")
+        output_path, _ = QFileDialog.getSaveFileName(
+            self, f"Save {suffix[1:].upper()} with metadata", str(default_path), FILE_FILTERS[suffix])
         if not output_path:
             return None
 
         path = Path(output_path)
-        if path.suffix.lower() != ".png":
-            # เติม .png เอง -> dialog ไม่ได้ถามเรื่องทับไฟล์ชื่อนี้ จึงต้องถามเอง
-            path = path.with_suffix(".png")
+        if path.suffix.lower() != suffix:
+            # เติมนามสกุลเอง -> dialog ไม่ได้ถามเรื่องทับไฟล์ชื่อนี้ จึงต้องถามเอง
+            path = path.with_suffix(suffix)
             if path.exists() and QMessageBox.question(
                 self, "Replace file?", f"{path.name} already exists. Replace it?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -86,6 +104,19 @@ class MetadataStandaloneTab(QFrame):
             return
 
         source = Path(self.inputs_form.target_file_path)
+        drop_unsupported = False
+        if source.suffix.lower() == ".mp3":
+            try:
+                unsupported = MetadataMP3Handler().read_unsupported(str(source))
+            except (OSError, ValueError, MutagenError) as error:
+                self.show_save_error(str(error))
+                return
+            if unsupported:
+                if not self.confirm_drop_unsupported(unsupported):
+                    self.execution_bar.update_progress(0, "Not saved.")
+                    return
+                drop_unsupported = True
+
         path = self.ask_save_path(source)
         if path is None:
             self.execution_bar.update_progress(0, "Not saved.")
@@ -94,7 +125,10 @@ class MetadataStandaloneTab(QFrame):
             self.show_save_error("Choose a different file name. The original file is kept unchanged.")
             return
 
-        worker = FunctionWorker(MetadataPNGHandler().write_text, str(source), str(path), entries)
+        if source.suffix.lower() == ".mp3":
+            worker = FunctionWorker(MetadataMP3Handler().write_frames, str(source), str(path), entries, drop_unsupported)
+        else:
+            worker = FunctionWorker(MetadataPNGHandler().write_text, str(source), str(path), entries)
 
         self.save_worker = worker
         self.save_result = None

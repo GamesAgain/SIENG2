@@ -135,6 +135,39 @@ APIC_TYPES = {
     20: "Publisher/Studio logotype",
 }
 
+# desc ที่ editor ตั้งให้ภาพใหม่ตาม type (ซ้ำ -> ต่อท้าย -2, -3 ...)
+APIC_DESCRIPTIONS = {
+    0: "other", 1: "file-icon", 2: "other-file-icon", 3: "front-cover", 4: "back-cover",
+    5: "leaflet-page", 6: "media", 7: "lead-artist", 8: "artist", 9: "conductor", 10: "band",
+    11: "composer", 12: "lyricist", 13: "recording-location", 14: "during-recording",
+    15: "during-performance", 16: "screen-capture", 17: "bright-coloured-fish", 18: "illustration",
+    19: "band-logo", 20: "publisher-logo",
+}
+
+# ตามสเปก ID3: ไอคอนไฟล์ (type 1, 2) มีได้อย่างละภาพเดียว
+SINGLE_PICTURE_TYPES = {1, 2}
+
+
+def apic_description(picture_type: int, taken: set[str]) -> str:
+    """desc of a new picture: 'front-cover', or 'front-cover-2', '-3' ... when the name is taken."""
+    base = APIC_DESCRIPTIONS[picture_type]
+    desc = base
+    number = 2
+    while desc in taken:
+        desc = f"{base}-{number}"
+        number += 1
+    return desc
+
+
+def key_label(key: str) -> str:
+    """Readable name of a field key: 'COMM:note:eng' -> 'Comment "note" (eng)'."""
+    frame_id, _, rest = key.partition(":")
+    name = FRAME_INFO.get(frame_id, (frame_id, ""))[0]
+    if frame_id in LANG_FRAMES:
+        desc, _, lang = rest.rpartition(":")  # desc อาจมี ":" อยู่ข้างใน lang อยู่ท้ายสุดเสมอ
+        return f'{name} "{desc}" ({lang})' if desc else f"{name} ({lang})"
+    return f'{name} "{rest}"' if rest else name
+
 
 @dataclass(frozen=True)
 class MP3Field:
