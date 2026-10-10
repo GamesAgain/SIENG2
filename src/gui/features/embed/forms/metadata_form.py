@@ -18,7 +18,7 @@ from src.core.configurable.drafts import TECHNIQUE_LABELS, MetadataInputsDraft
 from src.core.configurable.link import is_linked
 from src.core.configurable.step_output import StepOutput, StepOutputInfo
 from src.core.stego.metadata_handlers.mp3_handler import MetadataMP3Handler
-from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap
+from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, truncate_text_middle
 from src.gui.components.widgets.files_drop import FileDropWidget
 from src.gui.components.widgets.selection_toggle import SelectionToggle
 from src.gui.features.embed.configurable.widgets.step_output_picker import StepOutputPicker
@@ -27,6 +27,7 @@ from src.gui.features.embed.forms.metadata.png_form import PNGMetadataForm
 from src.path import svg_path
 
 ICON_SIZE = 16
+FILE_NAME_LIMIT = 60  # characters of an output's file name shown in the file bar (the full name is the tooltip)
 
 
 class MetadataInputForm(QFrame):
@@ -50,7 +51,7 @@ class MetadataInputForm(QFrame):
         main_layout.setContentsMargins(0, 11, 0, 0)
 
         self.target_card = self.build_target_file_card()
-        self.png_form = PNGMetadataForm()
+        self.png_form = PNGMetadataForm(is_config=self.is_config)
         self.mp3_form = MP3MetadataForm(is_config=self.is_config)
         self.forms = {".png": self.png_form, ".mp3": self.mp3_form}  # นามสกุล -> editor
         for form in self.forms.values():
@@ -153,16 +154,24 @@ class MetadataInputForm(QFrame):
             QMessageBox.warning(self, "Cannot read file", str(error))
             return
 
+        # แถบไฟล์: ชื่อไฟล์ยาวย่อกลาง (เฉพาะส่วนชื่อ) ชื่อเต็มอยู่ใน tooltip · บรรทัดรายละเอียดไม่พูดชื่อซ้ำ
         technique = TECHNIQUE_LABELS.get(info.technique, info.technique)
-        origin = (f"values read from {Path(source).name}" if is_png
-                  else f"made from {Path(source).name}, so it starts with no text metadata")
-        self.png_form.file_info_bar.update_info(
+        prefix = f"From Step {info.step_number} {technique}, "
+        if is_png:
+            detail, detail_tip = "Made when the pipeline runs", f"Its text metadata is read from {Path(source).name}."
+        else:
+            detail = f"Made when the pipeline runs · made from a {Path(source).suffix[1:].upper()} image, no text metadata"
+            detail_tip = f"Made from {Path(source).name}: a PNG made from this image starts with no text metadata."
+        bar = self.png_form.file_info_bar
+        bar.update_info(
             file_path="",
-            display_name=f"From Step {info.step_number} {technique}, {info.display_name}",
-            detail=f"Made when the pipeline runs · {origin}",
+            display_name=prefix + truncate_text_middle(info.display_name, FILE_NAME_LIMIT),
+            detail=detail,
             badges=[("PNG", "blue"), ("Previous Output", "neutral")],
             icon_name=info.display_name,  # the output has no file yet: the system icon of its file type (a.png)
         )
+        bar.file_name.setToolTip(prefix + info.display_name)  # update_info(file_path="") leaves it empty
+        bar.file_detail.setToolTip(detail_tip)
         self.open_editor(self.png_form, source, reference, [])
 
     def open_editor(self, form, file_path: str, link: StepOutput | None, removed: list[str]):

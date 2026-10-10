@@ -49,7 +49,7 @@ class MP3MetadataForm(QFrame):
         self.file_info_bar.change_file_requested.connect(self.change_file_requested.emit)
         layout.addWidget(self.file_info_bar)
 
-        self.secret_preview = SecretPreview()
+        self.secret_preview = SecretPreview(is_config=self.is_config)
         layout.addWidget(self.secret_preview)
 
         self.text_form = MP3TextFramesForm()

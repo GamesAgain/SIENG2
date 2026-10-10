@@ -119,8 +119,9 @@ class PNGMetadataForm(QFrame):
 
     change_file_requested = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, is_config: bool = False, parent=None):
         super().__init__(parent)
+        self.is_config = is_config  # pipeline: only the wording of the orange notice differs
         self.handler = MetadataPNGHandler()
         self.original: dict[str, str] = {}
         self.standard_fields: dict[str, PNGStandardField] = {}
@@ -140,7 +141,7 @@ class PNGMetadataForm(QFrame):
         layout.addWidget(self.file_info_bar)
 
         # field ที่ผู้ใช้เพิ่ม/แก้ = สิ่งที่ฝั่งถอดจะเห็น (คำนวณสดทุกครั้งที่พิมพ์)
-        self.secret_preview = SecretPreview()
+        self.secret_preview = SecretPreview(is_config=self.is_config)
         layout.addWidget(self.secret_preview)
 
         content = QWidget()

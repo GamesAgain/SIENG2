@@ -77,12 +77,14 @@ def make_card_header(title: str, icon: str, hint: str, badge: QLabel | None = No
 class SecretPreview(QWidget):
     """
     Two short messages above the editor:
-    - orange: the file already lists hidden fields (a previous Metadata save); saving replaces that list
+    - orange: the file already lists hidden fields (a previous Metadata save); that list is replaced
+              (Standalone: when the user saves · pipeline: when the pipeline runs)
     - grey  : the fields the receiver will see (what the user added or modified)
     """
 
-    def __init__(self, parent=None):
+    def __init__(self, is_config: bool = False, parent=None):
         super().__init__(parent)
+        self.is_config = is_config
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
@@ -121,8 +123,8 @@ class SecretPreview(QWidget):
         if not names:
             self.notice_label.hide()
             return
-        self.notice_label.setText(
-            f"This file already lists hidden fields ({', '.join(names)}). "
-            "Saving replaces that list with the fields you add or modify now."
-        )
+        # pipeline: Save step writes nothing, the list is replaced when the pipeline runs
+        when = ("When the pipeline runs, that list is replaced by the fields you add or modify in this step."
+                if self.is_config else "Saving replaces that list with the fields you add or modify now.")
+        self.notice_label.setText(f"This file already lists hidden fields ({', '.join(names)}). {when}")
         self.notice_label.show()
