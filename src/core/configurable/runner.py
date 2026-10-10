@@ -23,6 +23,7 @@ class StepOutputFile:
     path: Path  # <workspace>/<cover name>.png or .mp3  (A_2.png, A_3.png ... when the name is taken)
     reference: StepOutput  # how a later step picks this file as its Previous Output
     final: bool  # no later step uses it: it is the end of its chain and the one that is saved
+    session_id: int | None = None  # Locomotive only: its layer in the file (two layers with one password need it to extract the inner one)
 
 # --- Checks ---
 def missing_files(draft: Draft) -> list[str]:
@@ -79,8 +80,11 @@ def unique_name(name: str, used: set[str]) -> str:
     used.add(candidate.casefold())
     return candidate
 
-def embed_step(draft: LSBInputsDraft | LocomotiveInputsDraft, progress_callback=None) -> list[bytes]:
-    """Call the core for one step; return the png bytes of its outputs, in cover order (the core's file names are not used)."""
+def embed_step(draft: LSBInputsDraft | LocomotiveInputsDraft, progress_callback=None) -> tuple[list[bytes], int | None]:
+    """
+    Call the core for one step; return (the png bytes of its outputs in cover order, Locomotive session id or None).
+    The core's file names are not used.
+    """
     password, public_key_path = draft.encryption_args()
 
     if isinstance(draft, LSBInputsDraft):
@@ -88,17 +92,19 @@ def embed_step(draft: LSBInputsDraft | LocomotiveInputsDraft, progress_callback=
             draft.cover, draft.payload_text,
             public_key_path=public_key_path, password=password, progress_callback=progress_callback,
         )
-        return [data]
+        return [data], None
 
     if isinstance(draft, LocomotiveInputsDraft):
-        results = Locomotive().embed(
+        locomotive = Locomotive()
+        results = locomotive.embed(
             draft.covers,
             file_paths=draft.payload_files if draft.payload_mode == "files" else None,
             raw_text=draft.payload_text if draft.payload_mode == "text" else None,
             public_key_path=public_key_path, password=password, progress_callback=progress_callback,
         )
         # The core returns one output per cover, in cover order (one cover -> one output)
-        return [data for _, data in results]
+        # session id: extract ต้องใช้เลือกชั้นนี้ เมื่อไฟล์เดียวมี Locomotive หลายชั้นที่รหัสเดียวกัน (ไม่ใช่ความลับ)
+        return [data for _, data in results], locomotive.last_session_id
 
     raise ValueError("Unsupported step inputs.")
 
@@ -125,6 +131,17 @@ def entries_with_pictures(draft: MetadataInputsDraft, file_of) -> dict:
         entries[picture.key] = MP3Field("APIC", mime="image/png", picture_type=picture.picture_type, desc=picture.desc, data=data)
     return entries
 
+def payload_names(payload_files: list, file_of) -> dict[StepOutput, str]:
+    """
+    Name each Previous Output payload gets inside the Locomotive payload (what the receiver gets back): a.png, a_2.png ...
+    Manual files keep their own names first, so a linked file never takes one. Same order every time (extract uses it too).
+    """
+    used = {Path(file).name.casefold() for file in payload_files if not is_linked(file)}
+    return {
+        file: unique_name(file.output_key + Path(file_of(file)).suffix, used)
+        for file in payload_files if is_linked(file)
+    }
+
 def resolve_links(draft: Draft, produced: dict[StepOutput, Path], payload_folder: Path):
     """Copy of the draft where every Previous Output is replaced by the file that step made in the workspace.
     A payload file is copied into payload_folder under its own name (a.png / a.mp3), so the receiver gets that name back."""
@@ -135,20 +152,22 @@ def resolve_links(draft: Draft, produced: dict[StepOutput, Path], payload_folder
             raise ValueError(f"Previous Output '{cover.output_key}' is not available. Select the cover again.")
         return str(produced[cover])
 
-    def payload_of(file):
+    def payload_of(file, names):
         if not is_linked(file):
             return file
-        source = Path(file_of(file))
         payload_folder.mkdir(exist_ok=True)
-        target = payload_folder / (file.output_key + source.suffix)
-        shutil.copyfile(source, target)
+        target = payload_folder / names[file]
+        shutil.copyfile(file_of(file), target)
         return str(target)
 
     if isinstance(draft, LSBInputsDraft):
         return replace(draft, cover=file_of(draft.cover))
     if isinstance(draft, MetadataInputsDraft):
         return replace(draft, target=file_of(draft.target), entries=entries_with_pictures(draft, file_of), linked_pictures=[])
-    payload_files = [payload_of(file) for file in draft.payload_files] if draft.payload_mode == "files" else draft.payload_files
+    if draft.payload_mode != "files":
+        return replace(draft, covers=[file_of(cover) for cover in draft.covers])
+    names = payload_names(draft.payload_files, file_of)
+    payload_files = [payload_of(file, names) for file in draft.payload_files]
     return replace(draft, covers=[file_of(cover) for cover in draft.covers], payload_files=payload_files)
 
 def run_pipeline(steps: list[StepDraft], workspace: Path, progress_callback=None) -> list[StepOutputFile]:
@@ -174,6 +193,7 @@ def run_pipeline(steps: list[StepDraft], workspace: Path, progress_callback=None
         # 3. Write the outputs right away (bytes are not kept in memory), one flat folder, names never repeat
         # Output i was made from cover i: it is named after that cover (a Previous Output keeps its name: a -> a_2 -> a_3)
         files = []  # (cover, file in the workspace)
+        session_id = None
         try:
             draft = resolve_links(step.technique_inputs, produced, workspace / f"_payload_{step.key}")
             if isinstance(draft, MetadataInputsDraft):
@@ -183,7 +203,8 @@ def run_pipeline(steps: list[StepDraft], workspace: Path, progress_callback=None
                 write_metadata(draft, path)
                 files.append((target, path))
             else:
-                for cover, data in zip(covers_of(step.technique_inputs), embed_step(draft, report)):
+                datas, session_id = embed_step(draft, report)
+                for cover, data in zip(covers_of(step.technique_inputs), datas):
                     path = workspace / unique_name(output_name(cover) + ".png", used_names)
                     path.write_bytes(data)
                     files.append((cover, path))
@@ -194,7 +215,8 @@ def run_pipeline(steps: list[StepDraft], workspace: Path, progress_callback=None
             name = output_name(cover)
             reference = StepOutput(step.key, name)
             produced[reference] = path
-            outputs.append(StepOutputFile(number, step.technique, path, reference, final=reference not in used))
+            outputs.append(StepOutputFile(number, step.technique, path, reference, final=reference not in used,
+                                          session_id=session_id))
 
     if progress_callback is not None:
         progress_callback(100, f"Pipeline complete: {len(final_outputs(outputs))} output(s).")
