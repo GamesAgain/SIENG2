@@ -1,7 +1,7 @@
 """Plain data of the technique inputs and of a pipeline step (no GUI code, so core and GUI can both use it)."""
 from dataclasses import dataclass, field
 
-from src.core.configurable.step_output import FileSource
+from src.core.configurable.step_output import FileSource, StepOutput
 
 # Display names of the techniques (the GUI reuses them for its cards)
 TECHNIQUE_LABELS = {"lsbpp": "LSB++", "locomotive": "Locomotive", "metadata": "Metadata"}
@@ -48,6 +48,17 @@ class LocomotiveInputsDraft:
             return None, self.public_key_path
         raise ValueError("Unsupported encryption mode.")
 
+@dataclass(frozen=True)
+class LinkedPicture:
+    """An MP3 attached picture (APIC) taken from a PNG output of an earlier step; its bytes are read when the pipeline runs."""
+    source: StepOutput
+    picture_type: int = 3  # 3 = ปกหน้า
+    desc: str = ""         # ตั้งจาก type แบบเดียวกับภาพ Manual (front-cover, front-cover-2 ...)
+
+    @property
+    def key(self) -> str:
+        return f"APIC:{self.desc}"  # same key as MP3Field("APIC", desc=...).key
+
 @dataclass
 class MetadataInputsDraft:
     """
@@ -58,6 +69,7 @@ class MetadataInputsDraft:
     entries: dict = field(default_factory=dict)  # every value the file should have: PNG {keyword: text}, MP3 {key: MP3Field}
     payload_keys: list[str] = field(default_factory=list)  # keys added/modified when the step was saved (card display only)
     removed_frames: list[str] = field(default_factory=list)  # MP3 frames ID3v2.3 cannot keep: removed when the pipeline runs
+    linked_pictures: list[LinkedPicture] = field(default_factory=list)  # MP3 only: pictures from earlier steps (not in entries)
 
 @dataclass
 class StepDraft:

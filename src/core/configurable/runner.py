@@ -11,7 +11,7 @@ from src.core.configurable.link import Draft, covers_of, is_linked, link_problem
 from src.core.configurable.step_output import StepOutput
 from src.core.stego.locomotive import Locomotive
 from src.core.stego.lsb_pp import LSBPP
-from src.core.stego.metadata_handlers.mp3_handler import MetadataMP3Handler
+from src.core.stego.metadata_handlers.mp3_handler import MetadataMP3Handler, MP3Field
 from src.core.stego.metadata_handlers.png_handler import MetadataPNGHandler
 
 SAVE_FOLDER_PREFIX  = "SIENG2_Result"
@@ -108,6 +108,20 @@ def write_metadata(draft: MetadataInputsDraft, destination: Path) -> None:
     else:
         MetadataPNGHandler().write_text(draft.target, str(destination), draft.entries)
 
+def entries_with_pictures(draft: MetadataInputsDraft, file_of) -> dict:
+    """The step's entries + its linked pictures as real APIC fields (the exact bytes of the PNG the earlier step made)."""
+    entries = dict(draft.entries)
+    # เป้าหมายที่เป็น Previous Output เป็น PNG เสมอ -> MP3 ได้เฉพาะไฟล์ Manual .mp3
+    is_mp3 = not is_linked(draft.target) and Path(draft.target).suffix.lower() == ".mp3"
+    if draft.linked_pictures and not is_mp3:
+        raise ValueError("Attached pictures can only be added to an MP3 target.")
+    for picture in draft.linked_pictures:
+        if picture.key in entries:
+            raise ValueError(f"Two pictures use the description '{picture.desc}'. Edit one of them.")
+        data = Path(file_of(picture.source)).read_bytes()
+        entries[picture.key] = MP3Field("APIC", mime="image/png", picture_type=picture.picture_type, desc=picture.desc, data=data)
+    return entries
+
 def resolve_links(draft: Draft, produced: dict[StepOutput, Path], payload_folder: Path):
     """Copy of the draft where every Previous Output is replaced by the file that step made in the workspace.
     A payload file is copied into payload_folder under its own name (a.png / a.mp3), so the receiver gets that name back."""
@@ -130,7 +144,7 @@ def resolve_links(draft: Draft, produced: dict[StepOutput, Path], payload_folder
     if isinstance(draft, LSBInputsDraft):
         return replace(draft, cover=file_of(draft.cover))
     if isinstance(draft, MetadataInputsDraft):
-        return replace(draft, target=file_of(draft.target))
+        return replace(draft, target=file_of(draft.target), entries=entries_with_pictures(draft, file_of), linked_pictures=[])
     payload_files = [payload_of(file) for file in draft.payload_files] if draft.payload_mode == "files" else draft.payload_files
     return replace(draft, covers=[file_of(cover) for cover in draft.covers], payload_files=payload_files)
 

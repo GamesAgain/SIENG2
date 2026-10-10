@@ -43,10 +43,13 @@ def has_lsb_layer(steps: list[StepDraft], reference: StepOutput) -> bool:
     return has_layer(steps, reference, "lsbpp")
 
 def links_of(draft: Draft) -> list[StepOutput]:
-    """The Previous Outputs a saved step uses: its covers, and its payload files when the payload is files."""
+    """The Previous Outputs a saved step uses: its covers, its payload files when the payload is files,
+    and the MP3 pictures taken from earlier steps."""
     sources = covers_of(draft)
     if isinstance(draft, LocomotiveInputsDraft) and draft.payload_mode == "files":
         sources += draft.payload_files
+    if isinstance(draft, MetadataInputsDraft):
+        sources += [picture.source for picture in draft.linked_pictures]
     return [source for source in sources if is_linked(source)]
 
 def used_outputs(steps: list[StepDraft]) -> dict[StepOutput, str]:
@@ -73,20 +76,26 @@ def link_problem(steps: list[StepDraft], step: StepDraft) -> str | None:
     users = used_outputs(steps)
     links = links_of(step.technique_inputs)
     cover_links = [cover for cover in covers_of(step.technique_inputs) if is_linked(cover)]
+    picture_links = []
+    if isinstance(step.technique_inputs, MetadataInputsDraft):
+        picture_links = [picture.source for picture in step.technique_inputs.linked_pictures]
 
     for link in links:
         source = by_key.get(link.step_key)
         if source is None:
-            return "Source step was removed; select the cover again."
+            return f"Source step was removed; select the {'picture' if link in picture_links else 'cover'} again."
         source_number = numbers[link.step_key]
         if source_number >= numbers[step.key]:
             return f"Source: Step {source_number} comes after this step."
         if link not in step_outputs(source):
             return f"Source: Step {source_number} output no longer exists."
-        if step.technique in NO_STACKING and has_layer(steps, link, step.technique):
+        # ซ้อนชั้นตัวเองนับเฉพาะไฟล์ที่ step นี้เขียนลงไป (cover / target) ไม่นับภาพที่แค่ถูกแนบเข้า MP3
+        if link in cover_links and step.technique in NO_STACKING and has_layer(steps, link, step.technique):
             return NO_STACKING[step.technique]
         if link in cover_links and output_media(source) != "png":
             return f"Source: Step {source_number} output is an MP3; a cover must be a PNG."
+        if link in picture_links and output_media(source) != "png":
+            return f"Source: Step {source_number} output is an MP3; a picture must be a PNG."
         if links.count(link) > 1:
             return f"Source: Step {source_number} output is used more than once in this step."
         if users[link] != step.key:
@@ -117,14 +126,16 @@ def root_cover(steps: list[StepDraft], reference: StepOutput) -> str | None:
         reference = cover  # still a link: go one step further back
     return None
 
-def output_choices(steps: list[StepDraft], step_key: str) -> list[StepOutputInfo]:
+def output_choices(steps: list[StepDraft], step_key: str, *, picture: bool = False) -> list[StepOutputInfo]:
     """
     Outputs of the saved steps that come before this step (not the ones another step already uses).
     LSB++ and Metadata only see PNG outputs without a layer of their own technique;
     Locomotive sees every free output (its cover picker keeps the PNGs, its payload picker takes MP3 too).
+    picture=True: the list for a Metadata step's MP3 pictures = every free PNG (a picture is only attached, not written into).
     """
     consumer = next((step for step in steps if step.key == step_key), None)
-    technique = consumer.technique if consumer is not None else None
+    technique = None if picture or consumer is None else consumer.technique
+    only_png = picture or technique in NO_STACKING
     used = used_outputs(steps)
     choices = []
     for number, step in enumerate(steps, start=1):
@@ -133,7 +144,7 @@ def output_choices(steps: list[StepDraft], step_key: str) -> list[StepOutputInfo
         if step.technique_inputs is None:
             continue  # not saved yet
         media = output_media(step)
-        if technique in NO_STACKING and media != "png":
+        if only_png and media != "png":
             continue
 
         for cover in covers_of(step.technique_inputs):
