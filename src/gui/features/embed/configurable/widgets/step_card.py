@@ -248,11 +248,12 @@ class StepCard(QFrame):
         self.set_cover(cover_name(target, labels), cover_line(target, labels) if is_linked(target) else target)
 
         # 2. Payload = only the fields the receiver will see (all fields: View all on the extract side)
-        keys = [key for key in draft.payload_keys if key in draft.entries]
+        linked = {picture.key: picture for picture in draft.linked_pictures}  # MP3 pictures from earlier steps
+        keys = [key for key in draft.payload_keys if key in draft.entries or key in linked]
         is_mp3 = not is_linked(target) and Path(target).suffix.lower() == ".mp3"
         lines = [f"Receiver will see ({len(keys)}):"]
         if is_mp3:
-            pictures = [key for key in keys if draft.entries[key].frame_id == "APIC"]
+            pictures = [key for key in keys if key in linked or draft.entries[key].frame_id == "APIC"]
             parts = []
             if len(keys) > len(pictures):
                 parts.append(f"Frames ×{len(keys) - len(pictures)}")
@@ -260,6 +261,11 @@ class StepCard(QFrame):
                 parts.append(f"Pictures ×{len(pictures)}")
             summary = " · ".join(parts)
             for key in keys:
+                if key in linked:  # no bytes before the run: say where it comes from
+                    picture = linked[key]
+                    kind = APIC_TYPES.get(picture.picture_type, "Unknown")
+                    lines.append(f"• {picture.desc} · Type {picture.picture_type} {kind} · from {cover_line(picture.source, labels)}")
+                    continue
                 field = draft.entries[key]
                 if field.frame_id == "APIC":
                     kind = APIC_TYPES.get(field.picture_type, "Unknown")

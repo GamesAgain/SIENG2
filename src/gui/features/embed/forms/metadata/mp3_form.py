@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import QFrame, QScrollArea, QTabWidget, QVBoxLayout
 from src.core.stego.metadata_handlers.mp3_handler import MetadataMP3Handler, MP3Field, key_label
 from src.gui.components.gui_utils import create_icon_state
 from src.gui.components.widgets.file_info_bar import FileInfoBar
+from src.core.configurable.drafts import LinkedPicture
 from src.gui.features.embed.forms.metadata.common import PAYLOAD_REQUIRED, SecretPreview
 from src.gui.features.embed.forms.metadata.file_info import get_mp3_file_info
 from src.gui.features.embed.forms.metadata.mp3_pictures import MP3PicturesForm
@@ -31,8 +32,9 @@ class MP3MetadataForm(QFrame):
 
     change_file_requested = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, is_config: bool = False, parent=None):
         super().__init__(parent)
+        self.is_config = is_config  # pipeline: pictures can also come from earlier steps
         self.handler = MetadataMP3Handler()
         self.original: dict[str, MP3Field] = {}
         self.build_ui()
@@ -51,7 +53,7 @@ class MP3MetadataForm(QFrame):
         layout.addWidget(self.secret_preview)
 
         self.text_form = MP3TextFramesForm()
-        self.pictures_form = MP3PicturesForm()
+        self.pictures_form = MP3PicturesForm(is_config=self.is_config)
         self.text_form.changed.connect(self.update_preview)
         self.pictures_form.changed.connect(self.update_preview)
 
@@ -85,10 +87,15 @@ class MP3MetadataForm(QFrame):
         self.original = dict(original)
         self.update_preview()
 
-    def set_entries(self, entries: dict[str, MP3Field]) -> None:
+    def set_entries(self, entries: dict[str, MP3Field], linked_pictures: list[LinkedPicture] = ()) -> None:
+        """linked_pictures: pipeline pictures taken from earlier steps (they are not in entries)."""
         self.text_form.set_fields([field for field in entries.values() if field.frame_id != "APIC"])
-        self.pictures_form.set_pictures([field for field in entries.values() if field.frame_id == "APIC"])
+        pictures = [field for field in entries.values() if field.frame_id == "APIC"]
+        self.pictures_form.set_pictures(pictures + list(linked_pictures))
         self.update_preview()
+
+    def linked_pictures(self) -> list[LinkedPicture]:
+        return self.pictures_form.linked_pictures()
 
     def current_entries(self) -> dict[str, MP3Field]:
         """What the form shows now, without checking (used for the live preview)."""
@@ -104,9 +111,13 @@ class MP3MetadataForm(QFrame):
                 raise ValueError(f"{key_label(field.key)} is used more than once. Change its description or language.")
             self.handler.check_field(field.key, field)
             entries[field.key] = field
-        if not self.handler.changed_keys(self.original, entries):
+        if not self.payload_keys(entries):
             raise ValueError(PAYLOAD_REQUIRED)
         return entries
+
+    def payload_keys(self, entries: dict[str, MP3Field]) -> list[str]:
+        """What the receiver will see: the added/modified entries + every linked picture (always new)."""
+        return self.handler.changed_keys(self.original, entries) + [picture.key for picture in self.linked_pictures()]
 
     def clear_all(self) -> None:
         self.set_entries({})
@@ -119,7 +130,7 @@ class MP3MetadataForm(QFrame):
 
     def update_preview(self) -> None:
         """Receiver preview + PAYLOAD marks on the frames / pictures that were added or modified."""
-        changed = self.handler.changed_keys(self.original, self.current_entries())
+        changed = self.payload_keys(self.current_entries())
         self.text_form.mark_payload(set(changed))
         self.pictures_form.mark_payload(set(changed))
         self.secret_preview.show_changes(self.key_labels(changed))

@@ -406,7 +406,13 @@ class EmbedConfigurablePage(QFrame):
 
             inputs_form = form_class(key_registry=self.key_registry, is_config=True)
         # Previous Output list first: load_draft looks the saved output up in it
-        inputs_form.set_output_choices(output_choices(self.pipeline_steps(), card.step_key))
+        steps = self.pipeline_steps()
+        if card.technique == "metadata":
+            # 2 lists: the target (PNG without a Metadata layer) and the MP3 pictures (any free PNG)
+            inputs_form.set_output_choices(output_choices(steps, card.step_key),
+                                           output_choices(steps, card.step_key, picture=True))
+        else:
+            inputs_form.set_output_choices(output_choices(steps, card.step_key))
 
         draft = self.step_drafts[card.step_key].technique_inputs
         if draft is not None:

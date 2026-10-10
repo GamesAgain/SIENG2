@@ -51,7 +51,7 @@ class MetadataInputForm(QFrame):
 
         self.target_card = self.build_target_file_card()
         self.png_form = PNGMetadataForm()
-        self.mp3_form = MP3MetadataForm()
+        self.mp3_form = MP3MetadataForm(is_config=self.is_config)
         self.forms = {".png": self.png_form, ".mp3": self.mp3_form}  # นามสกุล -> editor
         for form in self.forms.values():
             form.change_file_requested.connect(self.reset_target)
@@ -223,11 +223,18 @@ class MetadataInputForm(QFrame):
         """The step draft. Raises ValueError (the page shows it) when the inputs cannot be saved."""
         entries = self.get_entries()
         form = self.current_form()
+        if form is self.mp3_form:
+            linked_pictures = form.linked_pictures()
+            payload_keys = form.payload_keys(entries)  # รวมภาพจาก step ก่อน (ใหม่เสมอ)
+        else:
+            linked_pictures = []
+            payload_keys = form.handler.changed_keys(form.original, entries)
         return MetadataInputsDraft(
             target=self.target_link or self.target_file_path,
             entries=entries,
-            payload_keys=form.handler.changed_keys(form.original, entries),
+            payload_keys=payload_keys,
             removed_frames=list(self.removed_frames),
+            linked_pictures=linked_pictures,
         )
 
     def load_draft(self, draft: MetadataInputsDraft) -> None:
@@ -248,11 +255,16 @@ class MetadataInputForm(QFrame):
                 self.target_drop_zone.add_files([target])
             self.on_target_file_selected(target)
 
+        # ค่าเดิมของไฟล์ = original, ค่าที่บันทึกไว้ = entries (+ ภาพจาก step ก่อน สำหรับ MP3)
         form = self.current_form()
-        if form is not None:
-            form.set_entries(draft.entries)  # ค่าเดิมของไฟล์ = original, ค่าที่บันทึกไว้ = entries
+        if form is self.mp3_form:
+            form.set_entries(draft.entries, draft.linked_pictures)
+        elif form is not None:
+            form.set_entries(draft.entries)
 
-    def set_output_choices(self, choices: list[StepOutputInfo]):
-        """The page gives the outputs this step may pick (PNG, no Metadata layer); the form only passes them on."""
+    def set_output_choices(self, choices: list[StepOutputInfo], picture_choices: list[StepOutputInfo] = ()):
+        """The page gives the outputs this step may pick: choices = the target (PNG, no Metadata layer),
+        picture_choices = MP3 pictures (any free PNG). The form only passes them on."""
         self.output_infos = {info.reference: info for info in choices}
         self.output_picker.set_outputs(choices)
+        self.mp3_form.pictures_form.set_picture_choices(list(picture_choices))
