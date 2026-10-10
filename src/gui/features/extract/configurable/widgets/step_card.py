@@ -213,6 +213,10 @@ class ExtractStepCard(QFrame):
         self.key_password_input.setPlaceholderText("Private key password (optional)")
         add_password_visibility_toggle(self.key_password_input)
         self.key_status = KeyValidationLabel()  # hidden until a key is checked
+        # Long error paths must wrap inside the card, not increase its minimum width.
+        policy = self.key_status.sizePolicy()
+        policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
+        self.key_status.setSizePolicy(policy)
         self.key_source.key_selected.connect(self.check_key)  # same checks as the Standalone extract forms
         self.key_password_input.editingFinished.connect(self.check_key)
 
@@ -245,7 +249,10 @@ class ExtractStepCard(QFrame):
 
     def check_key(self, _path=None) -> KeyValidationResult | None:
         """Check the chosen private key (and its password) and show the result under it; None = no key chosen."""
-        path = self.key_source.drop_zone.file_path
+        drop = self.key_source.drop_zone
+        path = drop.file_path
+        # In a step card the file row is enough; keep the drop area only when empty.
+        drop.drop_zone.setVisible(not bool(path))
         if not path:
             self.key_status.clear_result()
             return None
