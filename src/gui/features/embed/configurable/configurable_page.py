@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QEvent, QIODevice, QSaveFile, QTimer, Qt
 from PyQt6.QtGui import QIcon
 
-from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, truncate_text_middle
+from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap
 from src.gui.components.widgets.execution_bar import ExecutionBar
 from src.core.configurable.drafts import StepDraft
 from src.core.configurable.config_file import ConfigError, export_pipeline, import_pipeline, pipeline_label, read_document
@@ -181,7 +181,7 @@ class EmbedConfigurablePage(QFrame):
                 self.template_combo.addItem(f"{path.name} (cannot read)", str(path))
                 self.template_combo.model().item(self.template_combo.count() - 1).setEnabled(False)
                 continue
-            self.template_combo.addItem(truncate_text_middle(label), str(path))
+            self.template_combo.addItem(label, str(path))
             self.template_combo.setItemData(self.template_combo.count() - 1,
                                             f"{label}\n{path.name}", Qt.ItemDataRole.ToolTipRole)
         self.template_combo.setCurrentIndex(-1)
