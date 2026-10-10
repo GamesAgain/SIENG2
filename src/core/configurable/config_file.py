@@ -36,7 +36,10 @@ class ImportedPipeline:
 def require_type(value, expected, location):
     # bool is an int in Python, but not a YAML version or picture type.
     if not isinstance(value, expected) or (expected is int and isinstance(value, bool)):
-        raise ConfigError(f"{location}: expected {expected.__name__}.")
+        # YAML turns bare 123456 / yes / no into numbers and booleans, so say how to keep them as text.
+        hint = " YAML read it as a number or yes/no; put the value in quotes." \
+            if expected is str and isinstance(value, (int, float, bool)) else ""
+        raise ConfigError(f"{location}: expected {expected.__name__}.{hint}")
     return value
 
 
@@ -213,7 +216,7 @@ def build_metadata(target, edits, steps, pending, location):
         entries.pop(key, None)
     if media == "png":
         for key, text in edits["set"].items():
-            if text is None:
+            if not text:  # null (withheld) or empty: the form does not accept an empty value either
                 pending.append(f"Field {key} [pending]")
             entries[key] = text or ""
     else:
@@ -223,6 +226,10 @@ def build_metadata(target, edits, steps, pending, location):
                 continue
             field = MP3Field(value["frame"], value["text"], value.get("desc", ""), value.get("lang", "eng"))
             entries[field.key] = field
+
+    if not edits["set"] and not edits["pictures"]:
+        # The form refuses a step that hides nothing; a hand-written YAML must not skip that rule.
+        pending.append("Nothing to hide: add a field or picture [pending]")
 
     taken = {field.desc for field in entries.values() if isinstance(field, MP3Field) and field.frame_id == "APIC"}
     linked_pictures = []
@@ -426,17 +433,20 @@ def export_pipeline(steps: list[StepDraft], *, name: str = "", include_secret: b
         item = {"id": ids[step.key], "technique": step.technique,
                 "description": step.description, "guidenote": step.guidenote}
         draft = step.technique_inputs
-        if isinstance(draft, MetadataInputsDraft):
-            item.update(export_metadata(draft, steps, ids, base_dir, include_secret))
-        elif isinstance(draft, (LSBInputsDraft, LocomotiveInputsDraft)):
-            if isinstance(draft, LSBInputsDraft):
-                item["cover"] = export_source(draft.cover, ids, base_dir)
-            else:
-                item["covers"] = [export_source(cover, ids, base_dir) for cover in draft.covers]
-                item["payload_mode"] = draft.payload_mode
-                item["payload_files"] = [export_source(file, ids, base_dir) for file in draft.payload_files] if draft.payload_mode == "files" else []
-            item["payload_text"] = draft.payload_text if include_secret else None
-            item["encryption"] = export_encryption(draft, include_passwords, base_dir)
+        try:
+            if isinstance(draft, MetadataInputsDraft):
+                item.update(export_metadata(draft, steps, ids, base_dir, include_secret))
+            elif isinstance(draft, (LSBInputsDraft, LocomotiveInputsDraft)):
+                if isinstance(draft, LSBInputsDraft):
+                    item["cover"] = export_source(draft.cover, ids, base_dir)
+                else:
+                    item["covers"] = [export_source(cover, ids, base_dir) for cover in draft.covers]
+                    item["payload_mode"] = draft.payload_mode
+                    item["payload_files"] = [export_source(file, ids, base_dir) for file in draft.payload_files] if draft.payload_mode == "files" else []
+                item["payload_text"] = draft.payload_text if include_secret else None
+                item["encryption"] = export_encryption(draft, include_passwords, base_dir)
+        except ConfigError as error:
+            raise ConfigError(f"Step {number} ({TECHNIQUE_LABELS[step.technique]}): {error}") from error
         text += f"  # Step {number} · {TECHNIQUE_LABELS[step.technique]}\n"
         text += "\n".join("  " + line for line in yaml.safe_dump([item], allow_unicode=True, sort_keys=False).splitlines()) + "\n"
     return text
