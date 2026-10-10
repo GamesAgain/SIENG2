@@ -1,6 +1,7 @@
-from PyQt6.QtWidgets import QFrame, QLabel, QStackedWidget, QVBoxLayout
+from PyQt6.QtWidgets import QFrame, QStackedWidget, QVBoxLayout
 
 from src.gui.components.widgets.selection_toggle import SelectionToggle
+from src.gui.features.extract.configurable.configurable_page import ExtractConfigurablePage
 from src.gui.features.extract.standalone.standalone_page import ExtractStandalonePage
 from src.gui.services.key_registry import KeyRegistry
 from src.path import svg_path
@@ -42,7 +43,7 @@ class ExtractPage(QFrame):
 
         self.mode_stack = QStackedWidget()
         self.mode_stack.addWidget(ExtractStandalonePage(self.key_registry))
-        self.mode_stack.addWidget(QLabel("Config")) # TODO
+        self.mode_stack.addWidget(ExtractConfigurablePage(self.key_registry))
 
         self.mode_selection.mode_changed.connect(self.on_mode_changed)
 

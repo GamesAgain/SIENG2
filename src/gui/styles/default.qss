@@ -1550,6 +1550,25 @@ QLabel#stepCardStatus[state="blocked"] {
     border: 1px solid rgba(248, 113, 113, 0.65);
 }
 
+/* Extract step card (Extract > Configurable Pipeline): states that the embed card does not have */
+QLabel#stepCardStatus[state="waiting"] {
+    color: #94A3B8;
+    background-color: rgba(148, 163, 184, 0.08);
+    border: 1px solid rgba(148, 163, 184, 0.55);
+}
+
+QLabel#stepCardStatus[state="done"] {
+    color: #4ADE80;
+    background-color: rgba(74, 222, 128, 0.08);
+    border: 1px solid rgba(74, 222, 128, 0.65);
+}
+
+QLabel#stepCardStatus[state="failed"] {
+    color: #F87171;
+    background-color: rgba(248, 113, 113, 0.08);
+    border: 1px solid rgba(248, 113, 113, 0.65);
+}
+
 QLabel#stepCardSub {
     color: #94A3B8;
     font-size: 11px;
