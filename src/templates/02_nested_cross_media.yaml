@@ -1,0 +1,62 @@
+# Demo assets and a shared demo key pair. Do not use them for real secrets.
+# NestedDemoPassword + 2026! = NestedDemoPassword2026!
+sieng2: 1
+kind: embed_pipeline
+name: Nested Concealment & Cross-Media Key Distribution
+steps:
+  - id: step1
+    technique: locomotive
+    description: Distribute the encrypted PDF across images 2 and 3
+    guidenote: >-
+      Recover image2.png from image1.png first. Select recovered image2.png
+      and the final image3.png together to extract document.pdf using
+      src/templates/02_nested_cross_media/keys/recipient_private.pem
+      (no key password). Demo credentials only.
+    covers:
+      - 02_nested_cross_media/images/image2.png
+      - 02_nested_cross_media/images/image3.png
+    payload_mode: files
+    payload_files:
+      - 02_nested_cross_media/files/document.pdf
+    encryption:
+      mode: public_key
+      public_key: 02_nested_cross_media/keys/recipient_public.pem
+  - id: step2
+    technique: locomotive
+    description: Conceal image 2 inside image 1
+    guidenote: >-
+      Read password part 1 from image1.png Comment and part 2 from
+      song.mp3 User Text RecoveryPasswordPart2. Join them in that order
+      and use the password to recover image2.png with Extract Locomotive.
+    covers:
+      - 02_nested_cross_media/images/image1.png
+    payload_mode: files
+    payload_files:
+      - {from: step1, output: image2}
+    encryption:
+      mode: password
+      password: NestedDemoPassword2026!
+  - id: step3
+    technique: metadata
+    description: Hide password part 1 in image 1 metadata
+    guidenote: >-
+      Extract Metadata from the final image1.png. Comment is password
+      part 1 (iTXt). Append the part from song.mp3. Metadata editing
+      preserves the Locomotive payload after IEND.
+    target: {from: step2, output: image1}
+    set:
+      Comment: NestedDemoPassword
+    remove: []
+  - id: step4
+    technique: metadata
+    description: Hide password part 2 in MP3 metadata
+    guidenote: >-
+      Extract Metadata from the final song.mp3. User Text with description
+      RecoveryPasswordPart2 is password part 2. Append it after the
+      Comment from image1.png. The audio is a generated demo melody.
+    target: 02_nested_cross_media/audio/song.mp3
+    set:
+      - frame: TXXX
+        desc: RecoveryPasswordPart2
+        text: '2026!'
+    remove: []
