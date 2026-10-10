@@ -43,6 +43,8 @@ def file_size_text(path: str) -> str:
 
 def cover_name(cover: FileSource, labels: dict[StepOutput, str]) -> str:
     """File name of a manual cover, or 'Step N output' for a Previous Output."""
+    if cover is None:
+        return "Not selected"
     return labels.get(cover, "Unavailable output") if is_linked(cover) else Path(cover).name
 
 def cover_line(cover: FileSource, labels: dict[StepOutput, str]) -> str:
@@ -216,6 +218,27 @@ class StepCard(QFrame):
         self.set_output("PNG ×1")
         self.set_encryption(encryption_text(draft))
 
+    def set_pending(self, pending: list[str]):
+        """Mark the affected rows; set_inputs restores the normal text on each render."""
+        rows = {self.cover_label: [], self.payload_label: [], self.encryption_label: []}
+        for message in pending:
+            if message.startswith(("Password", "Public key")):
+                label = self.encryption_label
+            elif message.startswith(("Cover", "Target")):
+                label = self.cover_label
+            else:
+                label = self.payload_label
+            rows[label].append(message)
+        for label, messages in rows.items():
+            if messages:
+                suffix = " [pending]"
+                metrics = label.fontMetrics()
+                # Fixed card width: leave room for the marker even with a long file name.
+                width = CARD_WIDTH - 16 - 14 - 78 - 8 - metrics.horizontalAdvance(suffix)
+                text = metrics.elidedText(label.text() or "Not configured", Qt.TextElideMode.ElideMiddle, width)
+                label.setText(text + suffix)
+                label.setToolTip(lines_tooltip(messages))
+
     def show_locomotive(self, draft: LocomotiveInputsDraft, labels: dict[StepOutput, str]):
         # 1. Covers: one -> its name, several -> "PNGs ×N"; the tooltip lists them all
         count = len(draft.covers)
@@ -250,7 +273,7 @@ class StepCard(QFrame):
         # 2. Payload = only the fields the receiver will see (all fields: View all on the extract side)
         linked = {picture.key: picture for picture in draft.linked_pictures}  # MP3 pictures from earlier steps
         keys = [key for key in draft.payload_keys if key in draft.entries or key in linked]
-        is_mp3 = not is_linked(target) and Path(target).suffix.lower() == ".mp3"
+        is_mp3 = (isinstance(target, str) and Path(target).suffix.lower() == ".mp3") or draft.imported_edits.get("media") == "mp3"
         lines = [f"Receiver will see ({len(keys)}):"]
         if is_mp3:
             pictures = [key for key in keys if key in linked or draft.entries[key].frame_id == "APIC"]

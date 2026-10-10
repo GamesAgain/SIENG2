@@ -307,7 +307,11 @@ class EmbedConfigurablePage(QFrame):
 
         card.set_description(step.description)
         card.set_inputs(draft, link_labels(self.pipeline_steps(), draft))  # the card knows how to show each technique's inputs
-        card.set_status(*step_status(step, self.pipeline_steps()))  # same rules as Run Pipeline (core)
+        card.set_pending(step.pending)
+        state, detail = step_status(step, self.pipeline_steps())  # same rules as Run Pipeline (core)
+        if step.pending:
+            detail = "\n".join(step.pending) if state == "setup" else "\n".join([detail, *step.pending])
+        card.set_status(state, detail)
 
     # --- Pipeline Step Controller ---
     def add_pipeline_step(self, technique: str):
@@ -485,6 +489,7 @@ class EmbedConfigurablePage(QFrame):
         step.description = description.strip()
         step.guidenote = guidenote.strip()
         step.technique_inputs = draft
+        step.pending.clear()
 
         # 5. Show the new description/status on the card
         self.render_step_cards()
@@ -622,4 +627,3 @@ class EmbedConfigurablePage(QFrame):
     def show_run_error(self, message: str):
         self.execution_bar.set_error()
         QMessageBox.warning(self, "Run Pipeline", message)
-        

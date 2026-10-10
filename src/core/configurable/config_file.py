@@ -205,6 +205,8 @@ def build_metadata(target, edits, steps, pending, location):
             raise ConfigError(f"{location} › target: cannot read metadata ({error}).") from error
     elif not isinstance(target, StepOutput):
         note_missing(target, "Target file not found", pending)
+    else:
+        note_missing(source, "Target source file not found", pending)
 
     entries = dict(original)
     for key in edits["remove"]:
@@ -249,7 +251,7 @@ def build_metadata(target, edits, steps, pending, location):
     saved_edits = edits if not available or pending else {}
     payload_keys = handler.changed_keys(original, entries) + [picture.key for picture in linked_pictures]
     return MetadataInputsDraft(target, entries if available else {}, payload_keys if available else [],
-                               removed_frames, linked_pictures if available else [], saved_edits)
+                               removed_frames, linked_pictures, saved_edits)
 
 
 # --- Import ---

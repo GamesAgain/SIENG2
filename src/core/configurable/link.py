@@ -18,6 +18,8 @@ def output_name(cover: FileSource) -> str:
 def output_media(step: StepDraft) -> str:
     """'png' or 'mp3': what the step's outputs are. Only a Metadata step on an MP3 file makes an MP3."""
     draft = step.technique_inputs
+    if isinstance(draft, MetadataInputsDraft) and draft.imported_edits.get("media") == "mp3":
+        return "mp3"
     if isinstance(draft, MetadataInputsDraft) and isinstance(draft.target, str):
         if Path(draft.target).suffix.lower() == ".mp3":
             return "mp3"

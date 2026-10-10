@@ -92,6 +92,7 @@ class PictureCard(QFrame):
         if pixmap.isNull():
             pixmap = create_icon_pixmap(svg_path("photo.svg"), size=28)
             image.setToolTip("Preview is available after the pipeline runs." if linked
+                             else "Image [pending]; select a new image." if not picture.data
                              else "Preview unavailable; the original image data is kept.")
         else:
             pixmap = pixmap.scaled(72, 72, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
@@ -110,7 +111,8 @@ class PictureCard(QFrame):
             detail = QLabel(f"{source_text} · PNG · size known after the run")
             detail.setWordWrap(True)
         else:
-            detail = QLabel(f"{picture.mime} · {format_file_size(len(picture.data))}")
+            detail = QLabel(f"{picture.mime} · {format_file_size(len(picture.data))}" if picture.data
+                            else "Image [pending] · select a new image")
         detail.setObjectName("fileInfoDetail")
         body_layout.addWidget(detail)
 
@@ -144,6 +146,7 @@ class MP3PicturesForm(QFrame):
         self.cards: list[PictureCard] = []
         self.editing_index: int | None = None       # None = เพิ่มภาพใหม่
         self.new_image: tuple[str, bytes] | None = None  # (mime, data) ของภาพที่เลือกใน editor
+        self.new_image_path: str = ""
         self.new_link: StepOutput | None = None          # output ที่เลือกใน picker ของ editor
         self.picture_choices: list[StepOutputInfo] = []  # PNG outputs ที่ใช้เป็นภาพได้ (หน้า pipeline ส่งมา)
 
@@ -258,11 +261,14 @@ class MP3PicturesForm(QFrame):
     def on_image_selected(self, file_path: str) -> None:
         if not file_path:
             self.new_image = None
+            self.new_image_path = ""
             return
         try:
             self.new_image = read_picture_file(file_path)
+            self.new_image_path = file_path
         except (OSError, ValueError) as error:
             self.new_image = None
+            self.new_image_path = ""
             with QSignalBlocker(self.image_drop_zone):
                 self.image_drop_zone.clear_all()
             QMessageBox.warning(self, "Attached Picture", str(error))
@@ -323,11 +329,15 @@ class MP3PicturesForm(QFrame):
 
         if self.new_image is not None:
             mime, data = self.new_image
+            path = self.new_image_path
         elif isinstance(old, MP3Field):
             mime, data = old.mime, old.data  # แก้แค่ type -> ใช้ภาพเดิม
+            path = old.path
         else:
             raise ValueError("Select a picture first.")
-        return MP3Field("APIC", mime=mime, picture_type=picture_type, desc=desc, data=data)
+        if not data:
+            raise ValueError("Select a new image for this pending picture.")
+        return MP3Field("APIC", mime=mime, picture_type=picture_type, desc=desc, data=data, path=path)
 
     def confirm_picture(self) -> None:
         try:
@@ -372,6 +382,7 @@ class MP3PicturesForm(QFrame):
     def reset_editor(self) -> None:
         self.editing_index = None
         self.new_image = None
+        self.new_image_path = ""
         self.new_link = None
         with QSignalBlocker(self.image_drop_zone):
             self.image_drop_zone.clear_all()
@@ -437,4 +448,7 @@ class MP3PicturesForm(QFrame):
         for picture in self.linked_pictures():
             if picture.source not in available:
                 raise ValueError(f'The output of picture "{picture.desc}" is unavailable. Edit it and select another output.')
+        for picture in self.current_pictures():
+            if not picture.data:
+                raise ValueError(f'Picture "{picture.desc}" is [pending]; select a new image or remove it.')
         return self.current_pictures()

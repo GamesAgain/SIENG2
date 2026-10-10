@@ -8,21 +8,23 @@ The form never writes the file:
   The target can also be a PNG output of an earlier step (Previous Output): the editor reads the text of the
   file that chain started from (its text is the same as the output's: LSB++ / Locomotive keep text chunks).
 """
+from copy import deepcopy
 from pathlib import Path
 
 from mutagen import MutagenError
 from PyQt6.QtCore import QSignalBlocker, pyqtSignal
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QMessageBox, QStackedWidget, QVBoxLayout
 
-from src.core.configurable.drafts import TECHNIQUE_LABELS, MetadataInputsDraft
+from src.core.configurable.drafts import TECHNIQUE_LABELS, LinkedPicture, MetadataInputsDraft
 from src.core.configurable.link import is_linked
 from src.core.configurable.step_output import StepOutput, StepOutputInfo
-from src.core.stego.metadata_handlers.mp3_handler import MetadataMP3Handler
+from src.core.stego.metadata_handlers.mp3_handler import MP3Field, MetadataMP3Handler, apic_description
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, truncate_text_middle
 from src.gui.components.widgets.files_drop import FileDropWidget
 from src.gui.components.widgets.selection_toggle import SelectionToggle
 from src.gui.features.embed.configurable.widgets.step_output_picker import StepOutputPicker
 from src.gui.features.embed.forms.metadata.mp3_form import MP3MetadataForm
+from src.gui.features.embed.forms.metadata.mp3_pictures import read_picture_file
 from src.gui.features.embed.forms.metadata.png_form import PNGMetadataForm
 from src.path import svg_path
 
@@ -42,6 +44,7 @@ class MetadataInputForm(QFrame):
         self.output_infos: dict[StepOutput, StepOutputInfo] = {}
         self.removed_frames: list[str] = []         # MP3 frame ที่ v2.3 เก็บไม่ได้ (pipeline ลบตอน Run)
         self.open_form: PNGMetadataForm | MP3MetadataForm | None = None  # editor ที่เปิดอยู่
+        self.imported_edits: dict = {}  # kept until a compatible target is selected, then applied once
         self.setup_ui()
 
     # --- UI construction ---
@@ -181,6 +184,8 @@ class MetadataInputForm(QFrame):
         self.removed_frames = removed
         if form is self.mp3_form:
             form.secret_preview.show_removed_frames(removed)
+        self.clear_import_marks()
+        self.apply_imported_edits(form)
         self.target_stack.setCurrentWidget(form)
         self.target_file_changed.emit(file_path)
 
@@ -197,6 +202,7 @@ class MetadataInputForm(QFrame):
         self.target_file_path = None
         self.target_link = None
         self.removed_frames = []
+        self.clear_import_marks()
         with QSignalBlocker(self.target_drop_zone):  # clear_all() ส่ง file_selected("") ไม่ต้องรับซ้ำ
             self.target_drop_zone.clear_all()
         self.output_picker.set_selection(None)
@@ -219,7 +225,95 @@ class MetadataInputForm(QFrame):
         form = self.current_form()
         if form is None:
             raise ValueError("Please select a target PNG or MP3 file.")
+        if self.imported_edits:
+            raise ValueError("Select a target matching the imported metadata type before saving.")
+        for widget in self.text_widgets(form):
+            text = widget.toPlainText() if hasattr(widget, "toPlainText") else widget.text()
+            if widget.property("importPending") and not text:
+                widget.setFocus()
+                raise ValueError("Fill in the metadata text marked [pending] before saving.")
         return form.get_entries()
+
+    def text_widgets(self, form):
+        """Only current rows (removed widgets can still await deleteLater)."""
+        if form is self.png_form:
+            return [field.value_input for field in form.standard_fields.values()] + [row.value_input for row in form.custom_rows]
+        widgets = []
+        for field in [*form.text_form.standard_fields.values(), *form.text_form.other_fields.values()]:
+            if field.has_rows():
+                widgets.extend(row.inputs["text"] for row in field.rows)
+            else:
+                widgets.append(field.value_input)
+        return widgets
+
+    def clear_import_marks(self):
+        for form in (self.png_form, self.mp3_form):
+            for widget in self.text_widgets(form):
+                if widget.property("importPending"):
+                    widget.setProperty("importPending", False)
+                    widget.setPlaceholderText("")
+
+    def mark_import_pending(self, widget):
+        widget.setProperty("importPending", True)
+        widget.setPlaceholderText("[pending]")
+
+    def apply_imported_edits(self, form):
+        """Apply YAML edits against this file's original values, never against the previous target."""
+        edits = self.imported_edits
+        if not edits:
+            return
+        media = "mp3" if form is self.mp3_form else "png"
+        if edits["media"] != media:
+            QMessageBox.warning(self, "Imported Metadata", "The imported edits cannot be applied to this file type. "
+                                f"Select a {edits['media'].upper()} target.")
+            return  # keep edits until the user chooses a compatible file
+        entries = {key: value for key, value in form.original.items() if key not in edits["remove"]}
+        if media == "png":
+            entries.update({key: value or "" for key, value in edits["set"].items()})
+            form.set_entries(entries)
+            for key, value in edits["set"].items():
+                if value is None:
+                    field = form.standard_fields.get(key)
+                    widget = field.value_input if field else next(row.value_input for row in form.custom_rows if row.get_keyword() == key)
+                    self.mark_import_pending(widget)
+        else:
+            fields = [value for value in entries.values() if value.frame_id != "APIC"]
+            for value in edits["set"]:
+                field = MP3Field(value["frame"], value["text"] or "", value.get("desc", ""), value.get("lang", "eng"))
+                fields = [old for old in fields if old.key != field.key or (field.frame_id.startswith("W") and not field.text)]
+                fields.append(field)
+            form.text_form.set_fields(fields)
+            groups = {}
+            for field in fields:
+                groups.setdefault(field.frame_id, []).append(field)
+            for frame_id, values in groups.items():
+                field = form.text_form.standard_fields.get(frame_id) or form.text_form.other_fields[frame_id]
+                if field.has_rows():
+                    for row, value in zip(field.rows, values):
+                        if not value.text:
+                            self.mark_import_pending(row.inputs["text"])
+                elif not values[-1].text:
+                    self.mark_import_pending(field.value_input)
+            pictures = [value for value in entries.values() if value.frame_id == "APIC"]
+            taken = {picture.desc for picture in pictures}
+            for value in edits["pictures"]:
+                source, picture_type = value["source"], value["type"]
+                desc = apic_description(picture_type, taken)
+                taken.add(desc)
+                if is_linked(source):
+                    pictures.append(LinkedPicture(source, picture_type, desc))
+                    continue
+                mime, data = "", b""
+                if source and Path(source).is_file():
+                    try:
+                        mime, data = read_picture_file(source)
+                    except (OSError, ValueError) as error:
+                        QMessageBox.warning(self, "Imported Picture", str(error))
+                pictures.append(MP3Field("APIC", desc=desc, mime=mime, picture_type=picture_type,
+                                         data=data, path=source or ""))
+            form.pictures_form.set_pictures(pictures)
+            form.update_preview()
+        self.imported_edits = {}  # used once; changing files afterward must not inherit these edits
 
     def key_labels(self, keys: list[str]) -> list[str]:
         """Readable names of saved keys, for messages."""
@@ -249,6 +343,7 @@ class MetadataInputForm(QFrame):
     def load_draft(self, draft: MetadataInputsDraft) -> None:
         """Fill the form from a saved draft. A missing file / output leaves the target empty (the draft is not changed)."""
         self.reset_target()
+        self.imported_edits = deepcopy(draft.imported_edits)
         target = draft.target
         if is_linked(target):
             # The page gives the list (set_output_choices) before this; an output that is no longer in it stays unpicked
@@ -266,6 +361,8 @@ class MetadataInputForm(QFrame):
 
         # ค่าเดิมของไฟล์ = original, ค่าที่บันทึกไว้ = entries (+ ภาพจาก step ก่อน สำหรับ MP3)
         form = self.current_form()
+        if draft.imported_edits:
+            return  # the edits (including empty text/pictures) were applied by open_editor
         if form is self.mp3_form:
             form.set_entries(draft.entries, draft.linked_pictures)
         elif form is not None:

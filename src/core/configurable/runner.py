@@ -47,6 +47,9 @@ def step_status(step: StepDraft, steps: list[StepDraft] | None = None) -> tuple[
     if problem:
         return "blocked", problem
 
+    if step.pending:
+        return "setup", step.pending[0]
+
     # A saved file may have been moved or deleted since Save
     missing = missing_files(step.technique_inputs)
     if missing:
