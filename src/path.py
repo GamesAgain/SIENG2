@@ -2,6 +2,7 @@ from pathlib import Path
 
 SRC_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SRC_DIR.parent
+TEMPLATES_DIR = SRC_DIR / "templates"
 
 GUI_DIR = SRC_DIR / "gui"
 

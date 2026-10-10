@@ -1,0 +1,54 @@
+# Demo values and a shared demo key pair. Do not use them for real secrets.
+# DemoPassword + 2026! = DemoPassword2026!
+sieng2: 1
+kind: embed_pipeline
+name: Distributed & Nested Steganography
+steps:
+  - id: step1
+    technique: lsbpp
+    description: Hide the primary secret in image 1
+    guidenote: >-
+      Recover image 1 with Locomotive. Join the first and second
+      password fragments to decrypt its text. Demo credentials only.
+    cover: 01_distributed_nested/images/image1.png
+    payload_text: This is a demo secret message.
+    encryption:
+      mode: password
+      password: DemoPassword2026!
+  - id: step2
+    technique: lsbpp
+    description: Hide password fragment 1 in image 2
+    guidenote: >-
+      Extract without encryption. This is the first part
+      of the password for image 1.
+    cover: 01_distributed_nested/images/image2.png
+    payload_text: DemoPassword
+    encryption:
+      mode: none
+  - id: step3
+    technique: metadata
+    description: Hide password fragment 2 in image 3
+    guidenote: >-
+      Read Comment with Extract Metadata. Append it after
+      the fragment from image 2.
+    target: 01_distributed_nested/images/image3.png
+    set:
+      Comment: '2026!'
+    remove: []
+  - id: step4
+    technique: locomotive
+    description: Distribute encrypted image 1 across images 2 and 3
+    guidenote: >-
+      Select both final carrier images to recover image1.png.
+      The shared demo private key is in
+      src/templates/01_distributed_nested/keys/recipient_private.pem
+      and has no password.
+    covers:
+      - {from: step2, output: image2}
+      - {from: step3, output: image3}
+    payload_mode: files
+    payload_files:
+      - {from: step1, output: image1}
+    encryption:
+      mode: public_key
+      public_key: 01_distributed_nested/keys/recipient_public.pem

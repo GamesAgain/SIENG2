@@ -7,17 +7,17 @@ from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from PyQt6.QtWidgets import (
-    QApplication, QButtonGroup, QComboBox, QDialog, QFileDialog, QFrame,
+    QApplication, QButtonGroup, QDialog, QFileDialog, QFrame,
     QHBoxLayout, QLabel, QMessageBox, QPushButton,
     QScrollArea, QVBoxLayout, QWidget)
 
 from PyQt6.QtCore import QEvent, QIODevice, QSaveFile, QTimer, Qt
 from PyQt6.QtGui import QIcon
 
-from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap
+from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, truncate_text_middle
 from src.gui.components.widgets.execution_bar import ExecutionBar
 from src.core.configurable.drafts import StepDraft
-from src.core.configurable.config_file import ConfigError, export_pipeline, import_pipeline
+from src.core.configurable.config_file import ConfigError, export_pipeline, import_pipeline, pipeline_label, read_document
 from src.core.configurable.link import dependents, link_labels, output_choices
 from src.core.configurable.runner import (
     StepOutputFile, check_steps, final_files, final_outputs, run_pipeline, save_outputs, step_status,
@@ -25,6 +25,7 @@ from src.core.configurable.runner import (
 from src.gui.features.embed.configurable.constants import TECHNIQUE_DISPLAY
 from src.gui.features.embed.configurable.widgets.flow_layout import FlowLayout
 from src.gui.features.embed.configurable.widgets.export_config_dialog import ExportConfigDialog
+from src.gui.features.embed.configurable.widgets.template_combo import TemplateComboBox
 from src.gui.features.embed.configurable.widgets.output_files_card import OutputFilesCard
 from src.gui.features.embed.configurable.widgets.step_canvas import StepCanvas
 from src.gui.features.embed.configurable.widgets.step_card import CARD_HEIGHT, StepCard, make_arrow
@@ -34,7 +35,7 @@ from src.gui.features.embed.forms.metadata_form import MetadataInputForm
 from src.gui.features.embed.configurable.widgets.step_config_shell import StepConfigShellDialog, StepConfigShellPanel
 from src.gui.services.key_registry import KeyRegistry
 from src.gui.services.worker import FunctionWorker
-from src.path import svg_path
+from src.path import TEMPLATES_DIR, svg_path
 
 ICON_SIZE = 16
 CHIP_ICON_SIZE = 12
@@ -53,6 +54,7 @@ class EmbedConfigurablePage(QFrame):
         self.step_cards: list[StepCard] = []
         self.step_drafts: dict[str, StepDraft] = {}
         self.pipeline_name: str = ""
+        self.templates_dir = TEMPLATES_DIR
 
         # Step editor that is open now (popup dialog or inline panel); None when closed
         self.active_step_dialog: StepConfigShellDialog = None
@@ -142,11 +144,13 @@ class EmbedConfigurablePage(QFrame):
     def build_template_row(self) -> QHBoxLayout:
         row = QHBoxLayout()
         row.setSpacing(8)
-        self.template_combo = QComboBox()
+        self.template_combo = TemplateComboBox()
         # A placeholder is not a selectable template item.
         self.template_combo.setPlaceholderText("Select a Pipeline Example (Template)")
         row.addWidget(self.template_combo, 1)
-        # self.template_combo.currentIndexChanged.connect(self.on_template_selected) TODO
+        self.template_combo.popup_opening.connect(self.refresh_templates)
+        self.template_combo.activated.connect(self.on_template_selected)
+        self.refresh_templates()
 
         self.import_config_btn = QPushButton(" Import Config")
         self.export_config_btn = QPushButton(" Export Config")
@@ -166,13 +170,39 @@ class EmbedConfigurablePage(QFrame):
         return row
 
     # --- Config files ---
+    def refresh_templates(self):
+        self.template_combo.clear()
+        paths = sorted(path for path in self.templates_dir.glob("*")
+                       if path.is_file() and path.suffix.lower() in {".yaml", ".yml"})
+        for path in paths:
+            try:
+                label = pipeline_label(read_document(path.read_text(encoding="utf-8-sig")))
+            except (OSError, ValueError):
+                self.template_combo.addItem(f"{path.name} (cannot read)", str(path))
+                self.template_combo.model().item(self.template_combo.count() - 1).setEnabled(False)
+                continue
+            self.template_combo.addItem(truncate_text_middle(label), str(path))
+            self.template_combo.setItemData(self.template_combo.count() - 1,
+                                            f"{label}\n{path.name}", Qt.ItemDataRole.ToolTipRole)
+        self.template_combo.setCurrentIndex(-1)
+
+    def on_template_selected(self, index: int):
+        path = self.template_combo.itemData(index)
+        self.template_combo.setCurrentIndex(-1)
+        if path is not None:
+            self.import_config_file(Path(path))
+
     def on_import_config(self):
         if self.run_worker is not None or self.active_step_dialog is not None:
             return
         filename, _ = QFileDialog.getOpenFileName(self, "Import Config", "", "YAML files (*.yaml *.yml)")
         if not filename:
             return
-        path = Path(filename)
+        self.import_config_file(Path(filename))
+
+    def import_config_file(self, path: Path):
+        if self.run_worker is not None or self.active_step_dialog is not None:
+            return
         # Read and validate before closing an editor or touching the current pipeline/results.
         try:
             imported = import_pipeline(path.read_text(encoding="utf-8-sig"), path.parent)
