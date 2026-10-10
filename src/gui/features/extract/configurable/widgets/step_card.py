@@ -9,12 +9,12 @@ from html import escape
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLineEdit, QProgressBar, QPushButton, QVBoxLayout
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLineEdit, QProgressBar, QPushButton, QSizePolicy, QVBoxLayout
 
 from src.core.configurable.extract_plan import PlanStep
 from src.gui.components.gui_utils import add_password_visibility_toggle, create_icon_pixmap
 from src.gui.components.widgets.key_source import KeySourceWidget
-from src.gui.components.widgets.key_validation import KeyValidationLabel
+from src.gui.components.widgets.key_validation import KeyValidationLabel, KeyValidationResult, inspect_private_key
 from src.gui.features.embed.configurable.constants import TECHNIQUE_DISPLAY
 from src.gui.services.key_registry import KeyRegistry
 from src.path import svg_path
@@ -56,6 +56,7 @@ class ExtractStepCard(QFrame):
         self.number = number
         self.meta = TECHNIQUE_DISPLAY[step.technique]
         self.key_registry = key_registry
+        self.step_numbers = step_numbers or {}
         self.password_input: QLineEdit | None = None       # encryption: password
         self.key_source: KeySourceWidget | None = None     # encryption: public_key (the receiver chooses the private key)
         self.key_password_input: QLineEdit | None = None
@@ -63,6 +64,8 @@ class ExtractStepCard(QFrame):
 
         self.setObjectName("stepCard")
         self.setProperty("accentColor", self.meta["accent"])
+        # Keep the height of its rows: when the list is short the page must not stretch the cards
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         self.build_ui(step_numbers or {}, missing or set())
         self.set_state("waiting")
 
@@ -172,6 +175,10 @@ class ExtractStepCard(QFrame):
             parts.append(text)
         return " · ".join(parts)
 
+    def set_missing(self, missing: set) -> None:
+        """Write the COVER line again when the receiver adds or removes files."""
+        self.needs_label.setText(self.needs_text(self.step_numbers, missing))
+
     # --- Decryption options (the controls of the Standalone extract forms) ---
     def build_password_row(self) -> QHBoxLayout:
         row = QHBoxLayout()
@@ -206,6 +213,8 @@ class ExtractStepCard(QFrame):
         self.key_password_input.setPlaceholderText("Private key password (optional)")
         add_password_visibility_toggle(self.key_password_input)
         self.key_status = KeyValidationLabel()  # hidden until a key is checked
+        self.key_source.key_selected.connect(self.check_key)  # same checks as the Standalone extract forms
+        self.key_password_input.editingFinished.connect(self.check_key)
 
         column = QVBoxLayout()
         column.setSpacing(4)
@@ -225,6 +234,34 @@ class ExtractStepCard(QFrame):
         button.setFixedSize(BUTTON_WIDTH, BUTTON_HEIGHT)
         return button
 
+    # --- Secrets typed into this card ---
+    def credentials(self) -> tuple[str | None, str | None]:
+        """(password, private key path). For a private key, the password is the key's own password (None if it has none)."""
+        if self.step.encryption == "password":
+            return self.password_input.text(), None
+        if self.step.encryption == "public_key":
+            return self.key_password_input.text() or None, self.key_source.drop_zone.file_path or None
+        return None, None
+
+    def check_key(self, _path=None) -> KeyValidationResult | None:
+        """Check the chosen private key (and its password) and show the result under it; None = no key chosen."""
+        path = self.key_source.drop_zone.file_path
+        if not path:
+            self.key_status.clear_result()
+            return None
+        result = inspect_private_key(path, self.key_password_input.text() or None)
+        self.key_status.set_result(result)
+        return result
+
+    def set_busy(self, busy: bool) -> None:
+        """While any step is extracted: no button and no secret field can be used (set_state turns the buttons on again)."""
+        for widget in (self.password_input, self.key_source, self.key_password_input):
+            if widget is not None:
+                widget.setEnabled(not busy)
+        if busy:
+            self.extract_button.setEnabled(False)
+            self.result_button.setEnabled(False)
+
     # --- State ---
     def set_state(self, state: str, detail: str = "") -> None:
         """
@@ -243,8 +280,7 @@ class ExtractStepCard(QFrame):
 
     # --- Progress (the page calls these while this step is extracted) ---
     def on_extract_clicked(self) -> None:
-        """Show the loading bar right away, then let the page extract this step."""
-        self.set_progress(0, "Starting...")
+        """The page checks the inputs first, then shows the loading bar ('Starting...') and extracts this step."""
         self.extract_requested.emit()
 
     def set_progress(self, percent: int, message: str) -> None:

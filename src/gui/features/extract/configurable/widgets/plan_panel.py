@@ -4,8 +4,8 @@ Inside of the "Extract Plan" card: the plan file (extract_pipeline.yaml) and the
 The page decides what is shown (it reads the plan and matches the files); this widget only shows it and sends
 what the user dropped. Same parts as the other pages: FileDropWidget / FileInfoBar / fileItemRow.
 """
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout
+from PyQt6.QtCore import QSignalBlocker, Qt, pyqtSignal
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
 
 from src.gui.components.gui_utils import create_icon_pixmap, truncate_text_middle
 from src.gui.components.widgets.file_info_bar import FileInfoBar
@@ -20,6 +20,7 @@ FILE_STATES = {
     "renamed": ("check.svg", "#4ADE80"),   # same content, another name
     "changed": ("check.svg", "#F59E0F"),   # same name, other content (used with a warning)
     "missing": ("file.svg", "#64748B"),    # not added yet
+    "unknown": ("x.svg", "#64748B"),       # a dropped file that is not in the plan (not used)
 }
 
 
@@ -78,7 +79,7 @@ class ExtractPlanPanel(QFrame):
         self.plan_drop.file_selected.connect(lambda path: path and self.plan_selected.emit(path))
         self.plan_bar = FileInfoBar()
         self.plan_bar.change_file_button.setText("Change")
-        self.plan_bar.change_file_requested.connect(self.change_plan_requested.emit)
+        self.plan_bar.change_file_requested.connect(self.on_change_plan)
         layout.addWidget(self.plan_drop)
         layout.addWidget(self.plan_bar)
 
@@ -110,14 +111,31 @@ class ExtractPlanPanel(QFrame):
         self.files_drop.files_changed.connect(self.final_files_added.emit)
         layout.addWidget(self.files_drop)
 
-        self.rows_layout = QVBoxLayout()
+        # The rows scroll inside the card when the plan has many files
+        rows = QWidget()
+        rows.setObjectName("transparentScrollContent")
+        self.rows_layout = QVBoxLayout(rows)
+        self.rows_layout.setContentsMargins(0, 0, 4, 0)  # room for the scrollbar
         self.rows_layout.setSpacing(6)
-        layout.addLayout(self.rows_layout)
+        self.rows_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.rows_scroll = QScrollArea()
+        self.rows_scroll.setObjectName("transparentScroll")
+        self.rows_scroll.setWidgetResizable(True)
+        self.rows_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.rows_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.rows_scroll.setWidget(rows)
+        layout.addWidget(self.rows_scroll, 1)
         self.files_hint = QLabel("Open an extract plan to see the files you need.")
         self.files_hint.setObjectName("hintLabel")
         self.files_hint.setWordWrap(True)
         layout.addWidget(self.files_hint)
-        layout.addStretch()
+
+    def on_change_plan(self) -> None:
+        """Change = take the plan out: back to the drop zone (the page clears the steps and the files)."""
+        self.plan_drop.clear_all()  # so choosing the same file again is still noticed
+        self.plan_bar.hide()
+        self.plan_drop.show()
+        self.change_plan_requested.emit()
 
     # --- What the page shows ---
     def show_plan(self, file_path: str, name: str, detail: str) -> None:
@@ -125,6 +143,7 @@ class ExtractPlanPanel(QFrame):
         self.plan_bar.update_info(file_path, truncate_text_middle(name, NAME_LIMIT), detail, [],
                                   icon_path=str(svg_path("file-text.svg")))
         self.plan_bar.file_name.setToolTip(name)
+        self.plan_drop.clear_all()
         self.plan_drop.hide()
         self.plan_bar.show()
         self.files_drop.setEnabled(True)
@@ -134,11 +153,13 @@ class ExtractPlanPanel(QFrame):
         self.plan_bar.hide()
         self.plan_drop.show()
         self.files_drop.setEnabled(False)  # nothing to match before a plan is read
+        with QSignalBlocker(self.files_drop):  # forget the dropped files without telling the page again
+            self.files_drop.clear_all()
         self.set_final_files([])
         self.files_hint.show()
 
     def set_final_files(self, files: list[tuple[str, str, str]]) -> None:
-        """files: (name, state, detail) per final file of the plan; state is a key of FILE_STATES."""
+        """files: (name, state, detail) per final file of the plan (+ 'unknown' rows); state is a key of FILE_STATES."""
         while self.rows_layout.count():
             row = self.rows_layout.takeAt(0).widget()
             if row is not None:
@@ -146,5 +167,6 @@ class ExtractPlanPanel(QFrame):
                 row.deleteLater()
         for name, state, detail in files:
             self.rows_layout.addWidget(FinalFileRow(name, state, detail))
-        found = sum(state != "missing" for _, state, _ in files)
-        self.files_count.setText(f"{found} of {len(files)}" if files else "")
+        needed = [state for _, state, _ in files if state != "unknown"]  # the plan's files only
+        found = sum(state != "missing" for state in needed)
+        self.files_count.setText(f"{found} of {len(needed)}" if needed else "")

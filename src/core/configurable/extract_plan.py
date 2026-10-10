@@ -27,7 +27,7 @@ from src.core.configurable.runner import StepOutputFile, final_files, payload_na
 from src.core.configurable.step_output import StepOutput
 from src.core.stego.locomotive import ZIP_PAYLOAD_NAME, Locomotive
 from src.core.stego.lsb_pp import LSBPP
-from src.core.stego.metadata_handlers.mp3_handler import MetadataMP3Handler, key_label
+from src.core.stego.metadata_handlers.mp3_handler import MetadataMP3Handler, MP3Field
 from src.core.stego.metadata_handlers.png_handler import MetadataPNGHandler
 
 PLAN_VERSION = 1
@@ -74,8 +74,9 @@ class ExtractPlan:
 @dataclass
 class ExtractResult:
     text: str | None = None                                       # LSB++ / Locomotive text
-    fields: dict[str, str] = field(default_factory=dict)          # Metadata: label -> value
+    fields: dict[str, str] = field(default_factory=dict)          # Metadata: key -> value (PNG keyword / MP3 key like 'TXXX:desc')
     files: dict[str, Path] = field(default_factory=dict)          # recovered file name -> file in the workspace
+    pictures: dict[str, MP3Field] = field(default_factory=dict)   # MP3 pictures: file name -> the picture (type, desc, mime)
 
 
 def sha256_of(path) -> str:
@@ -327,11 +328,12 @@ def extract_step(step: PlanStep, paths: list[str], workspace: Path, password: st
             used = set(step.gives_pictures.values())
             for field_key, value in secret.items():
                 if value.frame_id != "APIC":
-                    result.fields[key_label(field_key)] = value.text
+                    result.fields[field_key] = value.text  # the page shows key_label(key)
                     continue
                 file_name = step.gives_pictures.get(value.desc) or unique_name(
                     value.desc + PICTURE_SUFFIX.get(value.mime, ".png"), used)
                 result.files[file_name] = write_file(folder, file_name, value.data)
+                result.pictures[file_name] = value
         else:
             result.fields = MetadataPNGHandler().read_secret(paths[0])
         if not result.fields and not result.files:
