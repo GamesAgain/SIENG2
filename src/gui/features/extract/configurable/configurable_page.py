@@ -1,4 +1,5 @@
 from pathlib import Path
+import shutil
 from tempfile import TemporaryDirectory
 
 from PyQt6.QtWidgets import QApplication, QLabel, QFrame, QMessageBox, QScrollArea, QVBoxLayout, QHBoxLayout, QWidget
@@ -38,6 +39,7 @@ class ExtractConfigurablePage(QFrame):
         self.plan_panel.plan_selected.connect(self.open_plan)
         self.plan_panel.change_plan_requested.connect(self.clear_plan)
         self.plan_panel.final_files_added.connect(self.on_final_files)
+        self.plan_panel.remove_file_requested.connect(self.remove_final_file)
         QApplication.instance().aboutToQuit.connect(self.remove_workspace)
 
     def setup_ui(self):
@@ -186,10 +188,61 @@ class ExtractConfigurablePage(QFrame):
         """All the files dropped so far (the drop zone sends the whole list): match them to the plan again."""
         if self.plan is None:
             return
+        before = {key: path for key, path in self.files.items() if not key[0]}  # the final files that were matched
         matched, _ = match_files(self.plan, paths)
         self.files = {key: path for key, path in self.files.items() if key[0]}  # keep the recovered files only
         self.files.update({Need(name).key: path for name, path in matched.items()})
+        # A final file that is gone or now another file: what was extracted from it is not true any more
+        changed = {key for key, path in before.items() if self.files.get(key) != path}
+        self.reset_steps(self.steps_to_reset(changed))
+        for step in self.plan.steps:  # a failed try belongs to the file it had
+            if any(need.key in changed for need in step.needs):
+                self.failed.pop(step.id, None)
         self.refresh(paths)
+
+    def remove_final_file(self, path: str):
+        """The x on a row. Extracted steps that used this file are reset, so ask first when there are any."""
+        used = {key for key, value in self.files.items() if not key[0] and value == path}
+        affected = self.steps_to_reset(used)
+        if affected:
+            numbers = ", ".join(f"Step {self.cards[step_id].number}" for step_id in self.step_order(affected))
+            answer = QMessageBox.question(
+                self, "Remove File", f"{Path(path).name} was used by extracted steps.\n\n"
+                f"Removing it resets {numbers}: their results and the files they recovered are discarded.\n\nRemove it?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        self.plan_panel.files_drop.remove_file(path)  # sends files_changed: on_final_files matches again and resets
+
+    def steps_to_reset(self, keys: set) -> set[str]:
+        """Ids of the extracted steps that used one of these files, and every extracted step that used what those gave."""
+        affected = {step.id for step in self.plan.steps
+                    if step.id in self.done and any(need.key in keys for need in step.needs)}
+        grew = True
+        while grew:  # follow the recovered files down the chain
+            grew = False
+            for step in self.plan.steps:
+                if step.id in self.done and step.id not in affected and any(need.source in affected for need in step.needs):
+                    affected.add(step.id)
+                    grew = True
+        return affected
+
+    def step_order(self, step_ids) -> list[str]:
+        return [step.id for step in self.plan.steps if step.id in step_ids]
+
+    def reset_steps(self, step_ids: set[str]):
+        """Forget what these steps gave: result, recovered files (also on disk), state and progress."""
+        for step_id in step_ids:
+            self.done.discard(step_id)
+            self.results.pop(step_id, None)
+            for key in [key for key in self.files if key[0] == step_id]:
+                del self.files[key]
+            if self.workspace is not None:
+                shutil.rmtree(Path(self.workspace.name) / step_id, ignore_errors=True)
+            self.cards[step_id].clear_progress()
+        for step in self.plan.steps:  # a failed try belongs to the files it had
+            if step.id in step_ids or any(need.source in step_ids for need in step.needs):
+                self.failed.pop(step.id, None)
 
     def refresh(self, paths: list[str] = ()):
         """Show each final file's match and each step's state from the files there are now."""
@@ -197,15 +250,22 @@ class ExtractConfigurablePage(QFrame):
         for file in self.plan.files:
             path = self.files.get(Need(file.name).key)
             if path is None:
-                rows.append((file.name, "missing", "Not added yet"))
+                rows.append((file.name, "missing", "Not added yet", None))
             elif sha256_of(path) != file.sha256:
-                rows.append((file.name, "changed", "Matched by name · the content differs from the sender's file"))
+                rows.append((file.name, "changed", "Matched by name · the content differs from the sender's file", path))
             elif Path(path).name != file.name:
-                rows.append((file.name, "renamed", f"Matched by content · added as {Path(path).name}"))
+                rows.append((file.name, "renamed", f"Matched by content · added as {Path(path).name}", path))
             else:
-                rows.append((file.name, "matched", "Matched by content"))
+                rows.append((file.name, "matched", "Matched by content", path))
         used = set(self.files.values())
-        rows += [(Path(path).name, "unknown", "Not in this plan · not used") for path in paths if str(path) not in used]
+        plan_names = {file.name.casefold() for file in self.plan.files}
+        for path in paths:
+            if str(path) in used:
+                continue
+            if Path(path).name.casefold() in plan_names:  # it has a plan file's name, but another file is used for it
+                rows.append((Path(path).name, "replaced", "Not used \u00b7 a better match was added", str(path)))
+            else:
+                rows.append((Path(path).name, "unknown", "Not in this plan \u00b7 not used", str(path)))
         self.plan_panel.set_final_files(rows)
 
         numbers = {step.id: number for number, step in enumerate(self.plan.steps, start=1)}

@@ -5,7 +5,8 @@ The page decides what is shown (it reads the plan and matches the files); this w
 what the user dropped. Same parts as the other pages: FileDropWidget / FileInfoBar / fileItemRow.
 """
 from PyQt6.QtCore import QSignalBlocker, Qt, pyqtSignal
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
+from PyQt6.QtGui import QIcon
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
 from src.gui.components.gui_utils import create_icon_pixmap, truncate_text_middle
 from src.gui.components.widgets.file_info_bar import FileInfoBar
@@ -21,13 +22,17 @@ FILE_STATES = {
     "changed": ("check.svg", "#F59E0F"),   # same name, other content (used with a warning)
     "missing": ("file.svg", "#64748B"),    # not added yet
     "unknown": ("x.svg", "#64748B"),       # a dropped file that is not in the plan (not used)
+    "replaced": ("x.svg", "#64748B"),      # a dropped file with a plan file's name, while a better match is used
 }
+UNUSED_STATES = ("unknown", "replaced")    # rows of dropped files that are not the plan's files
 
 
 class FinalFileRow(QFrame):
-    """One final file of the plan: icon by state, name, and how it was matched."""
+    """One final file: icon by state, name, how it was matched, and a remove button when a real file is behind it."""
 
-    def __init__(self, name: str, state: str, detail: str, parent=None):
+    remove_requested = pyqtSignal(str)  # path of the dropped file
+
+    def __init__(self, name: str, state: str, detail: str, path: str | None = None, parent=None):
         super().__init__(parent)
         icon_name, color = FILE_STATES[state]
         self.setObjectName("fileItemRow")
@@ -50,12 +55,22 @@ class FinalFileRow(QFrame):
         text.addWidget(detail_label)
         layout.addWidget(icon, 0, Qt.AlignmentFlag.AlignTop)
         layout.addLayout(text, 1)
+        if path:  # a plan file that is not added yet has nothing to remove
+            self.remove_button = QPushButton()
+            self.remove_button.setObjectName("btnRemoveFile")
+            self.remove_button.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.remove_button.setFixedSize(28, 28)
+            self.remove_button.setIcon(QIcon(create_icon_pixmap(svg_path("x.svg"), "#f43f5e", 14)))
+            self.remove_button.setToolTip("Remove this file")
+            self.remove_button.clicked.connect(lambda: self.remove_requested.emit(path))
+            layout.addWidget(self.remove_button, 0, Qt.AlignmentFlag.AlignVCenter)
 
 
 class ExtractPlanPanel(QFrame):
     plan_selected = pyqtSignal(str)          # path of the extract_pipeline.yaml the user chose
     change_plan_requested = pyqtSignal()
     final_files_added = pyqtSignal(list)     # paths the user dropped (the page matches them to the plan)
+    remove_file_requested = pyqtSignal(str)  # the x on a row: the page decides (it may ask first), then removes it
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -158,15 +173,18 @@ class ExtractPlanPanel(QFrame):
         self.set_final_files([])
         self.files_hint.show()
 
-    def set_final_files(self, files: list[tuple[str, str, str]]) -> None:
-        """files: (name, state, detail) per final file of the plan (+ 'unknown' rows); state is a key of FILE_STATES."""
+    def set_final_files(self, files: list[tuple[str, str, str, str | None]]) -> None:
+        """files: (name, state, detail, path) per row: the plan's files, then the dropped files that are not used.
+        state is a key of FILE_STATES; path = the dropped file (None for a plan file that is not added yet)."""
         while self.rows_layout.count():
             row = self.rows_layout.takeAt(0).widget()
             if row is not None:
                 row.hide()
                 row.deleteLater()
-        for name, state, detail in files:
-            self.rows_layout.addWidget(FinalFileRow(name, state, detail))
-        needed = [state for _, state, _ in files if state != "unknown"]  # the plan's files only
+        for name, state, detail, path in files:
+            row = FinalFileRow(name, state, detail, path)
+            row.remove_requested.connect(self.remove_file_requested.emit)
+            self.rows_layout.addWidget(row)
+        needed = [state for _, state, _, _ in files if state not in UNUSED_STATES]  # the plan's files only
         found = sum(state != "missing" for state in needed)
         self.files_count.setText(f"{found} of {len(needed)}" if needed else "")
