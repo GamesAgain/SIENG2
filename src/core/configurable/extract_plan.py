@@ -23,7 +23,7 @@ import yaml
 
 from src.core.configurable.drafts import TECHNIQUE_LABELS, LocomotiveInputsDraft, LSBInputsDraft, MetadataInputsDraft, StepDraft
 from src.core.configurable.link import covers_of, is_linked, output_name
-from src.core.configurable.runner import StepOutputFile, final_files, payload_names, unique_name
+from src.core.configurable.runner import StepOutputFile, final_files, payload_names, run_pipeline, unique_name
 from src.core.configurable.step_output import StepOutput
 from src.core.stego.locomotive import ZIP_PAYLOAD_NAME, Locomotive
 from src.core.stego.lsb_pp import LSBPP
@@ -172,6 +172,18 @@ def build_extract_plan(steps: list[StepDraft], outputs: list[StepOutputFile], na
     header = (f"# SIENG2 extract pipeline · made {datetime.now():%Y-%m-%d %H:%M} by Run Pipeline\n"
               "# No passwords or secret text are stored. Upload the final files, then extract the steps in order.\n")
     return header + yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
+
+@dataclass
+class PipelineRun:
+    outputs: list[StepOutputFile]
+    plan_path: Path  # extract_pipeline.yaml in the run's workspace (Save Outputs copies it next to the final files)
+
+def run_with_plan(steps: list[StepDraft], workspace: Path, name: str = "", progress_callback=None) -> PipelineRun:
+    """Run Pipeline + write its extract plan into the same workspace (the page runs this in a worker: hashing reads every final file)."""
+    outputs = run_pipeline(steps, workspace, progress_callback)
+    plan_path = Path(workspace) / PLAN_FILE_NAME  # outputs are .png / .mp3, so this name is never taken
+    plan_path.write_text(build_extract_plan(steps, outputs, name), encoding="utf-8")
+    return PipelineRun(outputs, plan_path)
 
 def encryption_of(draft) -> str:
     if isinstance(draft, (LSBInputsDraft, LocomotiveInputsDraft)) and draft.encryption_enabled:

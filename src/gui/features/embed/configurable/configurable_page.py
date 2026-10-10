@@ -3,6 +3,7 @@
 from copy import deepcopy
 from pathlib import Path
 import re
+import shutil
 from tempfile import TemporaryDirectory
 from uuid import uuid4
 
@@ -18,9 +19,10 @@ from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap
 from src.gui.components.widgets.execution_bar import ExecutionBar
 from src.core.configurable.drafts import StepDraft
 from src.core.configurable.config_file import ConfigError, export_pipeline, import_pipeline, pipeline_label, read_document
+from src.core.configurable.extract_plan import PLAN_FILE_NAME, PipelineRun, run_with_plan
 from src.core.configurable.link import dependents, link_labels, output_choices
 from src.core.configurable.runner import (
-    StepOutputFile, check_steps, final_files, final_outputs, run_pipeline, save_outputs, step_status,
+    StepOutputFile, check_steps, final_files, final_outputs, save_outputs, step_status,
 )
 from src.gui.features.embed.configurable.constants import TECHNIQUE_DISPLAY
 from src.gui.features.embed.configurable.widgets.flow_layout import FlowLayout
@@ -66,6 +68,7 @@ class EmbedConfigurablePage(QFrame):
         self.run_result = None  # handed from worker.done to worker.finished
         self.run_workspace: TemporaryDirectory | None = None
         self.run_outputs: list[StepOutputFile] = []
+        self.run_plan_path: Path | None = None  # extract_pipeline.yaml of the last run (saved with the outputs)
 
         self.setup_ui()
         QApplication.instance().aboutToQuit.connect(self.discard_run)  # remove the temp files on exit
@@ -667,7 +670,7 @@ class EmbedConfigurablePage(QFrame):
         self.run_workspace = TemporaryDirectory(prefix="SIENG2-pipeline-")
 
         # 3. Run in a worker and lock the page while it runs
-        worker = FunctionWorker(run_pipeline, steps, Path(self.run_workspace.name), report_progress=True)
+        worker = FunctionWorker(run_with_plan, steps, Path(self.run_workspace.name), self.pipeline_name, report_progress=True)
         self.run_worker = worker
         worker.progress.connect(self.execution_bar.update_progress)
         worker.done.connect(self.on_run_done)
@@ -691,12 +694,14 @@ class EmbedConfigurablePage(QFrame):
         self.page_scroll.widget().setEnabled(True)
         self.execution_bar.set_busy(False)
 
-        # success: list of output files waiting in the temp folder
-        if isinstance(result, list):
-            self.run_outputs = result
+        # success: output files + the extract plan waiting in the temp folder
+        if isinstance(result, PipelineRun):
+            self.run_outputs = result.outputs
+            self.run_plan_path = result.plan_path
             self.execution_bar.set_save_available(True)
-            self.execution_bar.update_progress(100, f"Pipeline complete: {len(final_outputs(result))} output(s), not saved yet.")
-            self.output_files_card.show_files(final_files(result))
+            self.execution_bar.update_progress(
+                100, f"Pipeline complete: {len(final_outputs(result.outputs))} output(s), not saved yet.")
+            self.output_files_card.show_files(final_files(result.outputs) + [(PLAN_FILE_NAME, result.plan_path)])
             QTimer.singleShot(0, lambda: self.page_scroll.ensureWidgetVisible(self.output_files_card))  # after the layout is updated
             return
 
@@ -715,10 +720,13 @@ class EmbedConfigurablePage(QFrame):
             return
         try:
             folder = save_outputs(self.run_outputs, Path(directory))
+            if self.run_plan_path is not None:  # the receiver needs it with the final files
+                shutil.copyfile(self.run_plan_path, folder / PLAN_FILE_NAME)
         except OSError as error:
             self.show_run_error(f"Could not save outputs: {error}")
             return
-        self.execution_bar.update_progress(100, f"Saved {len(final_outputs(self.run_outputs))} file(s) to {folder}")
+        plan = f" and {PLAN_FILE_NAME}" if self.run_plan_path is not None else ""
+        self.execution_bar.update_progress(100, f"Saved {len(final_outputs(self.run_outputs))} file(s){plan} to {folder}")
 
     def on_clear_outputs(self):
         """Clear on the Output Files card: the results are dropped, so Save Outputs has nothing to save."""
@@ -734,6 +742,7 @@ class EmbedConfigurablePage(QFrame):
             self.run_workspace.cleanup()
             self.run_workspace = None
         self.run_outputs = []
+        self.run_plan_path = None
         self.execution_bar.set_save_available(False)
 
     def show_run_error(self, message: str):
