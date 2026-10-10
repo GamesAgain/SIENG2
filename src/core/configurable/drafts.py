@@ -70,6 +70,7 @@ class MetadataInputsDraft:
     payload_keys: list[str] = field(default_factory=list)  # keys added/modified when the step was saved (card display only)
     removed_frames: list[str] = field(default_factory=list)  # MP3 frames ID3v2.3 cannot keep: removed when the pipeline runs
     linked_pictures: list[LinkedPicture] = field(default_factory=list)  # MP3 only: pictures from earlier steps (not in entries)
+    imported_edits: dict = field(default_factory=dict)  # YAML edits kept until missing metadata inputs are filled
 
 @dataclass
 class StepDraft:
@@ -79,3 +80,4 @@ class StepDraft:
     description: str
     guidenote: str = ""
     technique_inputs: LSBInputsDraft | LocomotiveInputsDraft | MetadataInputsDraft | None = None
+    pending: list[str] = field(default_factory=list)  # missing values after config import (not link problems)

@@ -179,6 +179,7 @@ class MP3Field:
     mime: str = ""                                # APIC
     picture_type: int = 3                         # APIC (3 = ปกหน้า)
     data: bytes = field(default=b"", repr=False)  # APIC: ไบต์ภาพดิบ
+    path: str = field(default="", compare=False)  # APIC source for config export; not part of the field's value
 
     @property
     def key(self) -> str:
