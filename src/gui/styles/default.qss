@@ -1625,6 +1625,14 @@ QLabel#payloadBadge {
 }
 
 /* Extract Metadata: View All dialog */
+QDialog#exportConfigDialog {
+    background-color: #1e1e1e;
+}
+
+QLabel#exportSecretWarning {
+    color: #f59e0b;
+}
+
 QDialog#metadataViewAllDialog {
     background-color: #252525;
 }

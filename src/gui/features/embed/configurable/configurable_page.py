@@ -2,26 +2,29 @@
 
 from copy import deepcopy
 from pathlib import Path
+import re
 from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from PyQt6.QtWidgets import (
-    QApplication, QButtonGroup, QComboBox, QFileDialog, QFrame,
+    QApplication, QButtonGroup, QComboBox, QDialog, QFileDialog, QFrame,
     QHBoxLayout, QLabel, QMessageBox, QPushButton,
     QScrollArea, QVBoxLayout, QWidget)
 
-from PyQt6.QtCore import QEvent, QTimer, Qt
+from PyQt6.QtCore import QEvent, QIODevice, QSaveFile, QTimer, Qt
 from PyQt6.QtGui import QIcon
 
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap
 from src.gui.components.widgets.execution_bar import ExecutionBar
 from src.core.configurable.drafts import StepDraft
+from src.core.configurable.config_file import ConfigError, export_pipeline, import_pipeline
 from src.core.configurable.link import dependents, link_labels, output_choices
 from src.core.configurable.runner import (
     StepOutputFile, check_steps, final_files, final_outputs, run_pipeline, save_outputs, step_status,
 )
 from src.gui.features.embed.configurable.constants import TECHNIQUE_DISPLAY
 from src.gui.features.embed.configurable.widgets.flow_layout import FlowLayout
+from src.gui.features.embed.configurable.widgets.export_config_dialog import ExportConfigDialog
 from src.gui.features.embed.configurable.widgets.output_files_card import OutputFilesCard
 from src.gui.features.embed.configurable.widgets.step_canvas import StepCanvas
 from src.gui.features.embed.configurable.widgets.step_card import CARD_HEIGHT, StepCard, make_arrow
@@ -49,6 +52,7 @@ class EmbedConfigurablePage(QFrame):
         
         self.step_cards: list[StepCard] = []
         self.step_drafts: dict[str, StepDraft] = {}
+        self.pipeline_name: str = ""
 
         # Step editor that is open now (popup dialog or inline panel); None when closed
         self.active_step_dialog: StepConfigShellDialog = None
@@ -156,10 +160,79 @@ class EmbedConfigurablePage(QFrame):
             button.setIcon(QIcon(create_icon_pixmap(svg_path(icon_name), "#FFFFFF", size=ICON_SIZE)))
             row.addWidget(button)
 
-        # TODO: Connect config import/export when persistence is implemented.
-        # self.import_config_btn.clicked.connect(self.on_import_config)
-        # self.export_config_btn.clicked.connect(self.on_export_config)
+        self.import_config_btn.clicked.connect(self.on_import_config)
+        self.export_config_btn.clicked.connect(self.on_export_config)
+        self.export_config_btn.setEnabled(False)
         return row
+
+    # --- Config files ---
+    def on_import_config(self):
+        if self.run_worker is not None or self.active_step_dialog is not None:
+            return
+        filename, _ = QFileDialog.getOpenFileName(self, "Import Config", "", "YAML files (*.yaml *.yml)")
+        if not filename:
+            return
+        path = Path(filename)
+        # Read and validate before closing an editor or touching the current pipeline/results.
+        try:
+            imported = import_pipeline(path.read_text(encoding="utf-8-sig"), path.parent)
+        except (OSError, ValueError) as error:
+            QMessageBox.warning(self, "Cannot Import Config", str(error))
+            return
+        if self.step_cards and not self.ask_clear_pipeline("Import Config", "Import"):
+            return
+        self.clear_pipeline()
+        self.pipeline_name = imported.name
+        for step in imported.steps:
+            self.add_step_card(step)
+        self.render_step_cards()
+        self.execution_bar.reset()
+        self.execution_bar.set_status(f"Imported {len(imported.steps)} step(s) from {path.name}")
+
+    def ask_export_path(self, name: str) -> str | None:
+        stem = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip().rstrip(". ") or "embed_pipeline"
+        dialog = QFileDialog(self, "Export Config", f"{stem}.yaml", "YAML files (*.yaml *.yml)")
+        dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
+        dialog.setDefaultSuffix("yaml")
+        try:
+            return dialog.selectedFiles()[0] if dialog.exec() == QDialog.DialogCode.Accepted else None
+        finally:
+            dialog.deleteLater()
+
+    def on_export_config(self):
+        if not self.step_cards or self.run_worker is not None or self.active_step_dialog is not None:
+            return
+        dialog = ExportConfigDialog(self.pipeline_name, self)
+        try:
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+            name = dialog.name_edit.text().strip()
+            include_secret = dialog.include_secret.isChecked()
+            include_passwords = dialog.include_passwords.isChecked()
+        finally:
+            dialog.deleteLater()
+        filename = self.ask_export_path(name)
+        if not filename:
+            return
+        path = Path(filename)
+        try:
+            # Only saved drafts are used; the open inline editor is not committed by Export.
+            text = export_pipeline(self.pipeline_steps(), name=name, include_secret=include_secret,
+                                   include_passwords=include_passwords, base_dir=path.parent)
+            data = text.encode("utf-8")
+            output = QSaveFile(str(path))
+            if not output.open(QIODevice.OpenModeFlag.WriteOnly):
+                raise OSError(output.errorString())
+            if output.write(data) != len(data):
+                output.cancelWriting()
+                raise OSError(output.errorString())
+            if not output.commit():
+                raise OSError(output.errorString())
+        except (OSError, ConfigError) as error:
+            QMessageBox.warning(self, "Cannot Export Config", str(error))
+            return
+        self.pipeline_name = name
+        self.execution_bar.set_status(f"Exported config to {path}")
     
     def build_technique_chip_row(self) -> QHBoxLayout:
         row = QHBoxLayout()
@@ -293,6 +366,7 @@ class EmbedConfigurablePage(QFrame):
         self.empty_canvas_label.setVisible(not has_steps) # ถ้าบ่มีหยัง กะบ่มีหยังนั้นล่ะ
         self.canvas_scroll.setVisible(has_steps)
         self.clear_pipeline_btn.setEnabled(has_steps)
+        self.export_config_btn.setEnabled(has_steps)
         self.refresh_canvas_height()
         QTimer.singleShot(0, self.refresh_canvas_height)
 
@@ -318,15 +392,18 @@ class EmbedConfigurablePage(QFrame):
         if technique not in TECHNIQUE_DISPLAY:
             raise ValueError(f"Unsupported technique: {technique}")
         key = uuid4().hex
-        self.step_drafts[key] = StepDraft(key, technique, TECHNIQUE_DISPLAY[technique]["description"])
-        card = StepCard(len(self.step_cards) + 1, technique, step_key=key)
+        self.add_step_card(StepDraft(key, technique, TECHNIQUE_DISPLAY[technique]["description"]))
+        self.render_step_cards()
+
+    def add_step_card(self, step: StepDraft):
+        self.step_drafts[step.key] = step
+        card = StepCard(len(self.step_cards) + 1, step.technique, step_key=step.key)
         
         # Add ability to remove and open to step card
         card.remove_requested.connect(lambda card=card: self.remove_pipeline_step(card))
         card.clicked.connect(lambda card=card: self.open_step_configuration(card))
         
         self.step_cards.append(card)
-        self.render_step_cards()
         
     def confirm_remove_step(self, users: list[int]) -> bool:
         """Ask before removing a step whose outputs other steps use (they become BLOCKED)."""
@@ -367,23 +444,27 @@ class EmbedConfigurablePage(QFrame):
         self.render_step_cards()  # numbers, arrows, badges (BLOCKED / READY follow the new order) and the run results
 
     def confirm_clear_pipeline(self):
+        if self.step_cards and self.ask_clear_pipeline():
+            self.clear_pipeline()
+
+    def ask_clear_pipeline(self, title: str = "Clear Pipeline", action: str = "Clear") -> bool:
         if not self.step_cards:
-            return
+            return True
         count = len(self.step_cards)
         dialog = QMessageBox(self)
-        dialog.setWindowTitle("Clear Pipeline")
+        dialog.setWindowTitle(title)
         dialog.setIcon(QMessageBox.Icon.Question)
-        dialog.setText(f"Clear all {count} {'step' if count == 1 else 'steps'}?")
+        dialog.setText(f"Replace the current pipeline ({count} steps)?" if action == "Import"
+                       else f"Clear all {count} {'step' if count == 1 else 'steps'}?")
         dialog.setInformativeText("This removes every step from the pipeline.")
-        clear_button = dialog.addButton("Clear", QMessageBox.ButtonRole.DestructiveRole)
+        clear_button = dialog.addButton(action, QMessageBox.ButtonRole.DestructiveRole)
         cancel_button = dialog.addButton(QMessageBox.StandardButton.Cancel)
         dialog.setDefaultButton(cancel_button)
         dialog.setEscapeButton(cancel_button)
         dialog.exec()
         confirmed = dialog.clickedButton() == clear_button
         dialog.deleteLater()
-        if confirmed:
-            self.clear_pipeline()
+        return confirmed
 
     def clear_pipeline(self):
         self.close_step_config_inline()
@@ -392,6 +473,7 @@ class EmbedConfigurablePage(QFrame):
         self.flow_container.drop_indicator.hide()
         self.step_cards.clear()
         self.step_drafts.clear()
+        self.pipeline_name = ""
         self.link_notice.clear()
         self.link_notice.hide()
         self.render_step_cards()
