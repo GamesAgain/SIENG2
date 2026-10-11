@@ -8,12 +8,14 @@ from PyQt6.QtCore import QEvent, Qt
 from src.core.configurable.extract_plan import (
     ExtractPlan, ExtractResult, Need, extract_step, match_files, read_extract_plan, sha256_of,
 )
-from src.gui.components.gui_utils import add_shadow_effect
+from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap
+from src.gui.features.extract.configurable.widgets.final_files_panel import FinalFilesPanel
 from src.gui.features.extract.configurable.widgets.plan_panel import ExtractPlanPanel
 from src.gui.features.extract.configurable.widgets.result_dialog import ExtractResultDialog
 from src.gui.features.extract.configurable.widgets.step_card import ExtractStepCard
 from src.gui.services.key_registry import KeyRegistry
 from src.gui.services.worker import FunctionWorker
+from src.path import svg_path
 
 CANVAS_MARGIN = 10  # same as the embed pipeline canvas
 
@@ -38,8 +40,8 @@ class ExtractConfigurablePage(QFrame):
         self.setup_ui()
         self.plan_panel.plan_selected.connect(self.open_plan)
         self.plan_panel.change_plan_requested.connect(self.clear_plan)
-        self.plan_panel.final_files_added.connect(self.on_final_files)
-        self.plan_panel.remove_file_requested.connect(self.remove_final_file)
+        self.final_files_panel.final_files_added.connect(self.on_final_files)
+        self.final_files_panel.remove_file_requested.connect(self.remove_final_file)
         QApplication.instance().aboutToQuit.connect(self.remove_workspace)
 
     def setup_ui(self):
@@ -54,15 +56,13 @@ class ExtractConfigurablePage(QFrame):
         layout = QHBoxLayout(content)
 
 
-        extract_plan_card = self.build_extract_plan_card()
-        extract_step_card = self.build_extract_steps_card()
-
-        layout.addWidget(extract_plan_card, 33)
-        layout.addWidget(extract_step_card, 67)
+        layout.addWidget(self.build_left_column(), 33)
+        layout.addWidget(self.build_extract_steps_card(), 67)
 
         return content
 
-    def build_extract_plan_card(self):
+    def make_card(self, title_text: str, icon_name: str, right_widget: QWidget | None = None):
+        """A card with its title row (and a widget at the right end of that row). Returns (card, layout)."""
         card = QFrame()
         card.setObjectName("card")
         add_shadow_effect(card)
@@ -71,29 +71,38 @@ class ExtractConfigurablePage(QFrame):
 
         title_container = QFrame()
         title_layout = QHBoxLayout(title_container)
-        title = QLabel("Extract Plan")
+        icon = QLabel()
+        icon.setPixmap(create_icon_pixmap(svg_path(icon_name), size=18))
+        title_layout.addWidget(icon)
+        title = QLabel(title_text)
         title.setObjectName("cardTitle")
         title_layout.addWidget(title)
         title_layout.addStretch()
+        if right_widget is not None:
+            title_layout.addWidget(right_widget)
         layout.addWidget(title_container)
-        self.plan_panel = ExtractPlanPanel()
-        layout.addWidget(self.plan_panel, 1)
+        return card, layout
 
-        return card
+    def build_left_column(self):
+        """Two cards: Extraction Plan (as high as its content) above Stego Files (takes the rest)."""
+        column = QWidget()
+        column_layout = QVBoxLayout(column)
+        column_layout.setContentsMargins(0, 0, 0, 0)
+
+        plan_card, plan_layout = self.make_card("Extraction Plan", "file-text.svg")
+        self.plan_panel = ExtractPlanPanel()
+        plan_layout.addWidget(self.plan_panel)
+
+        self.final_files_panel = FinalFilesPanel()
+        files_card, files_layout = self.make_card("Stego Files (PNG, MP3)", "photo-video.svg", self.final_files_panel.files_count)
+        files_layout.addWidget(self.final_files_panel, 1)
+
+        column_layout.addWidget(plan_card)
+        column_layout.addWidget(files_card, 1)
+        return column
 
     def build_extract_steps_card(self):
-        card = QFrame()
-        card.setObjectName("card")
-        add_shadow_effect(card)
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        title_container = QFrame()
-        title_layout = QHBoxLayout(title_container)
-        title = QLabel("Extract Steps")
-        title.setObjectName("cardTitle")
-        title_layout.addWidget(title)
-        title_layout.addStretch()
+        card, layout = self.make_card("Extraction Steps", "git-branch.svg")
 
         # Same canvas as the embed Pipeline Builder: dark frame, a centred text when empty, the cards in a scroll area
         canvas = QFrame()
@@ -102,7 +111,7 @@ class ExtractConfigurablePage(QFrame):
         canvas_layout.setContentsMargins(CANVAS_MARGIN, CANVAS_MARGIN, CANVAS_MARGIN, CANVAS_MARGIN)
         canvas_layout.setSpacing(0)
 
-        self.steps_hint = QLabel("Open an extract plan to see the steps.")
+        self.steps_hint = QLabel("Open an extraction plan to see the steps.")
         self.steps_hint.setObjectName("pipelineEmpty")
         self.steps_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.steps_hint.setWordWrap(True)
@@ -128,7 +137,6 @@ class ExtractConfigurablePage(QFrame):
         body = QVBoxLayout()
         body.setContentsMargins(16, 4, 16, 16)  # same inset as the Extract Plan card's contents
         body.addWidget(canvas)
-        layout.addWidget(title_container)
         layout.addLayout(body, 1)
         return card
 
@@ -138,7 +146,7 @@ class ExtractConfigurablePage(QFrame):
         try:
             plan = read_extract_plan(Path(path).read_text(encoding="utf-8-sig"))
         except (OSError, ValueError) as error:
-            QMessageBox.warning(self, "Cannot Open Extract Plan", str(error))
+            QMessageBox.warning(self, "Cannot Open Extraction Plan", str(error))
             self.show_plan_info()  # back to what was there: the open plan, or the empty drop zone
             return
         self.clear_plan()
@@ -151,9 +159,10 @@ class ExtractConfigurablePage(QFrame):
         if self.plan is None:
             self.plan_panel.plan_drop.clear_all()
             return
+        self.final_files_panel.set_plan_open(True)
         files = len(self.plan.files)
         self.plan_panel.show_plan(self.plan_path, self.plan.name or Path(self.plan_path).name,
-                                  f"YAML · {len(self.plan.steps)} steps · {files} final file{'s' if files != 1 else ''}")
+                                  f"YAML · {len(self.plan.steps)} steps · {files} stego file{'s' if files != 1 else ''}")
 
     def clear_plan(self):
         """Change (or a new plan): forget the plan, its cards, the added files and what was extracted."""
@@ -169,6 +178,7 @@ class ExtractConfigurablePage(QFrame):
             card.deleteLater()
         self.cards.clear()
         self.plan_panel.clear_plan()
+        self.final_files_panel.clear()
         self.steps_scroll.hide()
         self.steps_hint.show()
 
@@ -212,7 +222,7 @@ class ExtractConfigurablePage(QFrame):
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
             if answer != QMessageBox.StandardButton.Yes:
                 return
-        self.plan_panel.files_drop.remove_file(path)  # sends files_changed: on_final_files matches again and resets
+        self.final_files_panel.files_drop.remove_file(path)  # sends files_changed: on_final_files matches again and resets
 
     def steps_to_reset(self, keys: set) -> set[str]:
         """Ids of the extracted steps that used one of these files, and every extracted step that used what those gave."""
@@ -266,7 +276,7 @@ class ExtractConfigurablePage(QFrame):
                 rows.append((Path(path).name, "replaced", "Not used \u00b7 a better match was added", str(path)))
             else:
                 rows.append((Path(path).name, "unknown", "Not in this plan \u00b7 not used", str(path)))
-        self.plan_panel.set_final_files(rows)
+        self.final_files_panel.set_final_files(rows)
 
         numbers = {step.id: number for number, step in enumerate(self.plan.steps, start=1)}
         missing = {need.key for step in self.plan.steps for need in step.needs
@@ -289,7 +299,7 @@ class ExtractConfigurablePage(QFrame):
     def waiting_reason(need: Need, numbers: dict[str, int]) -> str:
         """Why a step waits: the first file it still needs."""
         if need.source is None:
-            return f"Waiting for {need.file}: add it under Final Files"
+            return f"Waiting for {need.file}: add it under Stego Files"
         return f"Waiting for {need.file} from Step {numbers[need.source]}"
 
     # --- Extract one step ---
@@ -365,11 +375,12 @@ class ExtractConfigurablePage(QFrame):
             self.failed[step_id] = message
             card.set_progress(0, message)
             QMessageBox.warning(self, "Extract", message)
-        self.refresh(self.plan_panel.files_drop.selected_files)
+        self.refresh(self.final_files_panel.files_drop.selected_files)
 
     def set_busy(self, busy: bool):
-        """One step at a time: lock the plan panel and every card while the worker runs."""
+        """One step at a time: lock both left cards and every step card while the worker runs."""
         self.plan_panel.setEnabled(not busy)
+        self.final_files_panel.setEnabled(not busy)
         for card in self.cards.values():
             card.set_busy(busy)
 
