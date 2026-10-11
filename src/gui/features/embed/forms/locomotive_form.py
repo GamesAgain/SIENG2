@@ -17,7 +17,7 @@ from src.gui.components.widgets.key_validation import KeyValidationLabel, inspec
 from src.gui.components.widgets.selection_toggle import SelectionToggle
 from src.gui.components.widgets.toggle_switch import ToggleSwitch
 from src.gui.components.widgets.visibility_stack import VisibilityStack
-from src.gui.features.embed.configurable.widgets.step_output_picker import StepOutputPicker
+from src.gui.features.embed.configurable.widgets.step_output_picker import PNG_OUTPUT_EMPTY_TEXT, StepOutputPicker
 from src.gui.services.key_registry import KeyRegistry
 from src.path import svg_path
 
@@ -125,7 +125,7 @@ class LocomotiveInputForm(QFrame):
 
         self.cover_source_stack = QStackedWidget()
         self.cover_source_stack.addWidget(drop_zone)
-        self.output_picker = StepOutputPicker(multi_select=True)
+        self.output_picker = StepOutputPicker(multi_select=True, empty_text=PNG_OUTPUT_EMPTY_TEXT)
         self.output_picker.selections_changed.connect(self.on_cover_outputs_selected)
         self.cover_source_stack.addWidget(self.output_picker)
 
@@ -198,7 +198,10 @@ class LocomotiveInputForm(QFrame):
 
         self.payload_source_stack = QStackedWidget()
         self.payload_source_stack.addWidget(self.payload_file_drop_zone)
-        self.payload_output_picker = StepOutputPicker(multi_select=True)
+        self.payload_output_picker = StepOutputPicker(
+            multi_select=True,
+            empty_text="No previous outputs available.\nSave an earlier step first to use its file as the payload.",
+        )
         self.payload_output_picker.selections_changed.connect(self.on_payload_outputs_selected)
         self.payload_source_stack.addWidget(self.payload_output_picker)
 

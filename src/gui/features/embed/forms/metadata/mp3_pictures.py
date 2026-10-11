@@ -25,7 +25,7 @@ from src.core.stego.metadata_handlers.mp3_handler import (
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, format_file_size
 from src.gui.components.widgets.files_drop import FileDropWidget
 from src.gui.components.widgets.selection_toggle import SelectionToggle
-from src.gui.features.embed.configurable.widgets.step_output_picker import StepOutputPicker
+from src.gui.features.embed.configurable.widgets.step_output_picker import PNG_OUTPUT_EMPTY_TEXT, StepOutputPicker
 from src.gui.features.embed.forms.metadata.common import (
     make_badge, make_payload_badge, make_remove_button, make_value_input, set_payload_mark,
 )
@@ -213,7 +213,7 @@ class MP3PicturesForm(QFrame):
         )
         self.image_drop_zone.setMinimumHeight(160)
         self.image_drop_zone.file_selected.connect(self.on_image_selected)
-        self.output_picker = StepOutputPicker()
+        self.output_picker = StepOutputPicker(empty_text=PNG_OUTPUT_EMPTY_TEXT)
         self.output_picker.setMinimumHeight(160)
         self.output_picker.selection_changed.connect(self.on_output_selected)
         self.source_stack = QStackedWidget()

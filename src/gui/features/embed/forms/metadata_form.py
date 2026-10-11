@@ -22,7 +22,7 @@ from src.core.stego.metadata_handlers.mp3_handler import MP3Field, MetadataMP3Ha
 from src.gui.components.gui_utils import add_shadow_effect, create_icon_pixmap, truncate_text_middle
 from src.gui.components.widgets.files_drop import FileDropWidget
 from src.gui.components.widgets.selection_toggle import SelectionToggle
-from src.gui.features.embed.configurable.widgets.step_output_picker import StepOutputPicker
+from src.gui.features.embed.configurable.widgets.step_output_picker import PNG_OUTPUT_EMPTY_TEXT, StepOutputPicker
 from src.gui.features.embed.forms.metadata.mp3_form import MP3MetadataForm
 from src.gui.features.embed.forms.metadata.mp3_pictures import read_picture_file
 from src.gui.features.embed.forms.metadata.png_form import PNGMetadataForm
@@ -102,7 +102,7 @@ class MetadataInputForm(QFrame):
         self.target_drop_zone.file_selected.connect(self.on_target_file_selected)
 
         # Previous Output: PNG outputs of earlier steps that have no Metadata layer yet (the page filters them)
-        self.output_picker = StepOutputPicker()
+        self.output_picker = StepOutputPicker(empty_text=PNG_OUTPUT_EMPTY_TEXT)
         self.output_picker.selection_changed.connect(self.on_target_output_selected)
 
         self.target_source_stack = QStackedWidget()

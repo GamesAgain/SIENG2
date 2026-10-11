@@ -1417,6 +1417,23 @@ QPushButton#ChipBtn[accentColor="red"]:hover {
 
 
 /* --- Configurable Pipeline builder GUI --- */
+QFrame#extractFilesEmpty {
+    background-color: #1E1E1E;
+    border: 1px solid #343434;
+    border-radius: 8px;
+}
+
+QLabel#extractFilesEmptyTitle {
+    color: #94A3B8;
+    font-size: 12px;
+}
+
+QFrame#extractFilesHint {
+    background-color: #252525;
+    border: 1px solid #343434;
+    border-radius: 6px;
+}
+
 QFrame#pipelineCanvas {
     background-color: #1E1E1E;
     border: 1px solid #343434;
@@ -1521,27 +1538,18 @@ QFrame#stepCardDivider {
     color: #94A3B8;
 }
 
-/* Previous Output picker: single selection with an internal scrollbar. */
+/* Previous Output picker: the list frame only. Each row (card, picture, selected glow) is painted by
+   OutputRowDelegate in step_output_picker.py, so the items themselves have no style here. */
 QListWidget#stepOutputList {
     background-color: #1F1F1F;
-    color: #94A3B8;
     border: 1px solid #343434;
     border-radius: 8px;
     padding: 4px;
-    font-family: Arial, sans-serif;
-    font-size: 12px;
+    outline: 0;
 }
 QListWidget#stepOutputList::item {
-    padding: 10px;
-    margin: 2px;
-    border-radius: 4px;
-}
-QListWidget#stepOutputList::item:hover {
-    background-color: #292E32;
-}
-QListWidget#stepOutputList::item:selected {
-    background-color: #1D3038;
-    color: #38BDF8;
+    background: transparent;
+    border: none;
 }
 
 QLabel#stepCardStatus[state="blocked"] {
