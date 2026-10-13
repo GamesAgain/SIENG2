@@ -1,3 +1,40 @@
+"""LSB++: texture-adaptive LSB replacement with OPAP, a keyed embedding order and built-in encryption.
+
+Bit naming: b0 = least significant bit ... b7 = most significant bit. "sample" = one R, G or B value.
+
+Pipeline (embed; extract repeats steps 1-4 on the stego image and reads the bits back):
+    1. Prepare      image -> RGB (RGBA keeps alpha untouched; alpha is never used for embedding).
+    2. Texture      clear b0-b4 (& 224), BT.601 grayscale, then
+                        S = w_g * clip(Sobel3x3 / (2*255*sqrt(2))) + w_e * clip(Entropy5x5 / log2(25)), S in [0, 1]
+                    Only b5-b7 feed the analysis, and they are never modified, so the extractor
+                    rebuilds exactly the same map from the stego image.
+    3. Capacity     k bits per sample from S: k = 0 if S <= t1, 1 if S > t1, 2 if S > t2, 3 if S > t3.
+                    Pixels with k = 0 (flat areas) are never touched.
+    4. Order        pixels with k >= 1 are shuffled with a 128-bit seed = HKDF-SHA256(info "SIENG2_LSB_SHUFFLE")
+                    of the password (password mode), the public key bytes (RSA mode) or "Default" (no encryption).
+                    The order is therefore secret only in password mode; the payload itself is always encrypted
+                    in the password and RSA modes.
+    5. Payload      MAGIC (3 B: SES / SEA / SEN) + LENGTH (4 B) + data encrypted with AES-256-GCM / Argon2id
+                    (password) or RSA-OAEP + AES-256-GCM (public key).
+    6. Embed        k-bit LSB replacement, then OPAP (move by +-2^k when that brings the value closer to the
+                    original; no effect at k = 1), then the MSB guard (if OPAP would change b5-b7, keep the
+                    plain replacement value). Channels are written in R, G, B order.
+
+Default parameters and where they come from (experiments/notes, random 50-image cover set, 2026-10-13):
+    Sobel 3x3, entropy 5x5, weights 0.5 / 0.5
+        Exp 4 and Exp 6: Sobel only, entropy only and weights 0:100 ... 100:0 were not better than 0.5 / 0.5.
+    t1 = 0.1 (about 62 % of the pixels are used)
+        Placement is what reduces the traces RS / SPA see (Exp 3, Exp 3b, k <= 1). Exp 7b swept t1 under a
+        whole-image and an algorithm-aware detector: fewer pixels look cleaner to the whole-image detector but
+        concentrate the payload for the aware one; the best trade-off was t1 = 0.1 - 0.125, and 0.1 keeps
+        more capacity.
+    t2 = 0.2, t3 = 0.3 (previously 0.4 / 0.7)
+        Exp 9: chosen to raise capacity inside the same embedding area (median 0.75 -> 1.24 bits per sample)
+        under the rule "100 % extraction and mean PSNR >= 50 dB at payload 0.1 and 0.25"; mean PSNR 56.5 /
+        52.5 dB, lowest single image 51.2 dB. k = 2 and 3 are a capacity feature: the classic detectors
+        (Chi-square, RS, SPA) only model b0, so they are not evidence that multi-bit embedding is safer.
+    Changing any of these values changes the map: images embedded with other values cannot be extracted.
+"""
 import io
 from pathlib import Path
 from PIL import Image
@@ -37,9 +74,9 @@ DEFAULT_LSBPP_CONFIG = {
             'entropy_window': 5, # must be odd number >= 3
             'weight': 0.5
         },
-    'capacity_threshold': {
-        '3bit': 0.7,
-        '2bit': 0.4,
+    'capacity_threshold': { # see the module docstring (Exp 7b, Exp 9); was 0.7 / 0.4 / 0.1 before 2026-10-13
+        '3bit': 0.3,
+        '2bit': 0.2,
         '1bit': 0.1
     }
 }
