@@ -28,6 +28,8 @@ class AnalysisParameters:
     segment_step: int = 5
     spa_j: int = 30
     spa_min_pairs: int = 100
+    start_frame: int = 0
+    frame_count: int | None = None
 
     def validation_error(self) -> str | None:
         """Return a user-facing validation error, or ``None`` when valid."""
@@ -45,19 +47,22 @@ class AnalysisParameters:
             return "SPA pooling j must be between 0 and 126."
         if self.spa_min_pairs < 1:
             return "SPA min pairs must be at least 1."
+        if self.start_frame < 0 or (self.frame_count is not None and self.frame_count < 1):
+            return "Video start frame must be non-negative and frame count positive."
         return None
 
 
 class AnalysisParametersDialog(QDialog):
     """Edit analyzer parameters and return them only after a valid save."""
 
-    def __init__(self, parameters: AnalysisParameters, parent=None):
+    def __init__(self, parameters: AnalysisParameters, parent=None, media_type="image"):
         super().__init__(parent)
         self.setObjectName("analysisParametersDialog")
         self.setWindowTitle("Analysis Parameters")
         self.setModal(True)
         self.setMinimumWidth(650)
         self._parameters = parameters
+        self.media_type = media_type
         self._setup_ui(parameters)
 
     @property
@@ -134,6 +139,20 @@ class AnalysisParametersDialog(QDialog):
         form.setColumnStretch(1, 1)
         layout.addLayout(form)
 
+        self.start_frame_input = QSpinBox()
+        self.start_frame_input.setRange(0, 2_000_000_000)
+        self.start_frame_input.setValue(parameters.start_frame)
+        self.frame_count_input = QSpinBox()
+        self.frame_count_input.setRange(0, 2_000_000_000)
+        self.frame_count_input.setSpecialValueText("All remaining frames")
+        self.frame_count_input.setValue(parameters.frame_count or 0)
+        if self.media_type == "video":
+            form.addWidget(self._build_field("Start frame (0-based)", self.start_frame_input), 3, 0)
+            form.addWidget(self._build_field("Frame count", self.frame_count_input), 3, 1)
+            scope_note = QLabel("Video prefix and segments use frames. Per-frame details use pixels.")
+            scope_note.setObjectName("analysisParameterNote")
+            layout.addWidget(scope_note)
+
         note_label = QLabel(
             "RS mask: (0, 1, 1, 0), matching the current backend. "
             "Spatial heatmaps are not a current backend output."
@@ -190,6 +209,8 @@ class AnalysisParametersDialog(QDialog):
             segment_step=self.segment_step_input.value(),
             spa_j=self.spa_j_input.value(),
             spa_min_pairs=self.spa_min_pairs_input.value(),
+            start_frame=self.start_frame_input.value(),
+            frame_count=self.frame_count_input.value() or None,
         )
         error = parameters.validation_error()
         if error:

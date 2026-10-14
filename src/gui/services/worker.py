@@ -1,4 +1,4 @@
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import QCoreApplication, QThread, pyqtSignal
 
 class FunctionWorker(QThread):
     """
@@ -14,6 +14,14 @@ class FunctionWorker(QThread):
         self._kwargs = kwargs
         if report_progress:
             self._kwargs["progress_callback"] = self.progress.emit
+        application = QCoreApplication.instance()
+        if application is not None:
+            application.aboutToQuit.connect(self.stop)
+
+    def stop(self):
+        """Keep the thread alive until its callable exits during app shutdown."""
+        self.requestInterruption()
+        self.wait()
 
     def run(self):
         try:

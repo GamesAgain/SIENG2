@@ -97,6 +97,8 @@ class BitStatisticsTab(QFrame):
         super().__init__(parent)
         self.analysis_parameters = AnalysisParameters()
         self.analysis_result = None
+        self.media_type = "image"
+        self.video_panel = None
         self.active_detector = "chi_square"
         self.active_channel = None
         self.detail_tabs = {
@@ -178,7 +180,7 @@ class BitStatisticsTab(QFrame):
 
     def open_parameters_dialog(self) -> None:
         """Open the parameter editor and keep values only after Save."""
-        dialog = AnalysisParametersDialog(self.analysis_parameters, self)
+        dialog = AnalysisParametersDialog(self.analysis_parameters, self, media_type=self.media_type)
         if dialog.exec() == AnalysisParametersDialog.DialogCode.Accepted:
             self.analysis_parameters = dialog.parameters
             self.parameters_changed.emit(self.analysis_parameters)
@@ -205,7 +207,13 @@ class BitStatisticsTab(QFrame):
 
     def set_analysis_result(self, result) -> None:
         """Store one complete result bundle for the detail UI added next."""
+        self.clear_analysis_result()
         self.analysis_result = result
+        self.media_type = result.media_type
+        if result.media_type == "video":
+            from src.gui.features.analyzer.video_detail import VideoDetail
+            self.video_panel = VideoDetail(result)
+            self.video_panel.select_detector(self.active_detector)
         self.export_json_button.setEnabled(True)
         report = self._active_report()
         self.active_channel = next(iter(report), None)
@@ -214,8 +222,19 @@ class BitStatisticsTab(QFrame):
     def clear_analysis_result(self) -> None:
         """Remove results when the selected input file changes."""
         self.analysis_result = None
+        if self.video_panel is not None:
+            self.video_panel.dispose()
+            if self.results_widget is self.video_panel:
+                self.results_layout.removeWidget(self.video_panel)
+                self.results_widget = None
+            self.video_panel.deleteLater()
+            self.video_panel = None
         self.export_json_button.setEnabled(False)
         self.active_channel = None
+        self._render_results()
+
+    def set_media_type(self, media_type):
+        self.media_type = media_type
         self._render_results()
 
     def build_detector_selector(self) -> QFrame:
@@ -229,7 +248,7 @@ class BitStatisticsTab(QFrame):
         self.detector_group.setExclusive(True)
         self.detector_buttons = {
             "chi_square": DetectorButton(
-                "Chi-square", "PoV equalization across image regions",
+                "Chi-square", "PoV equalization across pixels and frames",
                 ["Sequential LSB", "PoV / p-value", "Regions"],
                 svg_path("chart-histogram.svg"), "chi",
             ),
@@ -262,6 +281,8 @@ class BitStatisticsTab(QFrame):
         if detector_name not in self.detector_buttons:
             return
         self.active_detector = detector_name
+        if self.video_panel is not None:
+            self.video_panel.select_detector(detector_name)
         self.detector_buttons[detector_name].setChecked(True)
         report = self._active_report()
         if self.active_channel not in report:
@@ -280,10 +301,22 @@ class BitStatisticsTab(QFrame):
     def _active_report(self):
         if self.analysis_result is None:
             return {}
-        return getattr(self.analysis_result, self.active_detector)
+        report = getattr(self.analysis_result, self.active_detector)
+        return report["targets"] if self.analysis_result.media_type == "video" else report
 
     def _render_results(self) -> None:
         if not hasattr(self, "results_layout"):
+            return
+        if self.video_panel is not None and self.analysis_result is not None:
+            if self.video_panel.pending_parameters != self.analysis_parameters:
+                self.video_panel.pending_parameters = self.analysis_parameters
+                self.video_panel.render()
+            if self.results_widget is not self.video_panel:
+                if self.results_widget is not None:
+                    self.results_layout.removeWidget(self.results_widget)
+                    self.results_widget.deleteLater()
+                self.results_widget = self.video_panel
+                self.results_layout.addWidget(self.video_panel)
             return
         if self.results_widget is not None:
             self.results_layout.removeWidget(self.results_widget)
@@ -296,8 +329,7 @@ class BitStatisticsTab(QFrame):
             self.results_widget = self._build_results_layout()
         self.results_layout.addWidget(self.results_widget)
 
-    @staticmethod
-    def _build_empty_state() -> QFrame:
+    def _build_empty_state(self) -> QFrame:
         empty = QFrame()
         empty.setObjectName("analysisEmptyState")
         layout = QVBoxLayout(empty)
@@ -306,7 +338,10 @@ class BitStatisticsTab(QFrame):
         title = QLabel("Waiting for analysis")
         title.setObjectName("analysisEmptyTitle")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hint = QLabel("Select a PNG image and click Run Analysis.")
+        message = {"image": "Select a PNG image and click Run Analysis.",
+                   "video": "Select an AVI video and click Run Analysis.",
+                   "audio": "WAV bit statistics is a placeholder."}
+        hint = QLabel(message.get(self.media_type, "Select a file and click Run Analysis."))
         hint.setObjectName("analysisEmptyHint")
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
