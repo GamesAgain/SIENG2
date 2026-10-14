@@ -12,10 +12,11 @@ def export_analysis(result, destination) -> None:
     parameters["rs_mask"] = [0, 1, 1, 0]
     snapshot = asdict(result)
     document = {
-        "schema_version": 3,
+        "schema_version": 4 if result.media_type == "audio" else 3,
         "media_type": result.media_type,
         "mode": "python",
-        "file": {**(result.video_info if result.media_type == "video" else result.image_info), "path": result.file_path,
+        "file": {**(result.video_info if result.media_type == "video" else
+                     result.audio_info if result.media_type == "audio" else result.image_info), "path": result.file_path,
                  "size": result.file_fingerprint.size,
                  "sha256": result.file_fingerprint.sha256,
                  "modified_ns": result.file_fingerprint.modified_ns},

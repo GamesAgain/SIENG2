@@ -152,6 +152,11 @@ class AnalysisParametersDialog(QDialog):
             scope_note = QLabel("Video prefix and segments use frames. Per-frame details use pixels.")
             scope_note.setObjectName("analysisParameterNote")
             layout.addWidget(scope_note)
+        elif self.media_type == "audio":
+            scope_note = QLabel("Audio prefixes and segments use sample positions on the time axis. SPA defaults are not calibrated for audio.")
+            scope_note.setObjectName("analysisParameterNote")
+            scope_note.setWordWrap(True)
+            layout.addWidget(scope_note)
 
         note_label = QLabel(
             "RS mask: (0, 1, 1, 0), matching the current backend. "

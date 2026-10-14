@@ -248,7 +248,7 @@ class BitStatisticsTab(QFrame):
         self.detector_group.setExclusive(True)
         self.detector_buttons = {
             "chi_square": DetectorButton(
-                "Chi-square", "PoV equalization across pixels and frames",
+                "Chi-square", "PoV equalization across carrier samples",
                 ["Sequential LSB", "PoV / p-value", "Regions"],
                 svg_path("chart-histogram.svg"), "chi",
             ),
@@ -340,7 +340,7 @@ class BitStatisticsTab(QFrame):
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         message = {"image": "Select a PNG image and click Run Analysis.",
                    "video": "Select an AVI video and click Run Analysis.",
-                   "audio": "WAV bit statistics is a placeholder."}
+            "audio": "Select a PCM WAV audio file and click Run Analysis."}
         hint = QLabel(message.get(self.media_type, "Select a file and click Run Analysis."))
         hint.setObjectName("analysisEmptyHint")
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -359,7 +359,15 @@ class BitStatisticsTab(QFrame):
         if self.active_channel not in report:
             self.active_channel = next(iter(report), None)
 
-        if self.active_detector == "chi_square":
+        if self.analysis_result.media_type == "audio":
+            from src.gui.features.analyzer.audio_detail import AudioDetail
+            detail = AudioDetail(
+                self.analysis_result, self.active_detector, self.active_channel,
+                self.detail_tabs.get(self.active_detector, "prefix"),
+            )
+            detail.channel_changed.connect(self._select_channel)
+            detail.tab_changed.connect(self._select_detail_tab)
+        elif self.active_detector == "chi_square":
             detail = ChiSquareDetail(
                 report,
                 self.active_channel,
@@ -482,6 +490,8 @@ class BitStatisticsTab(QFrame):
             peak = self._peak_prefix(data["prefix"])
             peak_p_value = peak.chi_square.p_value if peak else None
             has_clear_prefix = (
+                self.analysis_result.media_type != "audio"
+                and
                 peak_p_value is not None
                 and peak_p_value >= CHI_SQUARE_PREFIX_EVIDENCE_THRESHOLD
             )
@@ -490,7 +500,7 @@ class BitStatisticsTab(QFrame):
                     "Peak p-value",
                     format_p_value(peak_p_value),
                 ),
-                ("Peak range", f"0–{peak.percent}%" if has_clear_prefix else "N/A"),
+                ("Peak range", f"0–{peak.percent}%" if peak and (has_clear_prefix or self.analysis_result.media_type == "audio") else "N/A"),
                 ("Whole p-value", format_p_value(whole.p_value)),
             )
         elif detector == "rs":
@@ -530,6 +540,9 @@ class BitStatisticsTab(QFrame):
             elif has_clear_prefix:
                 evidence_text = "Clear PoV-equality prefix in the selected channel."
                 evidence_state = "clear"
+            elif self.analysis_result.media_type == "audio":
+                evidence_text = "PoV equality is an uncalibrated indicator for PCM audio."
+                evidence_state = "low"
             else:
                 evidence_text = (
                     "No clear PoV-equality prefix at the calibrated threshold."
@@ -672,7 +685,14 @@ class BitStatisticsTab(QFrame):
         layout.setSpacing(5)
         title = QLabel("Analysis Context")
         title.setObjectName("analysisSummaryTitle")
+        audio = self.analysis_result.audio_info
+        audio_context = (
+            f"PCM {audio['bits_per_sample']}-bit · {audio['sample_rate']:,} Hz · "
+            f"{audio['channel_count']} channel(s) · {audio['duration_seconds']:.3f} s\n"
+            if self.analysis_result.media_type == "audio" else ""
+        )
         details = QLabel(
+            audio_context +
             f"SHA-256  {self.analysis_result.file_fingerprint.sha256[:12]}…\n"
             f"Chi min expected  {parameters.min_expected:g}\n"
             f"Prefix / segment  {parameters.prefix_step}% / "

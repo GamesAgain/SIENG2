@@ -6,7 +6,6 @@ from PyQt6.QtWidgets import QFrame, QLabel, QMessageBox, QTabWidget, QVBoxLayout
 from src.core.analyzer import (
     AnalyzerFileType,
     SUPPORTED_ANALYZER_EXTENSIONS,
-    analyze_bit_statistics,
     analyze_file_structure,
     analyze_metadata,
     announce_tab,
@@ -126,9 +125,7 @@ class AnalyzerPage(QFrame):
             detail,
             [(file_type.format_name, "blue")],
         )
-        self.run_analysis_button.setText(
-            "Run Placeholder" if file_type.media_type == "audio" else "Run Analysis"
-        )
+        self.run_analysis_button.setText("Run Analysis")
         self.drop_zone.hide()
         self.file_info_bar.show()
         self._dispatch_current_tab()
@@ -140,10 +137,6 @@ class AnalyzerPage(QFrame):
     def on_run_analysis_clicked(self) -> None:
         """Run all bit-statistics detectors outside the UI thread."""
         if not self.file_path or not self.file_type:
-            return
-
-        if self.file_type.media_type == "audio":
-            analyze_bit_statistics(self.file_path)
             return
 
         parameters = self.bit_statistics_tab.analysis_parameters
@@ -230,8 +223,6 @@ class AnalyzerPage(QFrame):
         self.cancel_analysis_button.setVisible(running)
         if running:
             button_text = "Analyzing..."
-        elif self.file_type and self.file_type.media_type == "audio":
-            button_text = "Run Placeholder"
         else:
             button_text = "Run Analysis"
         self.run_analysis_button.setText(button_text)

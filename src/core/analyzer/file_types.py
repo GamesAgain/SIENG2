@@ -48,6 +48,13 @@ def detect_file_type(file_path: str) -> AnalyzerFileType:
         return AnalyzerFileType(str(path), "image", format_name.upper(), extension)
 
     if extension in AUDIO_FORMATS:
+        try:
+            with path.open("rb") as source:
+                header = source.read(12)
+        except OSError as exc:
+            raise ValueError(f"Cannot read audio file: {path.name}") from exc
+        if len(header) != 12 or header[:4] != b"RIFF" or header[8:] != b"WAVE":
+            raise ValueError("The selected .wav file is not a RIFF/WAVE audio file.")
         return AnalyzerFileType(
             str(path), "audio", AUDIO_FORMATS[extension], extension
         )

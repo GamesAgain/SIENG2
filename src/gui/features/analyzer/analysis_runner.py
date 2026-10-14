@@ -32,6 +32,7 @@ class BitStatisticsAnalysisResult:
     image_info: dict[str, Any] = field(default_factory=dict)
     media_type: str = "image"
     video_info: dict[str, Any] = field(default_factory=dict)
+    audio_info: dict[str, Any] = field(default_factory=dict)
 
 
 def fingerprint_file(file_path: str) -> FileFingerprint:
@@ -63,23 +64,25 @@ def run_bit_statistics_analysis(
     progress_callback=None,
     cancel_check=None,
 ) -> BitStatisticsAnalysisResult:
-    """Run image or video detectors against one unchanged file version."""
+    """Run image, video, or audio detectors against one unchanged file version."""
     validation_error = parameters.validation_error()
     if validation_error:
         raise ValueError(validation_error)
 
     fingerprint_before = fingerprint_file(image_path)
     file_info = detect_file_type(fingerprint_before.path)
-    if file_info.media_type not in ("image", "video"):
+    if file_info.media_type not in ("image", "video", "audio"):
         raise ValueError(
             f"Bit Statistics for {file_info.format_name} is a placeholder. "
-            "PNG and AVI detectors are connected right now."
+            "PNG, AVI and PCM WAV detectors are connected right now."
         )
 
     extra = {}
     if file_info.media_type == "video":
         extra = dict(start_frame=parameters.start_frame, frame_count=parameters.frame_count,
                      progress_callback=progress_callback, cancel_check=cancel_check)
+    elif file_info.media_type == "audio":
+        extra = dict(progress_callback=progress_callback, cancel_check=cancel_check)
     backend_result = analyze_bit_statistics(
         fingerprint_before.path,
         min_expected=parameters.min_expected,
@@ -105,4 +108,5 @@ def run_bit_statistics_analysis(
         image_info=backend_result.get("image_info", {}),
         media_type=file_info.media_type,
         video_info=backend_result.get("video_info", {}),
+        audio_info=backend_result.get("audio_info", {}),
     )

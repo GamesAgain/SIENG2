@@ -11,6 +11,7 @@ import sys
 import tempfile
 import time
 import unittest
+import wave
 
 import cv2
 import numpy as np
@@ -180,7 +181,7 @@ class VideoAnalyzerTests(unittest.TestCase):
             self.app.processEvents()
         tab.close()
 
-    def test_upload_run_invalidation_and_audio_placeholder(self):
+    def test_upload_run_invalidation_and_audio(self):
         page = AnalyzerPage()
         warnings = []
         original = QMessageBox.warning
@@ -204,11 +205,17 @@ class VideoAnalyzerTests(unittest.TestCase):
             self.assertEqual(page.analysis_result.media_type, "image")
             self.wait_for(lambda: not page._analysis_workers)
             wav = self.root / "placeholder.wav"
-            wav.touch()
+            with wave.open(str(wav), "wb") as output:
+                output.setnchannels(1)
+                output.setsampwidth(1)
+                output.setframerate(8000)
+                output.writeframes(self.frames[0][:, :, 0].ravel().tobytes())
             page.on_file_selected(str(wav))
-            self.assertEqual(page.run_analysis_button.text(), "Run Placeholder")
+            self.assertEqual(page.run_analysis_button.text(), "Run Analysis")
             page.on_run_analysis_clicked()
-            self.assertIsNone(page.analysis_result)
+            self.wait_for(lambda: page.analysis_result is not None or warnings)
+            self.assertEqual(warnings, [])
+            self.assertEqual(page.analysis_result.media_type, "audio")
             dialog = AnalysisParametersDialog(self.params, media_type="video")
             dialog.start_frame_input.setValue(2)
             dialog.frame_count_input.setValue(3)
