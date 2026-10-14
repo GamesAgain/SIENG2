@@ -553,6 +553,7 @@ QDialog#analysisParametersDialog QLabel#analysisParameterLabel {
     font-weight: 500;
 }
 
+QSpinBox#analysisVideoFrameInput,
 QDialog#analysisParametersDialog QSpinBox#analysisParameterInput,
 QDialog#analysisParametersDialog QDoubleSpinBox#analysisParameterInput {
     background-color: #292D30;
@@ -565,6 +566,7 @@ QDialog#analysisParametersDialog QDoubleSpinBox#analysisParameterInput {
     selection-background-color: #24617A;
 }
 
+QSpinBox#analysisVideoFrameInput:focus,
 QDialog#analysisParametersDialog QSpinBox#analysisParameterInput:focus,
 QDialog#analysisParametersDialog QDoubleSpinBox#analysisParameterInput:focus {
     border-color: #38BDF8;
@@ -1127,7 +1129,7 @@ QFrame#analysisDetailPanel[detectorType="spa"] QLabel#analysisMetricValue[accent
     color: #B47AFA;
 }
 
-QTableWidget#analysisRawTable {
+QTableView#analysisRawTable {
     background-color: #1F1F1F;
     alternate-background-color: #242424;
     border: 1px solid #383838;
@@ -1139,16 +1141,16 @@ QTableWidget#analysisRawTable {
     outline: none;
 }
 
-QTableWidget#analysisRawTable::item {
+QTableView#analysisRawTable::item {
     padding: 5px 7px;
 }
 
-QTableWidget#analysisRawTable::item:selected {
+QTableView#analysisRawTable::item:selected {
     background-color: #214456;
     color: #E2E8F0;
 }
 
-QTableWidget#analysisRawTable QHeaderView::section {
+QTableView#analysisRawTable QHeaderView::section {
     background-color: #292929;
     border: none;
     border-right: 1px solid #3B3B3B;
@@ -1160,11 +1162,12 @@ QTableWidget#analysisRawTable QHeaderView::section {
     padding: 6px;
 }
 
-QTableWidget#analysisRawTable QTableCornerButton::section {
+QTableView#analysisRawTable QTableCornerButton::section {
     background-color: #292929;
     border: none;
 }
 
+QFrame#analysisVideoContent,
 QFrame#analysisSummaryColumn {
     background: transparent;
     border: none;
@@ -1205,13 +1208,6 @@ QPushButton#analysisOpenDetector:hover {
 QLabel#analysisSummaryLabel {
     color: #8192A5;
     font-size: 9px;
-}
-
-QLabel#analysisSummaryValue {
-    color: #E2E8F0;
-    font-family: 'Courier New', monospace;
-    font-size: 10px;
-    font-weight: 700;
 }
 
 QLabel#analysisRSSummaryLegend {

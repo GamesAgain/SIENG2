@@ -212,7 +212,7 @@ class BitStatisticsTab(QFrame):
         self.media_type = result.media_type
         if result.media_type == "video":
             from src.gui.features.analyzer.video_detail import VideoDetail
-            self.video_panel = VideoDetail(result)
+            self.video_panel = VideoDetail(result, summary_builder=self._build_summary_card)
             self.video_panel.select_detector(self.active_detector)
         self.export_json_button.setEnabled(True)
         report = self._active_report()
@@ -405,14 +405,16 @@ class BitStatisticsTab(QFrame):
         layout.addWidget(summary_column, 3)
         return results
 
-    def _build_summary_card(self, detector: str) -> QFrame:
+    def _build_summary_card(self, detector: str, report=None, selected_channel=None) -> QFrame:
         names = {
             "chi_square": "Chi-square",
             "rs": "RS Analysis",
             "spa": "Sample Pair Analysis",
         }
-        report = getattr(self.analysis_result, detector)
-        channel = self.active_channel if self.active_channel in report else next(iter(report))
+        if report is None:
+            report = getattr(self.analysis_result, detector)
+        requested_channel = selected_channel or self.active_channel
+        channel = requested_channel if requested_channel in report else next(iter(report))
         data = report[channel]
 
         card = QFrame()

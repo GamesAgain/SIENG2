@@ -15,7 +15,7 @@ import unittest
 import cv2
 import numpy as np
 from PIL import Image
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtWidgets import QApplication, QMessageBox, QPushButton, QFrame, QLabel
 from PyQt6.QtGui import QFont, QFontDatabase
 
 from src.core.analyzer import detect_file_type, analyze_bit_statistics
@@ -147,17 +147,24 @@ class VideoAnalyzerTests(unittest.TestCase):
             for channel in ("Whole", "R", "G", "B"):
                 panel.select_channel(channel)
                 panel.select_level("whole")
-                tabs = ["overview", "prefix", "segments", "raw"]
-                if detector == "chi_square":
-                    tabs += ["spatial_prefix", "spatial_segments"]
+                tabs = ["prefix", "segments", "raw"]
+                if detector != "chi_square":
+                    tabs.insert(0, "overview")
                 for view in tabs:
                     panel.select_tab(view)
                     self.app.processEvents()
                     self.assertFalse(panel.grab().isNull())
+                    scope_buttons = [b for b in panel.body.findChildren(QPushButton)
+                                     if b.text() in ("Whole Video", "Per Frame") and not b.isHidden()]
+                    self.assertEqual(len(scope_buttons), 2)
+                    self.assertTrue(all(b.objectName() == "analysisChannelButton" for b in scope_buttons))
+                    cards = panel.body.findChildren(QFrame, "analysisSummaryCard")
+                    self.assertEqual(len(cards), 2)
+                    self.assertFalse(any("All Frames" in b.text() for b in panel.body.findChildren(QPushButton)))
                 panel.select_level("frame")
-                for view in ({"chi_square": ("prefix", "segments", "raw"),
-                              "rs": ("distribution", "prefix", "raw"),
-                              "spa": ("distribution", "raw")}[detector]):
+                for view in ({"chi_square": ("prefix", "segments", "raw", "timeline"),
+                              "rs": ("distribution", "prefix", "raw", "timeline"),
+                              "spa": ("distribution", "raw", "timeline")}[detector]):
                     panel.select_frame_tab(view)
                     self.app.processEvents()
                     self.assertFalse(panel.grab().isNull())

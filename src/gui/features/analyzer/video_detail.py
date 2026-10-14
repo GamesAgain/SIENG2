@@ -1,21 +1,19 @@
 """Simple video detail workspace sharing the established image widgets."""
 
 from collections import OrderedDict
-from dataclasses import asdict, is_dataclass
-import json
 
 from PyQt6.QtCore import Qt, pyqtSignal, QAbstractTableModel, QModelIndex
 from PyQt6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QButtonGroup,
-    QSpinBox, QTableView, QHeaderView, QGridLayout,
+    QSpinBox, QTableView, QHeaderView, QGridLayout, QAbstractItemView,
 )
 
 from src.gui.features.analyzer.chi_square_detail import (
     ChannelSelector, PValueLineChart, MetricTile, ChiSquareDetail,
     format_p_value, format_percent, format_integer,
 )
-from src.gui.features.analyzer.rs_detail import RSDetail, RSDistributionChart
-from src.gui.features.analyzer.spa_detail import SPADetail, SPACountChart
+from src.gui.features.analyzer.rs_detail import RSDetail
+from src.gui.features.analyzer.spa_detail import SPADetail
 from src.gui.features.analyzer.analysis_runner import fingerprint_file
 from src.gui.services.worker import FunctionWorker
 from src.core.analyzer.formats.video import analyze_video_frame_details
@@ -45,19 +43,6 @@ def scalar(detector, value):
     return value.embedding_rate if value.status == "estimated" else None
 
 
-def flatten(value, prefix=""):
-    if is_dataclass(value):
-        value = asdict(value)
-    if isinstance(value, dict):
-        rows = []
-        for key, child in value.items():
-            rows.extend(flatten(child, f"{prefix}.{key}" if prefix else str(key)))
-        return rows
-    if isinstance(value, (list, tuple)):
-        return [(prefix, json.dumps(value, ensure_ascii=False, default=str))]
-    return [(prefix, "N/A" if value is None else str(value))]
-
-
 class RowsModel(QAbstractTableModel):
     """Read-only lazy table: no QWidget allocation for each video frame."""
 
@@ -74,6 +59,8 @@ class RowsModel(QAbstractTableModel):
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if index.isValid() and role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ToolTipRole):
             return str(self.rows[index.row()][index.column()])
+        if index.isValid() and role == Qt.ItemDataRole.TextAlignmentRole and index.column() > 1:
+            return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         return None
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
@@ -96,13 +83,14 @@ class FrameChart(PValueLineChart):
 class VideoDetail(QFrame):
     """Whole-video ranges and exact-frame spatial details with shared selection."""
 
-    def __init__(self, result, parent=None):
+    def __init__(self, result, parent=None, summary_builder=None):
         super().__init__(parent)
         self.result = result
+        self.summary_builder = summary_builder
         self.detector = "chi_square"
         self.channel = "Whole"
         self.level = "whole"
-        self.tabs = {name: "overview" for name in NAMES}
+        self.tabs = {"chi_square": "prefix", "rs": "overview", "spa": "overview"}
         self.frame_tabs = {"chi_square": "prefix", "rs": "distribution", "spa": "distribution"}
         self.frame_index = result.video_info["start_frame"]
         self.cache = OrderedDict()
@@ -196,23 +184,21 @@ class VideoDetail(QFrame):
         self.render()
 
     @staticmethod
-    def buttons(options, selected, callback, parent):
-        row = QGridLayout() if len(options) > 4 else QHBoxLayout()
+    def buttons(options, selected, callback, parent, channel_style=False):
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(5 if channel_style else 2)
         group = QButtonGroup(parent)
         group.setExclusive(True)
-        for index, (key, label) in enumerate(options):
+        for key, label in options:
             button = QPushButton(label)
-            button.setObjectName("analysisDetailTab")
+            button.setObjectName("analysisChannelButton" if channel_style else "analysisDetailTab")
             button.setCheckable(True)
             button.setChecked(key == selected)
             button.clicked.connect(lambda checked, value=key: callback(value) if checked else None)
             group.addButton(button)
-            if isinstance(row, QGridLayout):
-                row.addWidget(button, index // 3, index % 3)
-            else:
-                row.addWidget(button)
-        if isinstance(row, QHBoxLayout):
-            row.addStretch()
+            row.addWidget(button)
+        row.addStretch()
         return row
 
     @staticmethod
@@ -221,15 +207,12 @@ class VideoDetail(QFrame):
         table.setObjectName("analysisRawTable")
         table.setModel(RowsModel(headers, rows, table))
         table.setAlternatingRowColors(True)
-        table.setStyleSheet(
-            "QTableView { background: #222222; alternate-background-color: #282828; "
-            "color: #CBD5E1; gridline-color: #39424A; selection-background-color: #16465A; }"
-            "QHeaderView::section { background: #292929; color: #94A3B8; padding: 5px; border: 1px solid #39424A; }"
-        )
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.verticalHeader().hide()
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         table.horizontalHeader().setStretchLastSection(True)
-        table.setMinimumHeight(220)
+        table.setMinimumHeight(36 + min(max(len(rows), 3), 10) * 28)
         return table
 
     def render(self):
@@ -240,100 +223,158 @@ class VideoDetail(QFrame):
             self.body.hide()
             self.body.deleteLater()
         self.body = QFrame()
-        self.body.setObjectName("analysisDetailPanel")
-        self.body.setProperty("detectorType", {"chi_square": "chi", "rs": "rs", "spa": "spa"}[self.detector])
-        layout = QVBoxLayout(self.body)
+        outer = QHBoxLayout(self.body)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(12)
+        detail_panel = QFrame()
+        detail_panel.setObjectName("analysisDetailPanel")
+        detail_panel.setProperty("detectorType", self.detector)
+        layout = QVBoxLayout(detail_panel)
         layout.setContentsMargins(14, 13, 14, 14)
+        layout.setSpacing(11)
+        header = QHBoxLayout()
         title = QLabel(NAMES[self.detector])
         title.setObjectName("analysisPanelTitle")
-        layout.addWidget(title)
-        layout.addLayout(self.buttons((("whole", "Whole Video"), ("frame", "Per Frame")),
-                                      self.level, self.select_level, self.body))
+        badge = QLabel({"chi_square": "PoV", "rs": "M / −M", "spa": "SPA"}[self.detector])
+        badge.setObjectName("analysisPanelBadge")
+        header.addWidget(title)
+        header.addStretch()
+        header.addWidget(badge)
+        layout.addLayout(header)
+        level_row = self.buttons((("whole", "Whole Video"), ("frame", "Per Frame")),
+                                 self.level, self.select_level, detail_panel, channel_style=True)
+        label = QLabel("Scope:")
+        label.setObjectName("analysisFilterLabel")
+        level_row.insertWidget(0, label)
+        layout.addLayout(level_row)
         channels = ChannelSelector(["Whole", "R", "G", "B"], self.channel)
         channels.channel_changed.connect(self.select_channel)
         layout.addWidget(channels)
-        info = self.result.video_info
-        duration = f"{info['duration_seconds']:.3f}s" if info['duration_seconds'] is not None else "N/A"
-        context = QLabel(f"AVI · {info['codec']} · {info['width']} × {info['height']} · "
-                         f"{info['frame_rate']:g} FPS · {info['decoded_frame_count']} decoded frames · {duration}\n"
-                         f"Analyzed frames [{info['start_frame']}, {info['end_frame']}) · Channel {self.channel} · "
-                         f"SHA-256 {self.result.file_fingerprint.sha256[:12]}…")
-        context.setObjectName("analysisContextText")
-        context.setWordWrap(True)
-        layout.addWidget(context)
-        params = self.result.parameters
-        settings = QLabel(f"Prefix {params.prefix_step}% · Segments {params.segment_percent}% @ {params.segment_step}% · "
-                          f"Chi min expected {params.min_expected:g} · SPA j {params.spa_j}, min pairs {params.spa_min_pairs}")
-        settings.setObjectName("analysisNote")
-        settings.setWordWrap(True)
-        layout.addWidget(settings)
-        if self.pending_parameters != params:
-            note = QLabel("Parameters changed. Run Analysis to apply. Details and export keep the displayed settings.")
-            note.setObjectName("analysisNote")
-            note.setWordWrap(True)
-            layout.addWidget(note)
         if self.level == "whole":
             self.render_whole(layout)
         else:
             self.render_frame(layout)
-        layout.addWidget(self.summary())
-        for label in self.body.findChildren(QLabel):
+        outer.addWidget(detail_panel, 7)
+        outer.addWidget(self.summary(), 3)
+        for label in detail_panel.findChildren(QLabel):
             if not label.objectName():
-                label.setObjectName("analysisNote")
+                label.setObjectName("analysisPlotSubtitle")
                 label.setWordWrap(True)
         self.layout_root.addWidget(self.body)
+
+    def image_report(self, detector):
+        """Adapt pooled measurements to the existing image presentation contract."""
+        if self.level == "frame" and self.frame_index in self.cache:
+            return self.cache[self.frame_index][detector]
+        source = getattr(self.result, detector)["targets"]
+        report = {}
+        offset = self.frame_index - self.result.video_info["start_frame"]
+        for channel, data in source.items():
+            whole = data["whole"] if self.level == "whole" else data["per_frame"][offset]
+            if detector == "chi_square":
+                report[channel] = {"whole": whole,
+                    "prefix": data["progressive_prefix"] if self.level == "whole" else [],
+                    "segments": data["frame_segments"] if self.level == "whole" else []}
+            elif detector == "rs":
+                report[channel] = {"whole": whole.rs, "payload": whole.payload, "prefix": []}
+            elif self.level == "whole":
+                report[channel] = {"statistics": data["statistics"], "estimate": whole}
+        return report
+
+    def embed_image_detail(self, layout, detail):
+        """Reuse image plots, tiles and tables under the shared video controls."""
+        content = detail.layout()
+        for _ in range(3):
+            item = content.takeAt(0)  # image title, channel selector, detail tabs
+            if item.widget() is not None:
+                item.widget().hide()
+                item.widget().deleteLater()
+            elif item.layout() is not None:
+                sublayout = item.layout()
+                while sublayout.count():
+                    child = sublayout.takeAt(0)
+                    if child.widget() is not None:
+                        child.widget().hide()
+                        child.widget().deleteLater()
+                sublayout.deleteLater()
+        detail.setObjectName("analysisVideoContent")
+        content.setContentsMargins(0, 0, 0, 0)
+        scope = "Video" if self.level == "whole" else "Frame"
+        for label in detail.findChildren(QLabel):
+            text = label.text().replace("Whole Image", f"Whole {scope}").replace("Whole-image", f"Whole-{scope.lower()}")
+            if self.level == "whole":
+                text = text.replace("Cumulative p-value across raster-order image prefixes",
+                                    "Cumulative p-value across frames from the start of the analyzed range")
+                text = text.replace("Fixed-length raster-order ranges; values are not cumulative",
+                                    "Fixed-length frame ranges; values are not cumulative")
+            label.setText(text)
+        layout.addWidget(detail)
+
+    def tabs_row(self, layout, options, selected, callback):
+        row = QFrame()
+        row.setObjectName("analysisDetailTabs")
+        row.setLayout(self.buttons(options, selected, callback, row))
+        layout.addWidget(row)
 
     def data(self, detector=None):
         return getattr(self.result, detector or self.detector)["targets"][self.channel]
 
     def render_whole(self, layout):
-        options = [("overview", "Overview" if self.detector == "chi_square" else
-                    "Distribution" if self.detector == "rs" else "Pair Distributions"),
-                   ("prefix", "Progressive Prefix"), ("segments", "Sliding Segments")]
-        if self.detector == "chi_square":
-            options.extend((("spatial_prefix", "Spatial Prefix (All Frames)"),
-                            ("spatial_segments", "Spatial Segments (All Frames)")))
-        options.append(("raw", "Raw Data"))
-        layout.addLayout(self.buttons(options, self.tabs[self.detector], self.select_tab, self.body))
-        data = self.data()
+        options = []
+        if self.detector != "chi_square":
+            options.append(("overview", "Distribution" if self.detector == "rs" else "Pair Distributions"))
+        options += [("prefix", "Progressive Prefix"), ("segments", "Sliding Segments"), ("raw", "Raw Data")]
         tab = self.tabs[self.detector]
-        layout.addLayout(self.metrics(data["whole"]))
-        if tab == "overview":
+        if tab not in dict(options):
+            tab = "prefix"
+            self.tabs[self.detector] = tab
+        self.tabs_row(layout, options, tab, self.select_tab)
+        data = self.data()
+        report = self.image_report(self.detector)
+        if self.detector == "chi_square":
+            detail = ChiSquareDetail(report, self.channel, tab)
+            start = self.result.video_info["start_frame"]
+            records = (data["frame_segments"] if tab == "segments" else [])
+            if tab == "raw":
+                detail.raw_table.item(0, 0).setText("Whole Video")
+                base = 1 + len(data["progressive_prefix"])
+                for i, item in enumerate(data["frame_segments"]):
+                    detail.raw_table.item(base + i, 0).setText(f"Frames [{start + item.start}:{start + item.end})")
+            else:
+                for i, item in enumerate(records):
+                    detail.raw_table.item(i, 0).setText(f"Frames [{start + item.start}:{start + item.end})")
+            self.embed_image_detail(layout, detail)
+            return
+        if tab in ("overview", "raw"):
             if self.detector == "rs":
-                layout.addWidget(RSDistributionChart(data["whole"].rs))
-                layout.addWidget(QLabel("Regular / Singular / Unusable · masks M and −M"))
-                layout.addWidget(self.table(("Field", "Value"), flatten(data["whole"]), self.body))
-            elif self.detector == "spa":
-                layout.addWidget(SPACountChart(data["statistics"], self.result.parameters.spa_j + 1))
-                layout.addWidget(QLabel("X / Y counts · odd pixel differences · pooled across all analyzed frames"))
-                layout.addWidget(self.table(("Field", "Value"), flatten(data["whole"]), self.body))
-            self.timeline(layout)
+                detail = RSDetail(report, self.channel, "distribution" if tab == "overview" else "raw")
+            else:
+                detail = SPADetail(report, self.channel, self.result.parameters,
+                                   "distribution" if tab == "overview" else "raw")
+            self.embed_image_detail(layout, detail)
+            if tab == "raw":
+                self.range_table(layout, data["progressive_prefix"], "frames", True)
+                self.range_table(layout, data["frame_segments"], "frames", False)
             return
-        if tab == "raw":
-            rows = flatten(data["whole"], "whole")
-            if self.detector == "spa":
-                rows += flatten(data["statistics"], "statistics")
-            layout.addWidget(self.table(("Field", "Value"), rows, self.body))
-            self.range_table(layout, data["progressive_prefix"], "frames", True)
-            self.range_table(layout, data["frame_segments"], "frames", False)
-            layout.addWidget(self.table(("Scope", "Field", "Value"),
-                [(f"prefix {item.percent}%", field, value) for item in data["progressive_prefix"]
-                 for field, value in flatten(measurement(item))] +
-                [(f"segment {self.range_label(item, 'frames')}", field, value) for item in data["frame_segments"]
-                 for field, value in flatten(measurement(item))], self.body))
-            self.timeline(layout)
-            return
-        key = {"prefix": "progressive_prefix", "segments": "frame_segments",
-               "spatial_prefix": "spatial_prefix", "spatial_segments": "spatial_segments"}[tab]
-        unit = "pixels" if tab.startswith("spatial") else "frames"
-        values = data[key]
-        labels = [f"{item.percent}%" if "prefix" in tab else self.range_label(item, unit) for item in values]
-        layout.addWidget(QLabel(f"{'Cumulative' if 'prefix' in tab else 'Sliding'} {unit} · "
-                                "combined counts, then calculated statistics"))
-        layout.addWidget(PValueLineChart(((self.channel, COLORS[self.detector],
-                         [scalar(self.detector, item) for item in values]),), labels))
-        layout.addWidget(QLabel("Y: p-value" if self.detector == "chi_square" else "Y: embedding rate (0–1)"))
-        self.range_table(layout, values, unit, "prefix" in tab)
+        values = data["progressive_prefix" if tab == "prefix" else "frame_segments"]
+        labels = [f"{item.percent}%" if tab == "prefix" else self.range_label(item, "frames") for item in values]
+        panel = QFrame()
+        panel.setObjectName("analysisPlotPanel")
+        plot = QVBoxLayout(panel)
+        plot.setContentsMargins(12, 10, 12, 10)
+        title = QLabel("Progressive Prefix" if tab == "prefix" else "Sliding Segments")
+        title.setObjectName("analysisPlotTitle")
+        subtitle = QLabel("Estimated embedding rate across cumulative frames" if tab == "prefix"
+                          else "Estimated embedding rate within each frame range")
+        subtitle.setObjectName("analysisPlotSubtitle")
+        plot.addWidget(title)
+        plot.addWidget(subtitle)
+        series = ((self.channel, COLORS[self.detector], [scalar(self.detector, item) for item in values]),)
+        plot.addWidget(PValueLineChart(series, labels))
+        plot.addLayout(ChiSquareDetail._build_legend(series))
+        layout.addWidget(panel)
+        layout.addLayout(self.metrics(data["whole"]))
+        self.range_table(layout, values, "frames", tab == "prefix")
 
     def range_label(self, item, unit):
         start = getattr(item, "start", 0)
@@ -390,14 +431,12 @@ class VideoDetail(QFrame):
         previous.clicked.connect(lambda: self.select_frame(self.frame_index - 1))
         following.clicked.connect(lambda: self.select_frame(self.frame_index + 1))
         spin = QSpinBox()
-        spin.setObjectName("analysisParameterInput")
-        spin.setStyleSheet("QSpinBox { background: #252525; color: #CBD5E1; "
-                          "border: 1px solid #414141; border-radius: 4px; padding: 4px; }")
+        spin.setObjectName("analysisVideoFrameInput")
         spin.setRange(info["start_frame"], info["end_frame"] - 1)
         spin.setValue(self.frame_index)
         spin.setKeyboardTracking(False)
         spin.valueChanged.connect(self.select_frame)
-        row.addWidget(QLabel("Frame (0-based):"))
+        row.addWidget(QLabel("Frame:"))
         row.addWidget(previous)
         row.addWidget(spin)
         row.addWidget(following)
@@ -405,26 +444,29 @@ class VideoDetail(QFrame):
         row.addWidget(QLabel(f"Time: {self.frame_index / fps:.3f}s" if fps > 0 else "Time: N/A"))
         row.addStretch()
         layout.addLayout(row)
-        selected = self.data()["per_frame"][self.frame_index - info["start_frame"]]
-        layout.addLayout(self.metrics(selected))
+        options = list({"chi_square": ChiSquareDetail.TABS, "rs": RSDetail.TABS, "spa": SPADetail.TABS}[self.detector])
+        options.append(("timeline", "Per-frame Trend"))
+        tab = self.frame_tabs[self.detector]
+        self.tabs_row(layout, options, tab, self.select_frame_tab)
+        if tab == "timeline":
+            self.timeline(layout)
+            return
         details = self.cache.get(self.frame_index)
         if details is None:
-            layout.addWidget(QLabel(self.frame_error or "Loading exact-frame spatial details…"))
+            note = QLabel(self.frame_error or "Loading frame details…")
+            note.setObjectName("analysisNote")
+            layout.addWidget(note)
             return
         report = details[self.detector]
-        tab = self.frame_tabs[self.detector]
         if self.detector == "chi_square":
             detail = ChiSquareDetail(report, self.channel, tab)
+            if tab == "raw":
+                detail.raw_table.item(0, 0).setText("Whole Frame")
         elif self.detector == "rs":
             detail = RSDetail(report, self.channel, tab)
         else:
             detail = SPADetail(report, self.channel, self.result.parameters, tab)
-        detail.channel_changed.connect(self.select_channel)
-        detail.tab_changed.connect(self.select_frame_tab)
-        layout.addWidget(QLabel("Spatial details of this frame · prefix / segments use pixels"))
-        layout.addWidget(detail)
-        layout.addWidget(self.table(("Field", "Value"), flatten(selected), self.body))
-        self.timeline(layout)
+        self.embed_image_detail(layout, detail)
 
     def metrics(self, item):
         value = estimate(item)
@@ -447,18 +489,38 @@ class VideoDetail(QFrame):
         return grid
 
     def summary(self):
-        panel = QFrame()
-        panel.setObjectName("analysisSummaryCard")
-        row = QHBoxLayout(panel)
-        offset = self.frame_index - self.result.video_info["start_frame"]
+        column = QFrame()
+        column.setObjectName("analysisSummaryColumn")
+        column.setMinimumWidth(330)
+        layout = QVBoxLayout(column)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
         for name in NAMES:
-            data = self.data(name)
-            item = data["whole"] if self.level == "whole" else data["per_frame"][offset]
-            number = scalar(name, item)
-            value = format_p_value(number) if name == "chi_square" else format_percent(number)
-            label = QLabel(f"{NAMES[name]}\n{self.channel} · "
-                          f"{'Whole Video' if self.level == 'whole' else 'Frame ' + str(self.frame_index)}\n{value}")
-            label.setObjectName("analysisSummaryLabel")
-            label.setWordWrap(True)
-            row.addWidget(label)
-        return panel
+            if name == self.detector:
+                continue
+            report = self.image_report(name)
+            if report and self.summary_builder:
+                card = self.summary_builder(name, report=report, selected_channel=self.channel)
+                scope = QLabel("Whole Video" if self.level == "whole" else f"Frame {self.frame_index}")
+                scope.setObjectName("analysisSummaryHint")
+                card.layout().insertWidget(1, scope)
+                layout.addWidget(card)
+            else:
+                card = QFrame()
+                card.setObjectName("analysisSummaryCard")
+                card.setProperty("detectorType", name)
+                content = QVBoxLayout(card)
+                title = QLabel(NAMES[name])
+                title.setObjectName("analysisSummaryTitle")
+                content.addWidget(title)
+                hint = QLabel(self.frame_error or "Loading frame statistics…")
+                hint.setObjectName("analysisSummaryLabel")
+                content.addWidget(hint)
+                layout.addWidget(card)
+        if self.pending_parameters != self.result.parameters:
+            note = QLabel("Parameters changed. Run Analysis to apply.")
+            note.setObjectName("analysisNote")
+            note.setWordWrap(True)
+            layout.addWidget(note)
+        layout.addStretch()
+        return column
