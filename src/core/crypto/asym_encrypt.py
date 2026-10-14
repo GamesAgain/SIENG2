@@ -121,12 +121,23 @@ def rsa_oaep_padding() -> padding.OAEP:
 class AsymmetricEncryption:
     """Hybrid encryption using RSA-OAEP-SHA256 and AES-256-GCM."""
 
-    def encrypt(self, data: bytes, public_key: rsa.RSAPublicKey) -> bytes:
-        """Encrypt Data With RSA-OAEP-SHA256 + AES-256-GCM: [Encrypted Key + Nonce + Ciphertext + Tag]"""
+    def encrypt(
+        self,
+        data: bytes,
+        public_key: rsa.RSAPublicKey,
+        session_key: bytes | None = None,
+    ) -> bytes:
+        """Encrypt Data With RSA-OAEP-SHA256 + AES-256-GCM: [Encrypted Key + Nonce + Ciphertext + Tag]
+
+        session_key: the AES-256 key to use; None generates a random one.
+        """
         plaintext = require_non_empty_bytes(data, "Data")
         validated_key = validate_rsa_public_key(public_key)
 
-        session_key = os.urandom(AES_KEY_LENGTH)
+        if session_key is None:
+            session_key = os.urandom(AES_KEY_LENGTH)
+        elif len(session_key) != AES_KEY_LENGTH:
+            raise ValueError(f"Session key must be {AES_KEY_LENGTH} bytes.")
         nonce = os.urandom(AES_NONCE_LENGTH)
         ciphertext = AESGCM(session_key).encrypt(
             nonce,
@@ -155,14 +166,23 @@ class AsymmetricEncryption:
         nonce = payload[encrypted_key_length:nonce_end]
         ciphertext = payload[nonce_end:]
 
-        session_key = validated_key.decrypt(
-            encrypted_session_key,
-            rsa_oaep_padding(),
-        )
+        session_key = self.decrypt_session_key(encrypted_session_key, validated_key)
         return AESGCM(session_key).decrypt(
             nonce,
             ciphertext,
             associated_data=None,
+        )
+
+    def decrypt_session_key(
+        self,
+        encrypted_session_key: bytes,
+        private_key: rsa.RSAPrivateKey,
+    ) -> bytes:
+        """Decrypt the RSA-OAEP encrypted AES session key: [Encrypted Key] -> session key"""
+        validated_key = validate_rsa_private_key(private_key)
+        return validated_key.decrypt(
+            encrypted_session_key,
+            rsa_oaep_padding(),
         )
 
     def validate_input(self, data: bytes, public_key: rsa.RSAPublicKey) -> None:

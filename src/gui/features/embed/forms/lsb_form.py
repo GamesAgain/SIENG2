@@ -464,7 +464,7 @@ class LSBInputForm(QFrame):
                 public_key_path = self.public_key_path
                 overhead_detail = (
                     "public key mode: RSA-encrypted session key + "
-                    f"nonce {AES_NONCE_LENGTH}B + tag {AES_TAG_LENGTH}B"
+                    f"nonce {AES_NONCE_LENGTH}B + tag {AES_TAG_LENGTH}B + key block padding 1B"
                 )
 
         overhead_bytes = estimate_overhead_bytes(password, public_key_path)
