@@ -97,6 +97,7 @@ class BitStatisticsTab(QFrame):
         super().__init__(parent)
         self.analysis_parameters = AnalysisParameters()
         self.analysis_result = None
+        self.inspection_data = None
         self.media_type = "image"
         self.video_panel = None
         self.active_detector = "chi_square"
@@ -201,7 +202,7 @@ class BitStatisticsTab(QFrame):
             QMessageBox.warning(self, "Export JSON", "Choose a different path from the source image.")
             return
         try:
-            export_analysis(result, path)
+            export_analysis(result, path, self.inspection_data)
         except (OSError, ValueError, TypeError) as exc:
             QMessageBox.warning(self, "Export JSON", str(exc))
 

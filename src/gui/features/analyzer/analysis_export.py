@@ -5,7 +5,7 @@ from dataclasses import asdict
 from PyQt6.QtCore import QIODevice, QSaveFile
 
 
-def export_analysis(result, destination) -> None:
+def export_analysis(result, destination, inspection=None) -> None:
     """Write the result snapshot atomically, preserving raw precision and nulls."""
     parameters = asdict(result.parameters)
     parameters["min_pairs"] = parameters.pop("spa_min_pairs")
@@ -23,6 +23,9 @@ def export_analysis(result, destination) -> None:
         "parameters": parameters,
         "results": {name: snapshot[name] for name in ("chi_square", "rs", "spa")},
     }
+    if inspection is not None:
+        document["schema_version"] = 5
+        document["inspection"] = inspection
     data = json.dumps(document, ensure_ascii=False, indent=2, allow_nan=False).encode("utf-8")
     output = QSaveFile(str(destination))
     if not output.open(QIODevice.OpenModeFlag.WriteOnly):

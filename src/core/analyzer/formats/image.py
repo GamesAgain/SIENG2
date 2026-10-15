@@ -1,6 +1,6 @@
 """Image Analyzer backend.
 
-File Structure and Metadata are placeholders. Bit Statistics is backed by
+File Structure and Metadata use Docker inspection. Bit Statistics is backed by
 the validated Chi-square, RS, and SPA image detectors.
 """
 
@@ -16,15 +16,15 @@ from src.core.analyzer.file_types import AnalyzerFileType
 
 
 def analyze_file_structure(file_info: AnalyzerFileType) -> dict[str, Any]:
-    """Placeholder for image file-structure analysis."""
+    from src.core.analyzer.inspection.bridge import inspect
     print(f"[File Structure] format={file_info.format_name} media=image")
-    return _placeholder("File Structure", file_info)
+    return inspect(file_info.path)["structure_analysis"]
 
 
 def analyze_metadata(file_info: AnalyzerFileType) -> dict[str, Any]:
-    """Placeholder for image metadata analysis."""
+    from src.core.analyzer.inspection.bridge import inspect
     print(f"[Metadata] format={file_info.format_name} media=image")
-    return _placeholder("Metadata", file_info)
+    return inspect(file_info.path)["metadata_analysis"]
 
 
 def analyze_bit_statistics(
@@ -66,11 +66,3 @@ def analyze_bit_statistics(
     }
 
 
-def _placeholder(tab_name: str, file_info: AnalyzerFileType) -> dict[str, Any]:
-    return {
-        "status": "placeholder",
-        "tab": tab_name,
-        "media_type": file_info.media_type,
-        "format": file_info.format_name,
-        "path": file_info.path,
-    }

@@ -1,4 +1,4 @@
-"""AVI bit statistics with File Structure and Metadata placeholders."""
+"""AVI bit statistics and shared Docker-backed file inspection."""
 
 from typing import Any
 
@@ -6,13 +6,15 @@ from src.core.analyzer.file_types import AnalyzerFileType
 
 
 def analyze_file_structure(file_info: AnalyzerFileType) -> dict[str, Any]:
+    from src.core.analyzer.inspection.bridge import inspect
     print(f"[File Structure] format={file_info.format_name} media=video")
-    return _placeholder("File Structure", file_info)
+    return inspect(file_info.path)["structure_analysis"]
 
 
 def analyze_metadata(file_info: AnalyzerFileType) -> dict[str, Any]:
+    from src.core.analyzer.inspection.bridge import inspect
     print(f"[Metadata] format={file_info.format_name} media=video")
-    return _placeholder("Metadata", file_info)
+    return inspect(file_info.path)["metadata_analysis"]
 
 
 def analyze_bit_statistics(
@@ -113,11 +115,3 @@ def analyze_video_frame_details(file_path, frame_index, parameters, cancel_check
     return {"frame_index": frame_index, "chi_square": chi_report, "rs": rs_report, "spa": spa_report}
 
 
-def _placeholder(tab_name: str, file_info: AnalyzerFileType) -> dict[str, Any]:
-    return {
-        "status": "placeholder",
-        "tab": tab_name,
-        "media_type": file_info.media_type,
-        "format": file_info.format_name,
-        "path": file_info.path,
-    }

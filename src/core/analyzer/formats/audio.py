@@ -1,4 +1,4 @@
-"""WAV bit statistics; File Structure and Metadata remain placeholders."""
+"""WAV bit statistics and shared Docker-backed file inspection."""
 
 from typing import Any
 
@@ -6,13 +6,15 @@ from src.core.analyzer.file_types import AnalyzerFileType
 
 
 def analyze_file_structure(file_info: AnalyzerFileType) -> dict[str, Any]:
+    from src.core.analyzer.inspection.bridge import inspect
     print(f"[File Structure] format={file_info.format_name} media=audio")
-    return _placeholder("File Structure", file_info)
+    return inspect(file_info.path)["structure_analysis"]
 
 
 def analyze_metadata(file_info: AnalyzerFileType) -> dict[str, Any]:
+    from src.core.analyzer.inspection.bridge import inspect
     print(f"[Metadata] format={file_info.format_name} media=audio")
-    return _placeholder("Metadata", file_info)
+    return inspect(file_info.path)["metadata_analysis"]
 
 
 def analyze_bit_statistics(
@@ -79,11 +81,3 @@ def analyze_bit_statistics(
     return {"audio_info": info, **reports}
 
 
-def _placeholder(tab_name: str, file_info: AnalyzerFileType) -> dict[str, Any]:
-    return {
-        "status": "placeholder",
-        "tab": tab_name,
-        "media_type": file_info.media_type,
-        "format": file_info.format_name,
-        "path": file_info.path,
-    }

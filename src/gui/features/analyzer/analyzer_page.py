@@ -1,13 +1,11 @@
 from pathlib import Path
 
 from PyQt6.QtCore import QSize, pyqtSignal
-from PyQt6.QtWidgets import QFrame, QLabel, QMessageBox, QTabWidget, QVBoxLayout
+from PyQt6.QtWidgets import QFrame, QMessageBox, QTabWidget, QVBoxLayout
 
 from src.core.analyzer import (
     AnalyzerFileType,
     SUPPORTED_ANALYZER_EXTENSIONS,
-    analyze_file_structure,
-    analyze_metadata,
     announce_tab,
     handle_uploaded_file,
 )
@@ -20,12 +18,14 @@ from src.gui.features.analyzer.analysis_runner import (
     run_bit_statistics_analysis,
 )
 from src.gui.features.analyzer.bit_statistics_tab import BitStatisticsTab
+from src.gui.features.analyzer.inspection_runner import InspectionResult, run_inspection
+from src.gui.features.analyzer.inspection_tabs import FileStructureTab, MetadataTab
 from src.gui.services.worker import FunctionWorker
 from src.path import svg_path
 
 
 class AnalyzerPage(QFrame):
-    """File selection and placeholder tabs for the Analyzer feature."""
+    """Run Bit Statistics and isolated structure/metadata inspection per file."""
 
     analysis_requested = pyqtSignal(str)
     analysis_completed = pyqtSignal(object)
@@ -38,6 +38,11 @@ class AnalyzerPage(QFrame):
         self.analysis_result: BitStatisticsAnalysisResult | None = None
         self._analysis_request_id = 0
         self._analysis_workers: dict[int, FunctionWorker] = {}
+        self._inspection_workers: dict[int, FunctionWorker] = {}
+        self._inspection_function = run_inspection
+        self.inspection_result: InspectionResult | None = None
+        self._bit_pending = False
+        self._inspection_pending = False
         self._analysis_function = run_bit_statistics_analysis
         self.setup_ui()
 
@@ -70,31 +75,14 @@ class AnalyzerPage(QFrame):
         self.tabs = QTabWidget()
         self.tabs.setObjectName("siengTabs")
         self.tabs.setIconSize(QSize(16, 16))
-        self.tabs.addTab(self.make_placeholder("File Structure"), create_icon_state(str(svg_path("file-search.svg"))), "File Structure")
-        self.tabs.addTab(self.make_placeholder("Metadata"), create_icon_state(str(svg_path("tags.svg"))), "Metadata")
+        self.file_structure_tab = FileStructureTab()
+        self.metadata_tab = MetadataTab()
+        self.tabs.addTab(self.file_structure_tab, create_icon_state(str(svg_path("file-search.svg"))), "File Structure")
+        self.tabs.addTab(self.metadata_tab, create_icon_state(str(svg_path("tags.svg"))), "Metadata")
         self.bit_statistics_tab = BitStatisticsTab()
         self.tabs.addTab(self.bit_statistics_tab, create_icon_state(str(svg_path("chart-histogram.svg"))), "Bit Statistics")
         self.tabs.currentChanged.connect(self.on_analyzer_tab_changed)
         layout.addWidget(self.tabs, 1)
-
-    def make_placeholder(self, title: str) -> QFrame:
-        """Keep tab layout ready for the analysis widgets added later."""
-        page = QFrame()
-        page_layout = QVBoxLayout(page)
-        page_layout.setContentsMargins(16, 16, 16, 16)
-
-        card = QFrame()
-        card.setObjectName("card")
-        card_layout = QVBoxLayout(card)
-        card_title = QLabel(title)
-        card_title.setObjectName("cardTitle")
-        hint = QLabel("Analysis results will appear here.")
-        hint.setObjectName("hintLabel")
-        card_layout.addWidget(card_title)
-        card_layout.addWidget(hint)
-        card_layout.addStretch()
-        page_layout.addWidget(card, 1)
-        return page
 
     def on_file_selected(self, file_path: str) -> None:
         """Show file details after browse or drop."""
@@ -135,7 +123,7 @@ class AnalyzerPage(QFrame):
         self.drop_zone.clear_file()
 
     def on_run_analysis_clicked(self) -> None:
-        """Run all bit-statistics detectors outside the UI thread."""
+        """Run Bit Statistics and one shared Structure/Metadata inspection."""
         if not self.file_path or not self.file_type:
             return
 
@@ -149,7 +137,15 @@ class AnalyzerPage(QFrame):
         request_id = self._analysis_request_id
         image_path = self.file_path
         self.analysis_result = None
+        self.inspection_result = None
         self.bit_statistics_tab.clear_analysis_result()
+        self.bit_statistics_tab.inspection_data = None
+        self.file_structure_tab.clear_result()
+        self.metadata_tab.clear_result()
+        self.file_structure_tab.set_status("Inspecting file structure...")
+        self.metadata_tab.set_status("Inspecting metadata...")
+        self._bit_pending = True
+        self._inspection_pending = True
         self._set_analysis_running(True)
 
         worker = FunctionWorker(self._analysis_function, image_path, parameters, report_progress=True)
@@ -167,7 +163,48 @@ class AnalyzerPage(QFrame):
         )
         worker.finished.connect(worker.deleteLater)
         worker.start()
+        inspection_worker = FunctionWorker(self._inspection_function, image_path)
+        inspection_worker._kwargs["cancel_check"] = inspection_worker.isInterruptionRequested
+        self._inspection_workers[request_id] = inspection_worker
+        inspection_worker.done.connect(
+            lambda result, current_id=request_id: self._inspection_finished(current_id, result)
+        )
+        inspection_worker.finished.connect(
+            lambda current_id=request_id: self._inspection_workers.pop(current_id, None)
+        )
+        inspection_worker.finished.connect(inspection_worker.deleteLater)
+        inspection_worker.start()
         self.analysis_requested.emit(image_path)
+
+    def _inspection_finished(self, request_id: int, result) -> None:
+        if request_id != self._analysis_request_id:
+            return
+        self._inspection_pending = False
+        if isinstance(result, dict) and result.get("error"):
+            message = f"Structure/Metadata inspection unavailable: {result['error']}"
+            self.file_structure_tab.set_status(message)
+            self.metadata_tab.set_status(message)
+            self._refresh_running_state()
+            return
+        if not isinstance(result, InspectionResult) or not self.file_path:
+            self.file_structure_tab.set_status("Inspector returned an invalid result.")
+            self.metadata_tab.set_status("Inspector returned an invalid result.")
+            self._refresh_running_state()
+            return
+        try:
+            valid = result.file_path == str(Path(self.file_path).resolve()) and result.file_fingerprint == fingerprint_file(self.file_path)
+        except (OSError, RuntimeError):
+            valid = False
+        if not valid:
+            self.file_structure_tab.set_status("File changed during inspection. Run again.")
+            self.metadata_tab.set_status("File changed during inspection. Run again.")
+            self._refresh_running_state()
+            return
+        self.inspection_result = result
+        self.file_structure_tab.load_data(result.data)
+        self.metadata_tab.load_data(result.data)
+        self.bit_statistics_tab.inspection_data = result.data
+        self._refresh_running_state()
 
     def _analysis_finished(self, request_id: int, result) -> None:
         """Accept only the newest result for the currently selected file."""
@@ -196,14 +233,16 @@ class AnalyzerPage(QFrame):
 
         self.analysis_result = result
         self.bit_statistics_tab.set_analysis_result(result)
-        self._set_analysis_running(False)
+        self._bit_pending = False
+        self._refresh_running_state()
         self.tabs.setCurrentWidget(self.bit_statistics_tab)
         self.analysis_completed.emit(result)
 
     def _analysis_error(self, message: str) -> None:
         self.analysis_result = None
         self.bit_statistics_tab.clear_analysis_result()
-        self._set_analysis_running(False)
+        self._bit_pending = False
+        self._refresh_running_state()
         self.analysis_failed.emit(message)
         QMessageBox.warning(self, "Analysis Failed", message)
 
@@ -212,9 +251,18 @@ class AnalyzerPage(QFrame):
         self._analysis_request_id += 1
         for worker in self._analysis_workers.values():
             worker.requestInterruption()
+        for worker in self._inspection_workers.values():
+            worker.requestInterruption()
         self.analysis_result = None
+        self.inspection_result = None
+        self._bit_pending = False
+        self._inspection_pending = False
         if hasattr(self, "bit_statistics_tab"):
             self.bit_statistics_tab.clear_analysis_result()
+            self.bit_statistics_tab.inspection_data = None
+        if hasattr(self, "file_structure_tab"):
+            self.file_structure_tab.clear_result()
+            self.metadata_tab.clear_result()
         if hasattr(self, "run_analysis_button"):
             self._set_analysis_running(False)
 
@@ -227,6 +275,9 @@ class AnalyzerPage(QFrame):
             button_text = "Run Analysis"
         self.run_analysis_button.setText(button_text)
 
+    def _refresh_running_state(self) -> None:
+        self._set_analysis_running(self._bit_pending or self._inspection_pending)
+
     def cancel_analysis(self) -> None:
         self._invalidate_analysis()
 
@@ -235,7 +286,7 @@ class AnalyzerPage(QFrame):
             self.run_analysis_button.setText(f"{percent}% · {message}")
 
     def on_analyzer_tab_changed(self, _index: int) -> None:
-        """Dispatch the selected placeholder tab for the current file."""
+        """Announce tab selection without triggering a second inspection."""
         self._dispatch_current_tab()
 
     def _dispatch_current_tab(self) -> None:
@@ -243,12 +294,7 @@ class AnalyzerPage(QFrame):
             return
 
         tab_name = self.tabs.tabText(self.tabs.currentIndex())
-        if tab_name == "File Structure":
-            analyze_file_structure(self.file_path)
-        elif tab_name == "Metadata":
-            analyze_metadata(self.file_path)
-        else:
-            announce_tab(self.file_path, tab_name)
+        announce_tab(self.file_path, tab_name)
 
     def _cleanup_analysis_worker(self, request_id: int) -> None:
         self._analysis_workers.pop(request_id, None)
