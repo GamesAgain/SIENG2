@@ -1129,7 +1129,9 @@ QFrame#analysisDetailPanel[detectorType="spa"] QLabel#analysisMetricValue[accent
     color: #B47AFA;
 }
 
-QTableView#analysisRawTable {
+QTableView#analysisRawTable,
+QTreeView#analysisRawTable,
+QListView#analysisRawTable {
     background-color: #1F1F1F;
     alternate-background-color: #242424;
     border: 1px solid #383838;
@@ -1141,16 +1143,21 @@ QTableView#analysisRawTable {
     outline: none;
 }
 
-QTableView#analysisRawTable::item {
+QTableView#analysisRawTable::item,
+QTreeView#analysisRawTable::item,
+QListView#analysisRawTable::item {
     padding: 5px 7px;
 }
 
-QTableView#analysisRawTable::item:selected {
+QTableView#analysisRawTable::item:selected,
+QTreeView#analysisRawTable::item:selected,
+QListView#analysisRawTable::item:selected {
     background-color: #214456;
     color: #E2E8F0;
 }
 
-QTableView#analysisRawTable QHeaderView::section {
+QTableView#analysisRawTable QHeaderView::section,
+QTreeView#analysisRawTable QHeaderView::section {
     background-color: #292929;
     border: none;
     border-right: 1px solid #3B3B3B;
@@ -1660,17 +1667,3 @@ QDialog#metadataViewAllDialog {
     background-color: #252525;
 }
 
-/* Analyzer Structure/Metadata cards, adapted from nobit. */
-QTableWidget#darkTable, QTreeWidget#structureTree, QListWidget#binwalkList {
-    background-color: #1E1E1E;
-    color: #E2E8F0;
-    border: 1px solid #343434;
-    border-radius: 4px;
-    outline: none;
-}
-QTableWidget#darkTable { gridline-color: #343434; }
-QTableWidget#darkTable::item:selected { background-color: transparent; color: #38BDF8; }
-QTreeWidget#structureTree::item:selected { background-color: rgba(56, 189, 248, 0.22); }
-QListWidget#binwalkList::item { padding: 4px; border-bottom: 1px solid #343434; }
-QListWidget#summaryList { background-color: transparent; border: none; color: #E2E8F0; }
-QListWidget#summaryList::item { padding: 8px 4px; border-bottom: 1px solid #343434; }

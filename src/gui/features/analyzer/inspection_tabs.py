@@ -5,7 +5,7 @@ import base64
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QDialog, QFrame, QHBoxLayout, QLabel, QListWidget, QPlainTextEdit,
+    QAbstractItemView, QDialog, QFrame, QHeaderView, QLabel, QListWidget, QPlainTextEdit,
     QSplitter, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
 )
 
@@ -32,16 +32,21 @@ class FileStructureTab(QFrame):
         self.status_label.hide()
         layout.addWidget(self.status_label)
         self.tree_widget = QTreeWidget()
-        self.tree_widget.setObjectName("structureTree")
+        self.tree_widget.setObjectName("analysisRawTable")
         self.tree_widget.setHeaderLabels(["Name", "Size", "Value", "Description", "Warnings"])
+        self.tree_widget.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tree_widget.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tree_widget.setAlternatingRowColors(True)
         self.tree_widget.header().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         self.tree_widget.setColumnWidth(0, 175)
         self.tree_widget.setColumnWidth(1, 80)
         self.tree_widget.setColumnWidth(2, 160)
         self.binwalk_list = QListWidget()
-        self.binwalk_list.setObjectName("binwalkList")
+        self.binwalk_list.setObjectName("analysisRawTable")
+        self.binwalk_list.setAlternatingRowColors(True)
         self.summary_list = QListWidget()
-        self.summary_list.setObjectName("summaryList")
+        self.summary_list.setObjectName("analysisRawTable")
+        self.summary_list.setAlternatingRowColors(True)
         split = QSplitter()
         left = QFrame()
         left_layout = QVBoxLayout(left)
@@ -157,9 +162,12 @@ class MetadataTab(QFrame):
     @staticmethod
     def _table(headers):
         table = QTableWidget(0, len(headers))
-        table.setObjectName("darkTable")
+        table.setObjectName("analysisRawTable")
         table.setHorizontalHeaderLabels(headers)
-        table.horizontalHeader().setStretchLastSection(True)
+        table.setAlternatingRowColors(True)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        for column in range(len(headers)):
+            table.horizontalHeader().setSectionResizeMode(column, QHeaderView.ResizeMode.Stretch)
         table.verticalHeader().hide()
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         return table

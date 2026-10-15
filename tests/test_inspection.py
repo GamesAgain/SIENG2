@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import QApplication
 from src.core.analyzer.inspection import service
 from src.core.analyzer.inspection import bridge
 from src.gui.features.analyzer.analysis_runner import fingerprint_file
+from src.gui.features.analyzer.analysis_runner import BitStatisticsAnalysisResult
 from src.gui.features.analyzer.inspection_runner import InspectionResult
 from src.gui.features.analyzer.inspection_tabs import FileStructureTab, MetadataTab
 from src.gui.features.analyzer.analysis_export import export_analysis
@@ -100,9 +101,35 @@ class InspectionTests(unittest.TestCase):
             page._inspection_finished(request, result)
             self.assertEqual(page.file_structure_tab.tree_widget.topLevelItemCount(), 1)
             self.assertEqual(page.metadata_tab.metadata_table.rowCount(), 1)
+            for widget in (page.file_structure_tab.tree_widget,
+                           page.file_structure_tab.binwalk_list,
+                           page.file_structure_tab.summary_list,
+                           page.metadata_tab.metadata_table,
+                           page.metadata_tab.anomalies_table):
+                self.assertEqual(widget.objectName(), "analysisRawTable")
             page._invalidate_analysis()
             page._inspection_finished(request, result)
             self.assertEqual(page.metadata_tab.metadata_table.rowCount(), 0)
+            page.deleteLater()
+
+    def test_run_opens_structure_and_bit_completion_does_not_switch_tabs(self):
+        from src.gui.features.analyzer.analyzer_page import AnalyzerPage
+        from src.gui.services.worker import FunctionWorker
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "carrier.wav"
+            path.write_bytes(b"RIFF\x04\x00\x00\x00WAVE")
+            page = AnalyzerPage()
+            page.on_file_selected(str(path))
+            page.tabs.setCurrentWidget(page.bit_statistics_tab)
+            with patch.object(FunctionWorker, "start"):
+                page.on_run_analysis_clicked()
+            self.assertIs(page.tabs.currentWidget(), page.file_structure_tab)
+            result = BitStatisticsAnalysisResult(str(path.resolve()), fingerprint_file(str(path)),
+                                                 page.bit_statistics_tab.analysis_parameters, {}, {}, {})
+            with patch.object(page.bit_statistics_tab, "set_analysis_result"):
+                page._analysis_finished(page._analysis_request_id, result)
+            self.assertIs(page.tabs.currentWidget(), page.file_structure_tab)
+            page.cancel_analysis()
             page.deleteLater()
 
     def test_shared_inspection_is_in_export(self):

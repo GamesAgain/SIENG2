@@ -144,6 +144,7 @@ class AnalyzerPage(QFrame):
         self.metadata_tab.clear_result()
         self.file_structure_tab.set_status("Inspecting file structure...")
         self.metadata_tab.set_status("Inspecting metadata...")
+        self.tabs.setCurrentWidget(self.file_structure_tab)
         self._bit_pending = True
         self._inspection_pending = True
         self._set_analysis_running(True)
@@ -235,7 +236,6 @@ class AnalyzerPage(QFrame):
         self.bit_statistics_tab.set_analysis_result(result)
         self._bit_pending = False
         self._refresh_running_state()
-        self.tabs.setCurrentWidget(self.bit_statistics_tab)
         self.analysis_completed.emit(result)
 
     def _analysis_error(self, message: str) -> None:
