@@ -93,11 +93,17 @@ def evaluate_rs(report: dict[str, Any]) -> PNGDetectorDecision:
     profile = load_profiles()["rs"]
     target = report.get("Whole") or report.get("L")
     channel = "Whole" if "Whole" in report else "L" if "L" in report else None
-    score = _finite(target["payload"].embedding_rate) if target else None
+    estimate = target["payload"] if target else None
+    score = (
+        _finite(estimate.embedding_rate)
+        if estimate is not None and estimate.status == "estimated" else None
+    )
     return _decision(
         "rs", score, profile["threshold"], scope="whole_image",
         method="lsb_replacement", parameter_name="mask",
         parameter_value="[0, 1, 1, 0]", channel=channel,
+        reason=(f"RS returned '{estimate.status}'; no valid score is available."
+                if estimate is not None and estimate.status != "estimated" else None),
     )
 
 
@@ -105,12 +111,20 @@ def evaluate_spa(report: dict[str, Any], parameters: AnalysisParameters) -> PNGD
     profile = load_profiles()["spa"]
     target = report.get("Whole") or report.get("L")
     channel = "Whole" if "Whole" in report else "L" if "L" in report else None
-    score = _finite(target["estimate"].embedding_rate) if target else None
+    estimate = target["estimate"] if target else None
+    score = (
+        _finite(estimate.embedding_rate)
+        if estimate is not None and estimate.status == "estimated" else None
+    )
     compatible = parameters.spa_j == profile["j"] and parameters.spa_min_pairs == profile["min_pairs"]
     return _decision(
         "spa", score, profile["threshold"], scope="whole_image",
         method="lsb_replacement", parameter_name="j",
         parameter_value="30; min_pairs=100", channel=channel,
         compatible=compatible,
-        reason="The frozen SPA rule requires j=30 and min_pairs=100." if not compatible else None,
+        reason=(
+            "The frozen SPA rule requires j=30 and min_pairs=100." if not compatible
+            else f"SPA returned '{estimate.status}'; no valid score is available."
+            if estimate is not None and estimate.status != "estimated" else None
+        ),
     )

@@ -63,9 +63,9 @@ class AnalyzerPage(QFrame):
 
         self.drop_zone = FileDropWidget(
             text="Drop file here or click to browse",
-            sub_text="Supported: .png, .wav, .avi",
+            sub_text="Supported: .png, .wav, .avi, .mp3",
             icon_path=str(svg_path("file.svg")),
-            allowed_extensions=[".png", ".wav", ".avi"],
+            allowed_extensions=[".png", ".wav", ".avi", ".mp3"],
             show_preview=False,
         )
 
@@ -115,6 +115,7 @@ class AnalyzerPage(QFrame):
         if not file_path:
             self._invalidate_analysis()
             self.file_path = None
+            self.tabs.setTabEnabled(self.tabs.indexOf(self.bit_statistics_tab), True)
             self.file_info_bar.hide()
             self.drop_zone.show()
             return
@@ -125,7 +126,7 @@ class AnalyzerPage(QFrame):
                 raise ValueError("The selected path is not a file.")
 
             extension = path.suffix.lower()
-            if extension not in {".png", ".wav", ".avi"}:
+            if extension not in {".png", ".wav", ".avi", ".mp3"}:
                 raise ValueError(
                     f"Unsupported file format: {extension or '(no extension)'}"
                 )
@@ -138,6 +139,11 @@ class AnalyzerPage(QFrame):
 
         self._invalidate_analysis()
         self.file_path = str(path)
+        if extension == ".mp3":
+            self.tabs.setCurrentWidget(self.structure_tab)
+        self.tabs.setTabEnabled(
+            self.tabs.indexOf(self.bit_statistics_tab), extension != ".mp3"
+        )
         self.file_info_bar.update_info(
             self.file_path,
             truncate_text_middle(path.name, 70),
@@ -260,12 +266,14 @@ class AnalyzerPage(QFrame):
         if not self.file_path:
             return
 
+        inspection_only = Path(self.file_path).suffix.lower() == ".mp3"
         parameters = self.bit_statistics_tab.analysis_parameters
-        try:
-            parameters.validate()
-        except ValueError as exc:
-            QMessageBox.warning(self, "Analysis Parameters", str(exc))
-            return
+        if not inspection_only:
+            try:
+                parameters.validate()
+            except ValueError as exc:
+                QMessageBox.warning(self, "Analysis Parameters", str(exc))
+                return
 
         self._analysis_request_id += 1
         request_id = self._analysis_request_id
@@ -276,29 +284,30 @@ class AnalyzerPage(QFrame):
         self._clear_analysis_results()
         self.structure_tab.set_inspection_status("Inspecting file structure...")
         self.metadata_tab.set_inspection_status("Inspecting metadata...")
-        self._bit_pending = True
+        self._bit_pending = not inspection_only
         self._inspection_pending = True
         self._set_analysis_running(True)
 
-        worker = FunctionWorker(
-            self._analysis_function,
-            file_path,
-            parameters,
-        )
-        self._analysis_workers[request_id] = worker
-        worker.done.connect(
-            lambda result, current_id=request_id: self._analysis_finished(
-                current_id,
-                result,
+        if not inspection_only:
+            worker = FunctionWorker(
+                self._analysis_function,
+                file_path,
+                parameters,
             )
-        )
-        worker.finished.connect(
-            lambda current_id=request_id: self._cleanup_analysis_worker(
-                current_id
+            self._analysis_workers[request_id] = worker
+            worker.done.connect(
+                lambda result, current_id=request_id: self._analysis_finished(
+                    current_id,
+                    result,
+                )
             )
-        )
-        worker.finished.connect(worker.deleteLater)
-        worker.start()
+            worker.finished.connect(
+                lambda current_id=request_id: self._cleanup_analysis_worker(
+                    current_id
+                )
+            )
+            worker.finished.connect(worker.deleteLater)
+            worker.start()
 
         inspection_worker = FunctionWorker(self._inspection_function, file_path)
         if hasattr(inspection_worker, "_kwargs"):

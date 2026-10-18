@@ -33,6 +33,16 @@ class AVIDetectorDecision:
 
 
 @dataclass(frozen=True)
+class AVIChiSquarePattern:
+    """Descriptive temporal pattern, separate from the detection decision."""
+
+    status: str
+    reason: str
+    end_frame: int | None = None
+    end_percent: float | None = None
+
+
+@dataclass(frozen=True)
 class AVIMediaInfo:
     """Technical video information read while loading an AVI."""
 
@@ -176,6 +186,7 @@ class AVIChiSquareResult:
     analyzed_frame_count: int
     total_frame_count: int
     decision: AVIDetectorDecision | None = None
+    pattern: AVIChiSquarePattern | None = None
 
 
 AVIFrameRSResult: TypeAlias = FrameResult[AVIRSMeasurement]

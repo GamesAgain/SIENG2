@@ -39,6 +39,7 @@ from .profile_evaluator import (
     evaluate_rs_profile,
     evaluate_spa_profile,
 )
+from .pattern_evaluator import evaluate_chi_square_pattern
 
 
 AVIFrameTargets = tuple[
@@ -146,6 +147,9 @@ class AVIHandler:
         rs_report = rs_detector.finish()
         spa_report = spa_detector.finish()
         chi_decision = evaluate_chi_square_profile(chi_report, parameters)
+        chi_pattern = evaluate_chi_square_pattern(
+            chi_report, chi_decision, media_info
+        )
         rs_decision = evaluate_rs_profile(rs_report)
         spa_decision = evaluate_spa_profile(spa_report, parameters)
 
@@ -160,6 +164,7 @@ class AVIHandler:
                 analyzed_frame_count=len(decoded_indexes),
                 total_frame_count=media_info.frame_count,
                 decision=chi_decision,
+                pattern=chi_pattern,
             ),
             rs=AVIRSResult(
                 video=self._build_temporal_channels(

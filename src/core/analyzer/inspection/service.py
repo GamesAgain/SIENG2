@@ -10,6 +10,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from .mp3_integrity import inspect_mp3_integrity
+
 
 def _command(argv: list[str], timeout: int = 60) -> tuple[str, str | None]:
     try:
@@ -96,8 +98,8 @@ def _hachoir(path: Path) -> dict:
         if parser is None:
             raise ValueError("Hachoir does not support this file.")
         result["parsed_size_bytes"] = parser.size // 8
+        max_nodes = None if path.suffix.lower() == ".mp3" else 3000
         count = [0]
-
         def walk(field, depth=0):
             count[0] += 1
             node = {
@@ -105,14 +107,14 @@ def _hachoir(path: Path) -> dict:
                 "description": str(field.description or ""),
                 "size_bytes": field.size // 8,
             }
-            if field.is_field_set and depth < 5 and count[0] < 3000:
+            if field.is_field_set and depth < 5 and (max_nodes is None or count[0] < max_nodes):
                 node["sub_chunks"] = [walk(child, depth + 1) for child in field]
             elif not field.is_field_set:
                 node["value"] = str(field.display or "")[:500]
             return node
 
         for field in parser:
-            if count[0] >= 3000:
+            if max_nodes is not None and count[0] >= max_nodes:
                 break
             result["structure"].append(walk(field))
     except Exception as exc:
@@ -212,8 +214,8 @@ def _riff_integrity(path: Path) -> dict:
 def inspect_file(file_path: str) -> dict:
     path = Path(file_path).resolve(strict=True)
     suffix = path.suffix.lower()
-    if suffix not in (".png", ".wav", ".avi"):
-        raise ValueError("Only PNG, WAV and AVI are supported.")
+    if suffix not in (".png", ".wav", ".avi", ".mp3"):
+        raise ValueError("Only PNG, WAV, AVI and MP3 are supported.")
     size = path.stat().st_size
     with ThreadPoolExecutor(max_workers=4) as pool:
         metadata_job = pool.submit(_metadata, path)
@@ -223,12 +225,17 @@ def inspect_file(file_path: str) -> dict:
             pool.submit(_command, ["pngcheck", "-v", str(path)])
             if suffix == ".png" else pool.submit(_mediainfo, path)
         )
-        integrity = _png_integrity(path) if suffix == ".png" else _riff_integrity(path)
+        integrity = (
+            _png_integrity(path) if suffix == ".png"
+            else inspect_mp3_integrity(path) if suffix == ".mp3"
+            else _riff_integrity(path)
+        )
         metadata, tree = metadata_job.result(), tree_job.result()
         signatures, validation = signatures_job.result(), validation_job.result()
     end = integrity["content_end"]
-    overlay = {"exists": end is not None and size > end, "offset": end,
-               "size": size - end if end is not None and size > end else 0}
+    overlay_stop = integrity.get("overlay_stop", size)
+    overlay = {"exists": end is not None and overlay_stop > end, "offset": end,
+               "size": overlay_stop - end if end is not None and overlay_stop > end else 0}
     if overlay["exists"]:
         with path.open("rb") as stream:
             stream.seek(end)
@@ -248,7 +255,7 @@ def inspect_file(file_path: str) -> dict:
     else:
         pngcheck = None
     media = validation if suffix != ".png" else None
-    if media and not media.get("error"):
+    if suffix in (".wav", ".avi") and media and not media.get("error"):
         tracks = media.get("tracks", [])
         general = next((track for track in tracks if track.get("@type") == "General"), {})
         try:
@@ -271,5 +278,7 @@ def inspect_file(file_path: str) -> dict:
         "suspicious_count": len(findings), "pngcheck_raw": pngcheck,
         "mediainfo_raw": media,
     }
+    if suffix == ".mp3":
+        structure["mpeg_frame_count"] = integrity.get("mpeg_frame_count")
     return {"format": suffix[1:].upper(), "file_size": size,
             "structure_analysis": structure, "metadata_analysis": metadata}
