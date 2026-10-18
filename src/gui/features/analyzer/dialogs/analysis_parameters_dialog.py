@@ -1,7 +1,4 @@
-"""Parameter model and dialog for bit-statistics analysis."""
-
-from dataclasses import dataclass
-from math import isfinite
+"""Dialog for editing bit-statistics analysis parameters."""
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -17,39 +14,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-
-@dataclass(frozen=True)
-class AnalysisParameters:
-    """Validated settings shared by the three bit-statistics detectors."""
-
-    min_expected: float = 5.0
-    prefix_step: int = 10
-    segment_percent: int = 10
-    segment_step: int = 5
-    spa_j: int = 30
-    spa_min_pairs: int = 100
-
-    def validation_error(self) -> str | None:
-        """Return a user-facing validation error, or ``None`` when valid."""
-        if not isfinite(self.min_expected) or self.min_expected < 5:
-            return "Chi-square min expected must be a finite value of at least 5."
-        if not 1 <= self.prefix_step <= 100:
-            return "Prefix step must be between 1 and 100%."
-        if not 1 <= self.segment_percent <= 100:
-            return "Segment length must be between 1 and 100%."
-        if not 1 <= self.segment_step <= 100:
-            return "Segment step must be between 1 and 100%."
-        if self.segment_step > self.segment_percent:
-            return "Segment step must not exceed segment length."
-        if not 0 <= self.spa_j <= 126:
-            return "SPA pooling j must be between 0 and 126."
-        if self.spa_min_pairs < 1:
-            return "SPA min pairs must be at least 1."
-        return None
+from src.core.analyzer.parameters import AnalysisParameters
 
 
 class AnalysisParametersDialog(QDialog):
-    """Edit analyzer parameters and return them only after a valid save."""
+    """Edit parameters and publish them only after a valid save."""
 
     def __init__(self, parameters: AnalysisParameters, parent=None):
         super().__init__(parent)
@@ -62,12 +31,12 @@ class AnalysisParametersDialog(QDialog):
 
     @property
     def parameters(self) -> AnalysisParameters:
-        """Return the last successfully saved values."""
+        """Return the original values or the last successfully saved values."""
         return self._parameters
 
     def _setup_ui(self, parameters: AnalysisParameters) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 10, 22, 0)
+        layout.setContentsMargins(24, 10, 22, 16)
         layout.setSpacing(14)
 
         title_label = QLabel("Analysis Parameters")
@@ -107,16 +76,14 @@ class AnalysisParametersDialog(QDialog):
         self.spa_j_input.setRange(0, 126)
         self.spa_j_input.setValue(parameters.spa_j)
         self.spa_j_input.setToolTip(
-            "Pool SPA trace sets from m = 0 through j; the original paper "
-            "found j near 30 robust for its natural-image test set."
+            "Pool SPA trace sets from m = 0 through j."
         )
 
         self.spa_min_pairs_input = QSpinBox()
         self.spa_min_pairs_input.setRange(1, 10_000_000)
         self.spa_min_pairs_input.setValue(parameters.spa_min_pairs)
         self.spa_min_pairs_input.setToolTip(
-            "SIENG2 safety guard. It is not an embedding threshold or a "
-            "parameter of the original SPA equation."
+            "Minimum pair count required before SPA estimates a payload."
         )
 
         fields = (
@@ -128,15 +95,19 @@ class AnalysisParametersDialog(QDialog):
             ("SPA min-pair guard", self.spa_min_pairs_input, 2, 1),
         )
         for label_text, input_widget, row, column in fields:
-            form.addWidget(self._build_field(label_text, input_widget), row, column)
+            form.addWidget(
+                self._build_field(label_text, input_widget),
+                row,
+                column,
+            )
 
         form.setColumnStretch(0, 1)
         form.setColumnStretch(1, 1)
         layout.addLayout(form)
 
         note_label = QLabel(
-            "RS mask: (0, 1, 1, 0), matching the current backend. "
-            "Spatial heatmaps are not a current backend output."
+            "RS uses the fixed mask (0, 1, 1, 0). "
+            "WAV RS currently analyzes mono PCM16 audio."
         )
         note_label.setObjectName("analysisParameterNote")
         note_label.setWordWrap(True)
@@ -161,12 +132,18 @@ class AnalysisParametersDialog(QDialog):
         self.save_button.setDefault(True)
         self.save_button.clicked.connect(self._save_parameters)
 
+        for button in (cancel_button, self.save_button):
+            button.setFixedHeight(36)
+
         button_layout.addWidget(cancel_button)
         button_layout.addWidget(self.save_button)
         layout.addLayout(button_layout)
 
     @staticmethod
-    def _build_field(label_text: str, input_widget: QAbstractSpinBox) -> QWidget:
+    def _build_field(
+        label_text: str,
+        input_widget: QAbstractSpinBox,
+    ) -> QWidget:
         field = QWidget()
         field.setObjectName("analysisParameterField")
         field_layout = QVBoxLayout(field)
@@ -176,7 +153,9 @@ class AnalysisParametersDialog(QDialog):
         label = QLabel(label_text)
         label.setObjectName("analysisParameterLabel")
         input_widget.setObjectName("analysisParameterInput")
-        input_widget.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        input_widget.setButtonSymbols(
+            QAbstractSpinBox.ButtonSymbols.NoButtons
+        )
 
         field_layout.addWidget(label)
         field_layout.addWidget(input_widget)
@@ -191,12 +170,16 @@ class AnalysisParametersDialog(QDialog):
             spa_j=self.spa_j_input.value(),
             spa_min_pairs=self.spa_min_pairs_input.value(),
         )
-        error = parameters.validation_error()
-        if error:
-            self.error_label.setText(error)
+
+        try:
+            parameters.validate()
+        except ValueError as exc:
+            self.error_label.setText(str(exc))
             self.error_label.show()
             if parameters.segment_step > parameters.segment_percent:
-                self.segment_step_input.setFocus(Qt.FocusReason.OtherFocusReason)
+                self.segment_step_input.setFocus(
+                    Qt.FocusReason.OtherFocusReason
+                )
             return
 
         self.error_label.hide()

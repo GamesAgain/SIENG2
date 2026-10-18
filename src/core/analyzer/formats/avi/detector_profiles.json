@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "profile_state": "frozen",
+  "source_dataset": "dataset/avi",
+  "source_thresholds": "dataset/avi/dev/results/calibration_5fold/final_thresholds.csv",
+  "source_thresholds_sha256": "201e2626f9f4c98351b37d4163092a33397c1ad4001f8748a5a492067f0d302a",
+  "source_evaluation": "dataset/avi/test/results/locked_evaluation/evaluation_settings.json",
+  "decision_rule": "valid and score > frozen_threshold",
+  "score_direction": "stego when score > threshold",
+  "tested_media": {
+    "frame_count": 30,
+    "width": 160,
+    "height": 120,
+    "decoded_bits_per_pixel": 24,
+    "codec": "uncompressed RGB AVI"
+  },
+  "detector_profiles": {
+    "chi_square": {
+      "training_method": "sequential_lsb_replacement",
+      "parameter_name": "min_expected",
+      "parameter_value": "5",
+      "analysis_channel": "Whole",
+      "scope": "max_temporal_prefix",
+      "prefix_step": 10,
+      "threshold": 6.950133859871667e-111
+    },
+    "spa": {
+      "training_method": "shuffled_lsb_replacement",
+      "parameter_name": "j",
+      "parameter_value": "30",
+      "min_pairs": 100,
+      "analysis_channel": "Whole",
+      "scope": "whole",
+      "threshold": 0.39310698967250973
+    },
+    "rs": {
+      "training_method": "shuffled_lsb_replacement",
+      "parameter_name": "mask",
+      "parameter_value": "[0, 1, 1, 0]",
+      "analysis_channel": "Whole",
+      "scope": "whole",
+      "threshold": 0.5509908570050349
+    }
+  }
+}
