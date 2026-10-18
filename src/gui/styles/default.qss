@@ -939,7 +939,21 @@ QPushButton#DetectorBtn[detectorType="spa"] QLabel#detectorBadge {
     color: #B47AFA;
     border-color: #B47AFA;
 }
-
+QLabel#detectorNameLabel[accentColor="chi"],
+QLabel#detectorBadge[accentColor="chi"] {
+    color: #38BDF8;
+    border-color: #38BDF8;
+}
+QLabel#detectorNameLabel[accentColor="rs"],
+QLabel#detectorBadge[accentColor="rs"] {
+    color: #32CA85;
+    border-color: #32CA85;
+}
+QLabel#detectorNameLabel[accentColor="spa"],
+QLabel#detectorBadge[accentColor="spa"] {
+    color: #B47AFA;
+    border-color: #B47AFA;
+}
 /* --- Bit Statistics result layout --- */
 QFrame#bitStatisticsResults {
     background: transparent;
@@ -1030,6 +1044,86 @@ QFrame#analysisDetailTabs {
     border-bottom: 1px solid #3A3A3A;
 }
 
+QFrame#analysisFrameSelector {
+    background-color: #252525;
+    border: 1px solid #3B3B3B;
+    border-radius: 7px;
+}
+
+QFrame#analysisFrameDetailContainer {
+    background: transparent;
+    border: none;
+}
+
+QFrame#analysisFrameDetailPanel {
+    background-color: #222222;
+    border: 1px solid #414141;
+    border-radius: 7px;
+}
+
+QLabel#analysisError {
+    color: #FCA5A5;
+    background-color: #342426;
+    border: 1px solid #6B3439;
+    border-radius: 5px;
+    padding: 8px;
+}
+
+QLabel#analysisFrameLabel,
+QLabel#analysisFrameTime {
+    color: #94A3B8;
+    font-size: 10px;
+}
+
+QPushButton#analysisFrameStep {
+    min-width: 24px;
+    max-width: 24px;
+    min-height: 24px;
+    max-height: 24px;
+    padding: 0;
+    background-color: #303030;
+    border: 1px solid #464646;
+    border-radius: 5px;
+    color: #CBD5E1;
+}
+
+QPushButton#analysisFrameStep:hover {
+    border-color: #B47AFA;
+    color: #D8B4FE;
+}
+
+QPushButton#analysisFrameStep:disabled {
+    color: #59626D;
+    border-color: #343434;
+}
+
+QSpinBox#analysisFrameSpinBox {
+    min-width: 72px;
+    background-color: #1F1F1F;
+    border: 1px solid #454545;
+    border-radius: 5px;
+    color: #D6E0EA;
+    padding: 4px 7px;
+}
+
+QSlider#analysisFrameSlider::groove:horizontal {
+    height: 4px;
+    background: #3A3A3A;
+    border-radius: 2px;
+}
+
+QSlider#analysisFrameSlider::sub-page:horizontal {
+    background: #B47AFA;
+    border-radius: 2px;
+}
+
+QSlider#analysisFrameSlider::handle:horizontal {
+    width: 12px;
+    margin: -4px 0;
+    background: #D8B4FE;
+    border-radius: 6px;
+}
+
 QFrame#analysisWholeMetrics {
     background: transparent;
     border: none;
@@ -1095,6 +1189,47 @@ QLabel#analysisNote {
     border-radius: 6px;
     font-size: 10px;
     padding: 9px;
+}
+
+QFrame#analysisSPAStatusPanel {
+    background-color: #2B2631;
+    border: 1px solid #594071;
+    border-radius: 6px;
+}
+
+QLabel#analysisSPAStatusTitle {
+    color: #C997FA;
+    font-size: 10px;
+    font-weight: 700;
+}
+
+QLabel#analysisSPAStatusReason {
+    color: #A6B5C5;
+    font-size: 9px;
+}
+
+QLabel#analysisSPAStatusCode,
+QLabel#analysisSPAStatusSummary {
+    color: #7F91A4;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 8px;
+}
+
+QFrame#analysisSPADiagnostics {
+    background-color: #242424;
+    border: 1px solid #3B3B3B;
+    border-radius: 6px;
+}
+
+QLabel#analysisSPADiagnosticLabel {
+    color: #8294A6;
+    font-size: 9px;
+}
+
+QLabel#analysisSPADiagnosticValue {
+    color: #D4DEE9;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 9px;
 }
 
 QFrame#analysisMetricTile {
@@ -1226,6 +1361,13 @@ QFrame#analysisSummaryMetrics {
     border-radius: 0;
 }
 
+QFrame#analysisAssessmentSection {
+    background: transparent;
+    border: none;
+    border-top: 1px solid #46515E;
+    border-radius: 0;
+}
+
 QFrame#analysisSummaryMetric {
     background: transparent;
     border: none;
@@ -1263,6 +1405,16 @@ QLabel#analysisSummaryMetricValue[accent="purple"] {
 QLabel#analysisChiSquareEvidence {
     color: #8294A6;
     font-size: 9px;
+}
+
+QLabel#analysisChiSummaryText {
+    color: #E2E8F0;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+QLabel#analysisChiSummaryText[assessmentState="evidence"] {
+    color: #F87171;
 }
 
 QLabel#analysisChiSquareEvidence[evidenceState="clear"] {

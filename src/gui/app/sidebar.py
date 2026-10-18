@@ -9,7 +9,6 @@ from src.path import svg_path
 EMBED_ICON = svg_path("lock-plus.svg")
 EXTRACT_ICON = svg_path("lock-open.svg")
 ANALYZER_ICON = svg_path("file-search.svg")
-COMPARE_ICON = svg_path("columns.svg")
 KEYS_ICON = svg_path("key.svg")
 
 # --- SideBar Button ---
@@ -90,12 +89,9 @@ class SIENG2SideBar(QFrame):
         # -- Steganalysis Section --
         layout.addWidget(self.create_section_label("Steganalysis"))
         analyzer_btn = SidebarButton("Analyzer", ANALYZER_ICON)
-        compare_btn = SidebarButton("Compare", COMPARE_ICON)
         layout.addWidget(analyzer_btn)
-        layout.addWidget(compare_btn)
         
         button_group.addButton(analyzer_btn, 3)
-        button_group.addButton(compare_btn, 4)
         
         # -- Section Separator --
         layout.addSpacing(16)

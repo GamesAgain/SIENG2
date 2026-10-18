@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import (
-    QLabel, QMainWindow, QWidget, QFrame,
+    QMainWindow, QWidget, QFrame,
     QVBoxLayout, QHBoxLayout, QStackedWidget)
 from PyQt6.QtCore import Qt
 
@@ -61,7 +61,6 @@ class MainWindow(QMainWindow):
         self.page_stack.addWidget(ExtractPage(self.key_registry))
         self.page_stack.addWidget(KeyManagementPage(self.key_registry))
         self.page_stack.addWidget(AnalyzerPage())
-        self.page_stack.addWidget(QLabel("Compare"))
         
         # -- Connect sidebar to page container --
         sidebar.button_clicked.connect(self.page_chaged)

@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "source": "4.5.3_BitStatistics/4.5.3.3_thresholds.json",
+  "evaluation": "4.5.3_BitStatistics/4.5.3.4_detection.csv",
+  "rs": {
+    "threshold": 0.14356613366306242,
+    "rule": "Whole embedding_rate > threshold"
+  },
+  "spa": {
+    "threshold": 0.10431960154917413,
+    "rule": "Whole embedding_rate > threshold",
+    "j": 30,
+    "min_pairs": 100
+  },
+  "chi_square": {
+    "alpha": 0.99,
+    "rule": "initial run of Whole segments with p_value >= alpha",
+    "segment_percent": 5,
+    "segment_step": 1,
+    "min_expected": 5
+  }
+}
