@@ -11,15 +11,11 @@ Pipeline (embed; extract repeats steps 1-4 on the stego image and reads the bits
     3. Capacity     k bits per sample from S: k = 0 if S <= t1, 1 if S > t1, 2 if S > t2, 3 if S > t3.
                     Pixels with k = 0 (flat areas) are never touched.
     4. Order        pixels with k >= 1 are shuffled with a 128-bit seed = HKDF-SHA256(info "SIENG2_LSB_SHUFFLE")
-                    of the password (password mode) or "Default" (no encryption). In RSA mode the RSA-encrypted
-                    session key (key block) is embedded first along the order of the public key bytes, and the
-                    remaining pixels are shuffled with the seed of the session key; the extractor reads the key
-                    block, decrypts the session key with the private key and rebuilds the same order.
-                    The order of the payload is therefore secret in the password and RSA modes. With no
-                    encryption the seed is the constant "Default": anyone with SIENG2 can extract the message.
+                    of the password (password mode), the public key bytes (RSA mode) or "Default" (no encryption).
+                    The order is therefore secret only in password mode; the payload itself is always encrypted
+                    in the password and RSA modes.
     5. Payload      MAGIC (3 B: SES / SEA / SEN) + LENGTH (4 B) + data encrypted with AES-256-GCM / Argon2id
-                    (password) or AES-256-GCM with the session key of step 4 (RSA, nonce + ciphertext + tag;
-                    the RSA-OAEP encrypted session key is the key block).
+                    (password) or RSA-OAEP + AES-256-GCM (public key).
     6. Embed        k-bit LSB replacement, then OPAP (move by +-2^k when that brings the value closer to the
                     original; no effect at k = 1), then the MSB guard (if OPAP would change b5-b7, keep the
                     plain replacement value). Channels are written in R, G, B order.
@@ -40,7 +36,6 @@ Default parameters and where they come from (experiments/notes, random 50-image 
     Changing any of these values changes the map: images embedded with other values cannot be extracted.
 """
 import io
-import os
 from pathlib import Path
 from PIL import Image
 import cv2
@@ -52,7 +47,6 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
  
 from src.core.crypto.sym_encrypt import (
-    AES_KEY_LENGTH,
     AES_NONCE_LENGTH,
     AES_SALT_LENGTH,
     AES_TAG_LENGTH,
@@ -213,37 +207,24 @@ class LSBPP:
         update_progress(progress_callback, 50, "Pixel ordering...")
         pixel_order = self.get_pixel_order(capacity_map, seed) 
         
-        # 6. Encode message and pack payload (Key block + Header + Payload)
+        # 6. Encode message and pack payload (Header + Payload)
         update_progress(progress_callback, 55, "Encrypting & packing payload...")
         raw_payload = message.encode('utf-8')
-        session_key = os.urandom(AES_KEY_LENGTH) if public_key_path is not None else None
-        key_block, packed_payload = self.pack_data(raw_payload, password, public_key_path, session_key)
+        packed_payload = self.pack_data(raw_payload, password, public_key_path)
+        
+        # 7. Validate capacity before embed
+        update_progress(progress_callback, 58, "Validating capacity...")
+        self.validate_capacity(packed_payload, capacity_map, password, public_key_path)
 
-        # 7. Validate capacity before embed (key block + 1 byte: it ends on a whole pixel)
-        update_progress(progress_callback, 57, "Validating capacity...")
-        key_block_bytes = len(key_block) + 1 if key_block else 0
-        self.validate_capacity(packed_payload, capacity_map, password, public_key_path, extra_bytes=key_block_bytes)
-
-        # 8. RSA mode: key block takes the first pixels, the payload is shuffled by the session key
-        key_order = None
-        if key_block:
-            update_progress(progress_callback, 58, "Ordering key block...")
-            key_order, _ = self.split_pixel_order(pixel_order, capacity_map, len(key_block) * 8)
-            seed = self.get_seed(session_key=session_key)
-            pixel_order = self.get_pixel_order(capacity_map, seed, exclude=key_order)
-
-        # 9. Embed message (key block first, then header + payload)
+        # 8. Embed message
         update_progress(progress_callback, 60, "Embedding message bits...")
-        stego_image = cover_image
-        if key_block:
-            stego_image = self.lsb_replacement_OPAP(stego_image, key_block, key_order, capacity_map)
-        stego_image = self.lsb_replacement_OPAP(stego_image, packed_payload, pixel_order, capacity_map)
-
-        # 10. Merge Stego Image bytes
+        stego_image = self.lsb_replacement_OPAP(cover_image, packed_payload, pixel_order, capacity_map)
+        
+        # 9. Merge Stego Image bytes
         update_progress(progress_callback, 92, "Merging with original PNG structure...")
         stego_image_bytes = self.merge_stego_bytes(cover_image_path, stego_image)
-
-        # 11. Export File name (always .png)
+        
+        # 10. Export File name (always .png)
         stego_file_name = f"{base_file_name}_stego.png"
         update_progress(progress_callback, 100, "Embedding complete.")
 
@@ -331,15 +312,9 @@ class LSBPP:
         update_progress(progress_callback, 55, "Pixel ordering...")
         pixel_order = self.get_pixel_order(capacity_map, seed)
 
-        # 6. RSA mode: read the key block, then switch to the session key order
-        key_block = None
-        if private_key_path is not None:
-            update_progress(progress_callback, 58, "Reading key block...")
-            key_block, pixel_order = self.read_key_block(stego_image, pixel_order, capacity_map, private_key_path, password)
-
-        # 7. Extract message
+        # 6. Extract message
         update_progress(progress_callback, 60, "Extracting & decrypting message...")
-        extracted_message = self.message_extraction(stego_image, pixel_order, capacity_map, private_key_path, password, key_block)
+        extracted_message = self.message_extraction(stego_image, pixel_order, capacity_map, private_key_path, password)
         update_progress(progress_callback, 100, "Extraction complete.")
 
         return extracted_message
@@ -516,41 +491,24 @@ class LSBPP:
         
         return capacity_map.ravel() # Return flattened array
     
-    def get_pixel_order(self, capacity_map: np.ndarray, seed: int, exclude: np.ndarray = None) -> np.ndarray:
+    def get_pixel_order(self, capacity_map: np.ndarray, seed: int) -> np.ndarray:
         """
         Get pixel order for embedding
-        exclude: pixels already used by the key block (RSA mode)
         """
         # Get shuffle index of pixels with capacity > 0
         rng = np.random.default_rng(seed)
-        flat_idx = np.where(capacity_map > 0)[0]
-
-        if exclude is not None:
-            flat_idx = np.setdiff1d(flat_idx, exclude) # sorted like np.where, so the order stays reproducible
-
+        flat_idx = np.where(capacity_map > 0)[0] 
+        
         if self.pixel_shuffle:
             rng.shuffle(flat_idx)
-
-        return flat_idx
-
-    def split_pixel_order(self, pixel_order: np.ndarray, capacity_map: np.ndarray, bits: int) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Split pixel order into the first pixels that hold `bits` bits and the rest.
-        The split is on a whole pixel, so the key block never shares a pixel with the payload.
-        """
-        pixel_bits = np.cumsum(capacity_map[pixel_order].astype(np.int64) * 3) # 3 channels, each uses k bits
-
-        if len(pixel_bits) == 0 or bits > pixel_bits[-1]:
-            raise ValueError("Image capacity is too small to contain the key block.")
-
-        count = int(np.searchsorted(pixel_bits, bits)) + 1 # first pixel where the running total reaches bits
-        return pixel_order[:count], pixel_order[count:]
-
-    def message_extraction(self, stego_image: Image.Image, pixel_order: np.ndarray, capacity_map: np.ndarray, private_key_path: str = None, password: str = None, key_block: bytes = None) -> str:
+        
+        return flat_idx 
+    
+    def message_extraction(self, stego_image: Image.Image, pixel_order: np.ndarray, capacity_map: np.ndarray, private_key_path: str = None, password: str = None) -> str:
         """
         Extract message from stego image
         """
-        total_capacity_bits = int(np.sum(capacity_map[pixel_order])) * 3 # pixels left for header + payload
+        total_capacity_bits = int(np.sum(capacity_map)) * 3
         header_bits = HEADER_BYTES * 8
 
         if header_bits > total_capacity_bits:
@@ -571,7 +529,7 @@ class LSBPP:
 
         # 3. Perform a second read for the exact required bits (header + payload)
         extracted_bytes = self.lsb_extract(stego_image, pixel_order, capacity_map, max_bits=required_bits, total_bits=required_bits)
-        data_bytes = self.unpack_data(extracted_bytes, private_key_path, password, key_block)
+        data_bytes = self.unpack_data(extracted_bytes, private_key_path, password)
 
         # Decode message
         try:
@@ -580,32 +538,7 @@ class LSBPP:
             raise ValueError("Failed to decode message. The extracted data is not valid UTF-8 text.")
 
         return message_extracted
-
-    def read_key_block(self, stego_image: Image.Image, pixel_order: np.ndarray, capacity_map: np.ndarray, private_key_path: str, password: str = None) -> tuple[bytes, np.ndarray]:
-        """
-        Read the RSA-encrypted session key (key block) and return it with the payload pixel order
-        """
-        # 1. Key block length = RSA key size (256 / 384 / 512 bytes)
-        private_key = load_private_key(private_key_path, password)
-        key_bits = (private_key.key_size // 8) * 8
-
-        # 2. Read the key block along the public key order
-        try:
-            key_order, _ = self.split_pixel_order(pixel_order, capacity_map, key_bits)
-        except ValueError:
-            raise ValueError("Extraction failed: image capacity too small to contain a valid key block.")
-        key_block = self.lsb_extract(stego_image, key_order, capacity_map, max_bits=key_bits, total_bits=key_bits)
-
-        # 3. Decrypt the session key (wrong key or no message -> RSA-OAEP fails)
-        try:
-            session_key = AsymmetricEncryption().decrypt_session_key(key_block, private_key)
-        except ValueError:
-            raise ValueError("Extraction failed: Invalid SIENG2 signature. Please verify your image and private key.")
-
-        # 4. Payload order from the session key, without the key block pixels
-        seed = self.get_seed(session_key=session_key)
-        return key_block, self.get_pixel_order(capacity_map, seed, exclude=key_order)
-
+    
     def lsb_replacement_OPAP(self, cover_image: Image.Image, data: bytes, pixel_order: np.ndarray, capacity_map: np.ndarray):
         """
         Executes Adaptive LSB embedding across RGB channels using LSB Replacement + OPAP (Optimal Pixel Adjustment Process). 
@@ -755,16 +688,15 @@ class LSBPP:
     
     # ==================== Utility Methods ====================
 
-    def validate_capacity(self, data_package: bytes, capacity_map: np.ndarray, password: str = None, public_key_path: str = None, extra_bytes: int = 0) -> None:
+    def validate_capacity(self, data_package: bytes, capacity_map: np.ndarray, password: str = None, public_key_path: str = None) -> None:
         """
         Raise ValueError if data_package exceeds the image's embeddable capacity.
-        extra_bytes: bytes embedded outside data_package (RSA key block + 1 byte for its last pixel)
         """
         total_capacity_bits = int(np.sum(capacity_map)) * 3
-        required_bytes = len(data_package) + extra_bytes
-        required_bits = required_bytes * 8 # bits length
-
+        required_bits = len(data_package) * 8 # bits length
+        
         if required_bits > total_capacity_bits:
+            required_bytes = len(data_package)
             supported_bytes = total_capacity_bits // 8
             excess_bytes = required_bytes - supported_bytes
             
@@ -795,16 +727,13 @@ class LSBPP:
         password: str = None,
         public_key_path: str = None,
         private_key_path: str = None,
-        session_key: bytes = None,
     ) -> int:
-        """Generate the pixel seed from the selected encryption credential (or the RSA session key)."""
+        """Generate the pixel seed from the selected encryption credential."""
         validate_encryption_mode(password, public_key_path)
         if public_key_path is not None and private_key_path is not None:
             raise ValueError("Choose either a public key or a private key, not both.")
 
-        if session_key is not None:
-            seed = session_key
-        elif public_key_path is not None:
+        if public_key_path is not None:
             public_key = load_public_key(public_key_path)
             seed = get_public_bytes(public_key)
         elif private_key_path is not None:
@@ -826,13 +755,12 @@ class LSBPP:
         
         return int.from_bytes(seed_bytes, "big")
 
-    def pack_data(self, data: bytes, password: str = None, public_key_path: str = None, session_key: bytes = None) -> tuple[bytes, bytes]:
+    def pack_data(self, data: bytes, password: str = None, public_key_path: str = None) -> bytes:
         """
         Build complete payload: [MAGIC (3 bytes) + LENGTH (4 bytes) + ENCRYPTED_DATA]
-        Returns: (key_block, data_package); key_block is the RSA-encrypted session key (b"" if not RSA mode)
+        Returns: (header_bytes, encrypted_data_bytes)
         """
         validate_encryption_mode(password, public_key_path)
-        key_block = b""
 
         # 1. Process message based on encryption mode
         if password is not None:
@@ -843,11 +771,7 @@ class LSBPP:
             magic = MAGIC_ASYM  # SEA: Asymmetric encryption
             encryptor = AsymmetricEncryption()
             public_key = load_public_key(public_key_path)
-            encrypted = encryptor.encrypt(data, public_key, session_key)
-
-            # Split [Encrypted Key | Nonce + Ciphertext + Tag]; the key is embedded as the key block
-            key_length = public_key.key_size // 8
-            key_block, data_bytes = encrypted[:key_length], encrypted[key_length:]
+            data_bytes = encryptor.encrypt(data, public_key)
         else:
             magic = MAGIC_NONE  # SEN: No encryption
             data_bytes = data
@@ -858,10 +782,10 @@ class LSBPP:
         header = magic + length_bytes
         
         data_package = header + data_bytes
-
-        return key_block, data_package
-
-    def unpack_data(self, data: bytes, private_key_path: str = None, password: str = None, key_block: bytes = None) -> bytes:
+        
+        return data_package
+    
+    def unpack_data(self, data: bytes, private_key_path: str = None, password: str = None) -> bytes:
         """
         Parse header and decrypt the payload.
         Returns: Decrypted plaintext bytes.
@@ -884,12 +808,12 @@ class LSBPP:
             data_bytes = decryptor.decrypt(extracted_data, password)
             return data_bytes
         elif magic == MAGIC_ASYM:
-            if not private_key_path or not key_block:
+            if not private_key_path:
                 raise ValueError("Private key required for asymmetric decryption")
-
+                
             decryptor = AsymmetricEncryption()
             private_key = load_private_key(private_key_path, password)
-            plaintext  = decryptor.decrypt(key_block + extracted_data, private_key) # [Encrypted Key | Nonce + Ciphertext + Tag]
+            plaintext  = decryptor.decrypt(extracted_data, private_key) 
             return plaintext  
         elif magic == MAGIC_NONE:  # SEN: No encryption
             return extracted_data
@@ -915,12 +839,11 @@ def estimate_overhead_bytes(password: str = None, public_key_path: str = None) -
         return HEADER_BYTES + AES_SALT_LENGTH + AES_NONCE_LENGTH + AES_TAG_LENGTH
 
     if public_key_path is not None:
-        # Asymmetric: HEADER + RSA-encrypted session key (key block, actual key size) + nonce(12) + tag(16)
-        #             + 1 byte: the key block ends on a whole pixel, which can leave up to 8 bits unused
+        # Asymmetric: HEADER + RSA-encrypted session key (actual key size) + nonce(12) + tag(16)
         # Load the actual key to determine size dynamically, supporting various RSA key sizes.
         public_key = load_public_key(public_key_path)
         encrypted_key_length = public_key.key_size // 8
-        return HEADER_BYTES + encrypted_key_length + AES_NONCE_LENGTH + AES_TAG_LENGTH + 1
+        return HEADER_BYTES + encrypted_key_length + AES_NONCE_LENGTH + AES_TAG_LENGTH
 
     # No encryption: Header only
     return HEADER_BYTES
