@@ -117,3 +117,6 @@ SIENG2/
 | **อาจารย์ที่ปรึกษา** | ผศ.ดร. สมนึก พ่วงพรพิทักษ์ |
 
 โครงงานปริญญานิพนธ์ หลักสูตรวิทยาศาสตรบัณฑิต สาขาวิชาวิทยาการคอมพิวเตอร์ คณะวิทยาการสารสนเทศ มหาวิทยาลัยมหาสารคาม ปีการศึกษา 2569
+
+## Notes
+SIENG version 2 won the Northeastern regional round in the Science and Technology Development Software Category and advanced to the national finals at the Thailand National Software Contest 2026 (NSC 2026).
